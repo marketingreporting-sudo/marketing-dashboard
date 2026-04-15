@@ -47,6 +47,19 @@ Vercel should use:
 
 Browser-safe environment variables are documented in [dashboard/.env.example](/Users/steele/Desktop/Data Analysis/dashboard/.env.example).
 
+For staging, the frontend can point selected read-only routes at the Render adapter by setting:
+
+- `VITE_RENDER_API_BASE_URL=https://marketing-dashbaord.onrender.com`
+
+That staged base URL currently covers:
+
+- `VITE_ROI_PIPELINE_STATUS_URL` via `/api/roi/pipeline-status`
+- `VITE_GA4_DASHBOARD_URL` via `/api/analytics/ga4`
+- `VITE_GOOGLE_ADS_DASHBOARD_URL` via `/api/analytics/google-ads`
+- `VITE_REPUTATION_DASHBOARD_URL` via `/api/analytics/reputation`
+
+Explicit `VITE_*_URL` values still take precedence, so production can stay on Firebase endpoints while staging progressively shifts to Render.
+
 ## Backend
 
 The backend logic currently lives in Firebase Functions under `functions/main.py`. It contains:

@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db } from './firebase';
+import {
+  GA4_DASHBOARD_URL,
+  GOOGLE_ADS_DASHBOARD_URL,
+  META_ADS_DASHBOARD_URL,
+  REPUTATION_DASHBOARD_URL,
+  ROI_PIPELINE_STATUS_URL
+} from './apiConfig';
 import { DEFAULT_PROPERTY_ID, PROPERTY_CATALOG, PROPERTY_CATALOG_BY_ID } from './propertyCatalog';
 import { OPINIION_LOCATION_NAME_BY_PROPERTY_ID, OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
 import {
@@ -29,16 +36,10 @@ import {
   MessageSquareText,
   Globe
 } from 'lucide-react';
-import { 
+import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, LineChart, Line
 } from 'recharts';
-
-const ROI_PIPELINE_STATUS_URL = import.meta.env.VITE_ROI_PIPELINE_STATUS_URL || '';
-const GA4_DASHBOARD_URL = import.meta.env.VITE_GA4_DASHBOARD_URL || 'https://us-central1-data-analysis-eeb4d.cloudfunctions.net/get_ga4_dashboard_data';
-const GOOGLE_ADS_DASHBOARD_URL = import.meta.env.VITE_GOOGLE_ADS_DASHBOARD_URL || 'https://us-central1-data-analysis-eeb4d.cloudfunctions.net/get_google_ads_dashboard_data';
-const META_ADS_DASHBOARD_URL = import.meta.env.VITE_META_ADS_DASHBOARD_URL || 'https://us-central1-data-analysis-eeb4d.cloudfunctions.net/get_meta_ads_dashboard_data';
-const REPUTATION_DASHBOARD_URL = import.meta.env.VITE_REPUTATION_DASHBOARD_URL || 'https://us-central1-data-analysis-eeb4d.cloudfunctions.net/get_reputation_dashboard_data';
 
 const FALLBACK_AVAILABILITY_PRICE_KEYS = [
   'bestPrice',
