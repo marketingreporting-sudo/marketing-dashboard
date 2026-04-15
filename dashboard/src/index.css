@@ -255,6 +255,11 @@ h1, h2, h3 {
   border-color: rgba(245, 207, 131, 0.42);
 }
 
+.reports-chip--error {
+  background: rgba(192, 77, 77, 0.2);
+  border-color: rgba(235, 124, 124, 0.45);
+}
+
 .reports-admin-toggle.active {
   background: rgba(255, 255, 255, 0.18);
 }

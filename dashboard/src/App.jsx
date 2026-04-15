@@ -855,8 +855,9 @@ const DashboardApp = () => {
   const [latestAvailabilityDate, setLatestAvailabilityDate] = useState(null);
   const [parentDocs, setParentDocs] = useState([]);
   const [roiDailyItems, setRoiDailyItems] = useState([]);
+  const reportingUsesStagedOverview = Boolean(PROPERTY_REPORTING_OVERVIEW_URL);
   const [reportingDataSource, setReportingDataSource] = useState(() => (
-    PROPERTY_REPORTING_OVERVIEW_URL ? 'loading' : 'firebase'
+    reportingUsesStagedOverview ? 'loading' : 'firebase'
   ));
   const [roiPipelineStatus, setRoiPipelineStatus] = useState(null);
   const [ga4Data, setGa4Data] = useState(null);
@@ -932,7 +933,7 @@ const DashboardApp = () => {
     let cancelled = false;
 
     const loadPropertyOverview = async () => {
-      if (!PROPERTY_REPORTING_OVERVIEW_URL) {
+      if (!reportingUsesStagedOverview) {
         setReportingDataSource('firebase');
         return;
       }
@@ -972,9 +973,22 @@ const DashboardApp = () => {
         setPropertyInfoLoading(false);
         setRoiLoading(false);
       } catch (error) {
-        console.error('Property overview fetch failed, falling back to Firebase', error);
+        console.error('Property overview fetch failed in staged mode', error);
         if (!cancelled) {
-          setReportingDataSource('firebase');
+          setParentDocs([]);
+          setLeadItems([]);
+          setEventItems([]);
+          setInvoiceItems([]);
+          setAvailabilityItems([]);
+          setAvailabilityPricingSnapshot(null);
+          setSpecialsSnapshot(null);
+          setLatestAvailabilityDate(null);
+          setRoiDailyItems([]);
+          setReportingDataSource('error');
+          setLoading(false);
+          setInvoiceLoading(false);
+          setPropertyInfoLoading(false);
+          setRoiLoading(false);
         }
       }
     };
@@ -983,11 +997,11 @@ const DashboardApp = () => {
     return () => {
       cancelled = true;
     };
-  }, [rangeDates, selectedPropertyId]);
+  }, [rangeDates, selectedPropertyId, reportingUsesStagedOverview]);
 
   // Fetch real data from Firestore
   useEffect(() => {
-    if (reportingDataSource !== 'firebase') return undefined;
+    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
 
     setLoading(true);
     const startTs = Timestamp.fromDate(rangeDates.start);
@@ -1047,10 +1061,10 @@ const DashboardApp = () => {
     );
 
     return () => unsubParent();
-  }, [rangeDates, selectedPropertyId, reportingDataSource]);
+  }, [rangeDates, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
-    if (reportingDataSource !== 'firebase') return undefined;
+    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
 
     setInvoiceLoading(true);
     const startTs = Timestamp.fromDate(invoiceFetchRange.start);
@@ -1094,10 +1108,10 @@ const DashboardApp = () => {
     );
 
     return () => unsubInvoices();
-  }, [invoiceFetchRange, selectedPropertyId, reportingDataSource]);
+  }, [invoiceFetchRange, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
-    if (reportingDataSource !== 'firebase') return undefined;
+    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
 
     setPropertyInfoLoading(true);
     const specialsRef = doc(db, 'properties', String(selectedPropertyId), 'specials', 'current');
@@ -1116,7 +1130,7 @@ const DashboardApp = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedPropertyId, reportingDataSource]);
+  }, [selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
     setWebsiteManagerLoading(true);
@@ -1181,7 +1195,7 @@ const DashboardApp = () => {
   }, [reportingLayoutDocRef]);
 
   useEffect(() => {
-    if (reportingDataSource !== 'firebase') return undefined;
+    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
 
     setPropertyInfoLoading(true);
     const pricingRef = doc(db, 'properties', String(selectedPropertyId), 'availability_pricing', 'current');
@@ -1200,10 +1214,10 @@ const DashboardApp = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedPropertyId, reportingDataSource]);
+  }, [selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
-    if (reportingDataSource !== 'firebase') return undefined;
+    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
 
     let cancelled = false;
 
@@ -1249,10 +1263,10 @@ const DashboardApp = () => {
     return () => {
       cancelled = true;
     };
-  }, [parentDocs, selectedPropertyId, reportingDataSource]);
+  }, [parentDocs, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
-    if (reportingDataSource !== 'firebase') return undefined;
+    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
 
     setRoiLoading(true);
     const startTs = Timestamp.fromDate(rangeDates.start);
@@ -1280,7 +1294,7 @@ const DashboardApp = () => {
     );
 
     return () => unsubRoi();
-  }, [rangeDates, selectedPropertyId, reportingDataSource]);
+  }, [rangeDates, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1997,7 +2011,10 @@ const DashboardApp = () => {
     if (reportingDataSource === 'loading') {
       return { label: 'Data source: Checking staged route…', className: 'reports-chip reports-chip--loading' };
     }
-    return { label: 'Data source: Firebase fallback', className: 'reports-chip reports-chip--fallback' };
+    if (reportingDataSource === 'error') {
+      return { label: 'Data source: Staged route unavailable', className: 'reports-chip reports-chip--error' };
+    }
+    return { label: 'Data source: Firebase', className: 'reports-chip reports-chip--fallback' };
   }, [reportingDataSource]);
   const websitePlatformMeta = useMemo(
     () => getWebsitePlatformMeta(websiteManagerDraft.platform),
