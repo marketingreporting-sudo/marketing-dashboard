@@ -1990,6 +1990,15 @@ const DashboardApp = () => {
     const propertyId = parentDocs[0]?.property_id;
     return propertyId ? `Property ${propertyId}` : 'Live Property Data';
   }, [selectedProperty, parentDocs]);
+  const reportingSourceBadge = useMemo(() => {
+    if (reportingDataSource === 'staged') {
+      return { label: 'Data source: Staged Render', className: 'reports-chip reports-chip--staged' };
+    }
+    if (reportingDataSource === 'loading') {
+      return { label: 'Data source: Checking staged route…', className: 'reports-chip reports-chip--loading' };
+    }
+    return { label: 'Data source: Firebase fallback', className: 'reports-chip reports-chip--fallback' };
+  }, [reportingDataSource]);
   const websitePlatformMeta = useMemo(
     () => getWebsitePlatformMeta(websiteManagerDraft.platform),
     [websiteManagerDraft.platform]
@@ -3796,6 +3805,7 @@ const DashboardApp = () => {
             <div className="reports-chip">Entrata {selectedPropertyId}</div>
             <div className="reports-chip">{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</div>
             <div className="reports-chip">{activeReportingPanels.length} live panels</div>
+            <div className={reportingSourceBadge.className}>{reportingSourceBadge.label}</div>
             <button type="button" className={`reports-admin-toggle ${reportingAdminEnabled ? 'active' : ''}`} onClick={toggleReportingAdminMode}>
               {reportingAdminEnabled ? 'Exit Admin Layout' : 'Admin Layout Mode'}
             </button>
