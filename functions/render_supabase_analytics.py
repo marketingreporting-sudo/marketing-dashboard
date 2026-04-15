@@ -7,6 +7,8 @@ from render_supabase_validation import SupabaseValidationConfigError
 
 
 ANALYTICS_SNAPSHOT_TYPES = {
+    "ga4": "ga4_dashboard",
+    "google_ads": "google_ads_dashboard",
     "reputation": "reputation_dashboard",
 }
 
