@@ -1,0 +1,47 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Node
+node_modules/
+dashboard/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+functions/venv/
+
+# Build artifacts
+dashboard/dist/
+migration-output/
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+dashboard/.env
+dashboard/.env.local
+dashboard/.env.*.local
+functions/.env
+functions/.env.local
+functions/.env.*.local
+service-account.json
+firebase-service.json
+supabase-service.json
+
+# Platform-specific local state
+.vercel/
+.render/
+
+# Logs
+*.log

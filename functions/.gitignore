@@ -1,0 +1,9 @@
+# Python Gitignore for Firebase Cloud Functions
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/

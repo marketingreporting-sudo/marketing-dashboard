@@ -1,0 +1,194 @@
+# Redstone Website Manager
+
+Small WordPress plugin for storing editable property marketing content in one place and exposing it to:
+
+- a WordPress admin settings page
+- your theme/template files
+- a protected REST endpoint for future dashboard sync
+- frontend token replacement using controlled placeholders like `{{rwm:hero_headline}}`
+
+## Included fields
+
+- `property_name`
+- `hero_headline`
+- `hero_subtitle`
+- `primary_cta_label`
+- `primary_cta_url`
+- `top_banner_text`
+- `top_banner_button_label`
+- `top_banner_button_url`
+- `floorplans_banner_text`
+- `floorplans_banner_button_label`
+- `floorplans_banner_button_url`
+
+## Install
+
+1. Upload the ZIP in WordPress under `Plugins > Add New > Upload Plugin`.
+2. Activate `Redstone Website Manager`.
+3. Open `Settings > Redstone Website Manager`.
+4. Enter values manually for testing.
+
+## Theme usage
+
+Use these helpers anywhere in the theme:
+
+```php
+$headline = redstone_website_manager_get('hero_headline');
+$subtitle = redstone_website_manager_get('hero_subtitle');
+$cta_label = redstone_website_manager_get('primary_cta_label');
+$cta_url = redstone_website_manager_get('primary_cta_url');
+```
+
+Check if a field exists:
+
+```php
+if (redstone_website_manager_has('top_banner_text')) {
+    echo esc_html(redstone_website_manager_get('top_banner_text'));
+}
+```
+
+Get the whole payload:
+
+```php
+$content = redstone_website_manager_content();
+```
+
+Shortcode:
+
+```text
+[redstone_site_content key="hero_headline"]
+```
+
+For URL fields:
+
+```text
+[redstone_site_content key="primary_cta_url" mode="url"]
+```
+
+For a shortcode-rendered button:
+
+```text
+[redstone_site_button label_key="primary_cta_label" url_key="primary_cta_url"]
+```
+
+## Token format for Salient / builder content
+
+Use this controlled placeholder format:
+
+```text
+{{rwm:hero_headline}}
+{{rwm:hero_subtitle}}
+{{rwm:primary_cta_url}}
+```
+
+The plugin replaces tokens in final frontend HTML.
+
+This includes:
+
+- normal text content
+- `href` attributes
+- `src` attributes
+- `action` attributes
+
+Examples:
+
+```html
+<h1>{{rwm:hero_headline}}</h1>
+<p>{{rwm:hero_subtitle}}</p>
+<a href="{{rwm:primary_cta_url}}">{{rwm:primary_cta_label}}</a>
+```
+
+This is intended for builder-driven workflows like Salient where shortcode support in URL fields is inconsistent.
+
+## REST API
+
+Base route:
+
+```text
+/wp-json/redstone-site-manager/v1/content
+```
+
+### GET
+
+Public read:
+
+```bash
+curl https://thestationatmillrace.com/wp-json/redstone-site-manager/v1/content
+```
+
+### POST / PUT / PATCH
+
+Protected write. Requires an authenticated user with `manage_options`, which works well with a WordPress Application Password.
+
+Example:
+
+```bash
+curl -X POST https://thestationatmillrace.com/wp-json/redstone-site-manager/v1/content \
+  -u 'api-user:APPLICATION_PASSWORD' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "property_name": "The Station at Mill Race",
+    "hero_headline": "Live steps from the river and campus.",
+    "hero_subtitle": "Modern student living with spacious layouts and fast access to what matters.",
+    "primary_cta_label": "Schedule a Tour",
+    "primary_cta_url": "https://thestationatmillrace.com/contact/"
+  }'
+```
+
+## Suggested pilot mapping for The Station at Mill Race
+
+- Homepage headline: `hero_headline`
+- Homepage subtitle: `hero_subtitle`
+- Homepage main button text: `primary_cta_label`
+- Homepage main button link: `primary_cta_url`
+- Top promo banner text: `top_banner_text`
+- Top promo banner button text: `top_banner_button_label`
+- Top promo banner button link: `top_banner_button_url`
+- Floor plans banner text: `floorplans_banner_text`
+- Floor plans banner button text: `floorplans_banner_button_label`
+- Floor plans banner button link: `floorplans_banner_button_url`
+
+## Salient child theme notes
+
+This plugin is fine for a Salient child theme, and now supports two implementation paths:
+
+1. Keep the content in this plugin.
+2. For Salient builder content, use controlled tokens like:
+
+```text
+{{rwm:hero_headline}}
+{{rwm:primary_cta_label}}
+{{rwm:primary_cta_url}}
+```
+
+3. In child theme templates or hooks, you can still pull values directly with:
+
+```php
+redstone_website_manager_get('hero_headline');
+redstone_website_manager_get('primary_cta_label');
+redstone_website_manager_get_url('primary_cta_url');
+```
+
+4. If you are placing content inside Salient text blocks, shortcode still works:
+
+```text
+[redstone_site_content key="hero_headline"]
+```
+
+5. If Salient button URL / label fields do not evaluate dynamic shortcodes reliably, either:
+
+- use the token format directly in the builder fields, or
+- use a text block and render the button with:
+
+```text
+[redstone_site_button label_key="primary_cta_label" url_key="primary_cta_url"]
+```
+
+The token format is the preferred builder approach for this pilot.
+
+## Notes
+
+- Relative URLs entered in admin are normalized to full site URLs on save.
+- Data is stored in a single option: `redstone_website_manager_content`
+- Last REST update time is stored in: `redstone_website_manager_content_updated_at`
+- Frontend token replacement runs through output buffering on normal frontend page loads.

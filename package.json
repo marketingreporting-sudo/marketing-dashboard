@@ -1,0 +1,17 @@
+{
+  "name": "data-analysis-migrations",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Firestore to Supabase migration utilities",
+  "type": "module",
+  "scripts": {
+    "migrate:firestore-to-supabase": "node ./scripts/firestore-to-supabase.mjs",
+    "migrate:firestore-to-supabase:relational": "node ./scripts/firestore-to-supabase-relational.mjs",
+    "migrate:property-snapshot-leases": "node ./scripts/migrate-property-snapshot-leases.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.50.5",
+    "dotenv": "^16.6.1",
+    "firebase-admin": "^13.4.0"
+  }
+}

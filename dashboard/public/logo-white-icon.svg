@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="b" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 193.6 107.2">
+  <defs>
+    <style>
+      .st0 {
+        fill-rule: evenodd;
+      }
+
+      .st0, .st1 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <g id="c">
+    <g>
+      <polygon class="st0" points="74.9 105.8 0 105.8 57.3 30.8 80.8 0 107 34.6 117.8 49.6 74.9 105.8"/>
+      <path class="st1" d="M140.7,35.9l53,70h-106.4c17.8-23.3,35.6-46.6,53.4-70"/>
+    </g>
+  </g>
+</svg>

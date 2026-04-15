@@ -1,0 +1,9 @@
+# Cloud Functions for Firebase SDK
+firebase-functions>=0.2.2
+firebase-admin>=6.5.0
+requests
+google-cloud-firestore
+beautifulsoup4
+lxml
+google-analytics-data
+google-ads

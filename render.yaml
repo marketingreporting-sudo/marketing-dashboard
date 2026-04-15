@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: data-analysis-backend-staging
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: gunicorn render_wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 120
