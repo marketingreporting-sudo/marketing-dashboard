@@ -17,6 +17,11 @@ export const ROI_PIPELINE_STATUS_URL = resolveApiUrl(
   '/api/roi/pipeline-status'
 );
 
+export const PROPERTY_REPORTING_OVERVIEW_URL = resolveApiUrl(
+  import.meta.env.VITE_PROPERTY_REPORTING_OVERVIEW_URL || '',
+  '/api/reporting/property-overview'
+);
+
 export const GA4_DASHBOARD_URL = resolveApiUrl(
   import.meta.env.VITE_GA4_DASHBOARD_URL || '',
   '/api/analytics/ga4',

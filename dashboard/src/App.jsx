@@ -4,6 +4,7 @@ import {
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
   META_ADS_DASHBOARD_URL,
+  PROPERTY_REPORTING_OVERVIEW_URL,
   REPUTATION_DASHBOARD_URL,
   ROI_PIPELINE_STATUS_URL
 } from './apiConfig';
@@ -572,6 +573,30 @@ const getSpecialDateRange = (special) => {
   return 'Date range not provided';
 };
 
+const extractSpecialItems = (snapshot) => {
+  if (Array.isArray(snapshot?.specials)) {
+    return snapshot.specials;
+  }
+
+  const groupedSpecials = snapshot?.specials?.propertySpecials?.special;
+  if (groupedSpecials && typeof groupedSpecials === 'object') {
+    return Object.values(groupedSpecials);
+  }
+
+  return [];
+};
+
+const getSnapshotTimestampLabel = (value) => {
+  if (!value) return '—';
+  if (typeof value?.toDate === 'function') {
+    return value.toDate().toLocaleString();
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString();
+};
+
 const isStartedApplicationEvent = (event) => {
   const reason = String(event.eventReason || event.type || '').toLowerCase();
   return event.typeId === 12 && (
@@ -830,6 +855,9 @@ const DashboardApp = () => {
   const [latestAvailabilityDate, setLatestAvailabilityDate] = useState(null);
   const [parentDocs, setParentDocs] = useState([]);
   const [roiDailyItems, setRoiDailyItems] = useState([]);
+  const [reportingDataSource, setReportingDataSource] = useState(() => (
+    PROPERTY_REPORTING_OVERVIEW_URL ? 'loading' : 'firebase'
+  ));
   const [roiPipelineStatus, setRoiPipelineStatus] = useState(null);
   const [ga4Data, setGa4Data] = useState(null);
   const [ga4Error, setGa4Error] = useState(null);
@@ -900,8 +928,67 @@ const DashboardApp = () => {
     return { start, end };
   }, [rangeDates]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPropertyOverview = async () => {
+      if (!PROPERTY_REPORTING_OVERVIEW_URL) {
+        setReportingDataSource('firebase');
+        return;
+      }
+
+      setReportingDataSource('loading');
+      setLoading(true);
+      setInvoiceLoading(true);
+      setPropertyInfoLoading(true);
+      setRoiLoading(true);
+
+      try {
+        const params = new URLSearchParams({
+          property_id: selectedPropertyId,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        const response = await fetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.message || `Property overview fetch failed: ${response.status}`);
+        }
+
+        if (cancelled) return;
+
+        setParentDocs(Array.isArray(payload.parent_docs) ? payload.parent_docs : []);
+        setLeadItems(Array.isArray(payload.lead_items) ? payload.lead_items : []);
+        setEventItems(Array.isArray(payload.event_items) ? payload.event_items : []);
+        setInvoiceItems(Array.isArray(payload.invoice_items) ? payload.invoice_items : []);
+        setAvailabilityItems(Array.isArray(payload.availability_items) ? payload.availability_items : []);
+        setAvailabilityPricingSnapshot(payload.availability_pricing_snapshot || null);
+        setSpecialsSnapshot(payload.specials_snapshot || null);
+        setLatestAvailabilityDate(payload.latest_availability_date || null);
+        setRoiDailyItems(Array.isArray(payload.roi_daily_items) ? payload.roi_daily_items : []);
+        setReportingDataSource('staged');
+        setLoading(false);
+        setInvoiceLoading(false);
+        setPropertyInfoLoading(false);
+        setRoiLoading(false);
+      } catch (error) {
+        console.error('Property overview fetch failed, falling back to Firebase', error);
+        if (!cancelled) {
+          setReportingDataSource('firebase');
+        }
+      }
+    };
+
+    loadPropertyOverview();
+    return () => {
+      cancelled = true;
+    };
+  }, [rangeDates, selectedPropertyId]);
+
   // Fetch real data from Firestore
   useEffect(() => {
+    if (reportingDataSource !== 'firebase') return undefined;
+
     setLoading(true);
     const startTs = Timestamp.fromDate(rangeDates.start);
     const endTs = Timestamp.fromDate(rangeDates.end);
@@ -960,9 +1047,11 @@ const DashboardApp = () => {
     );
 
     return () => unsubParent();
-  }, [rangeDates, selectedPropertyId]);
+  }, [rangeDates, selectedPropertyId, reportingDataSource]);
 
   useEffect(() => {
+    if (reportingDataSource !== 'firebase') return undefined;
+
     setInvoiceLoading(true);
     const startTs = Timestamp.fromDate(invoiceFetchRange.start);
     const endTs = Timestamp.fromDate(invoiceFetchRange.end);
@@ -1005,9 +1094,11 @@ const DashboardApp = () => {
     );
 
     return () => unsubInvoices();
-  }, [invoiceFetchRange, selectedPropertyId]);
+  }, [invoiceFetchRange, selectedPropertyId, reportingDataSource]);
 
   useEffect(() => {
+    if (reportingDataSource !== 'firebase') return undefined;
+
     setPropertyInfoLoading(true);
     const specialsRef = doc(db, 'properties', String(selectedPropertyId), 'specials', 'current');
 
@@ -1025,7 +1116,7 @@ const DashboardApp = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedPropertyId]);
+  }, [selectedPropertyId, reportingDataSource]);
 
   useEffect(() => {
     setWebsiteManagerLoading(true);
@@ -1090,6 +1181,8 @@ const DashboardApp = () => {
   }, [reportingLayoutDocRef]);
 
   useEffect(() => {
+    if (reportingDataSource !== 'firebase') return undefined;
+
     setPropertyInfoLoading(true);
     const pricingRef = doc(db, 'properties', String(selectedPropertyId), 'availability_pricing', 'current');
 
@@ -1107,9 +1200,11 @@ const DashboardApp = () => {
     );
 
     return () => unsubscribe();
-  }, [selectedPropertyId]);
+  }, [selectedPropertyId, reportingDataSource]);
 
   useEffect(() => {
+    if (reportingDataSource !== 'firebase') return undefined;
+
     let cancelled = false;
 
     const loadAvailability = async () => {
@@ -1154,9 +1249,11 @@ const DashboardApp = () => {
     return () => {
       cancelled = true;
     };
-  }, [parentDocs, selectedPropertyId]);
+  }, [parentDocs, selectedPropertyId, reportingDataSource]);
 
   useEffect(() => {
+    if (reportingDataSource !== 'firebase') return undefined;
+
     setRoiLoading(true);
     const startTs = Timestamp.fromDate(rangeDates.start);
     const endTs = Timestamp.fromDate(rangeDates.end);
@@ -1183,7 +1280,7 @@ const DashboardApp = () => {
     );
 
     return () => unsubRoi();
-  }, [rangeDates, selectedPropertyId]);
+  }, [rangeDates, selectedPropertyId, reportingDataSource]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1678,8 +1775,7 @@ const DashboardApp = () => {
   }, [allMarketingInvoices, rangeDates]);
 
   const specialItems = useMemo(() => {
-    const items = Array.isArray(specialsSnapshot?.specials) ? specialsSnapshot.specials : [];
-    return items;
+    return extractSpecialItems(specialsSnapshot);
   }, [specialsSnapshot]);
 
   const floorplanItems = useMemo(() => {
@@ -2246,7 +2342,7 @@ const DashboardApp = () => {
         </div>
         <div className="property-info-pill-row">
           <div className="property-info-pill">Entrata ID {selectedPropertyId}</div>
-          <div className="property-info-pill">Specials synced {specialsSnapshot?.special_count ?? 0}</div>
+          <div className="property-info-pill">Specials synced {specialItems.length}</div>
           <div className="property-info-pill">
             Availability snapshot {latestAvailabilityDate ? formatReadableDate(latestAvailabilityDate) : 'Not loaded'}
           </div>
@@ -2258,7 +2354,7 @@ const DashboardApp = () => {
           <div className="property-info-card__label">Current Specials</div>
           <div className="property-info-card__value">{propertyInfoLoading ? '…' : specialItems.length}</div>
           <div className="property-info-card__meta">
-            Last synced {specialsSnapshot?.last_synced_at?.toDate ? specialsSnapshot.last_synced_at.toDate().toLocaleString() : '—'}
+            Last synced {getSnapshotTimestampLabel(specialsSnapshot?.last_synced_at)}
           </div>
         </div>
         <div className="property-info-card">
