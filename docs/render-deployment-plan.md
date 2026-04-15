@@ -84,8 +84,10 @@ For now:
 The first real staging read path now available is:
 
 - `GET /api/entrata/sync-state`
+- `GET /api/roi/pipeline-status`
+- `GET|POST|OPTIONS /api/analytics/reputation`
 
-This route mirrors the Firebase handler's top-level payload shape while reading from Supabase staging tables instead of Firestore.
+These routes mirror the Firebase handlers' top-level payload shapes while reading from Supabase staging tables instead of Firestore.
 
 ## Future Render settings to prepare for
 

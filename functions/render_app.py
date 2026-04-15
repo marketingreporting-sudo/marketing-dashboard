@@ -1,8 +1,10 @@
 import os
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, make_response, request
 
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
+from render_supabase_analytics import get_cached_analytics_summary
+from render_supabase_roi import get_supabase_roi_pipeline_status_summary
 from render_supabase_sync_state import get_supabase_sync_state_summary
 from render_supabase_validation import (
     SupabaseValidationConfigError,
@@ -12,6 +14,13 @@ from render_supabase_validation import (
 
 def create_app() -> Flask:
     app = Flask(__name__)
+
+    def build_cors_json_response(payload: dict, status_code: int = 200):
+        response = make_response(jsonify(payload), status_code)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+        return response
 
     @app.get("/")
     def root():
@@ -73,6 +82,33 @@ def create_app() -> Flask:
         payload = get_supabase_sync_state_summary()
         status_code = 200 if payload.get("status") == "ok" else 503
         return jsonify(payload), status_code
+
+    @app.get("/api/roi/pipeline-status")
+    def staged_roi_pipeline_status():
+        payload = get_supabase_roi_pipeline_status_summary()
+        status_code = 200 if payload.get("status") == "ok" else 503
+        return jsonify(payload), status_code
+
+    @app.route("/api/analytics/reputation", methods=["GET", "POST", "OPTIONS"])
+    def staged_reputation_dashboard():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        payload = get_cached_analytics_summary(str(property_id), "reputation")
+        status_code = 200 if payload.get("status") != "error" else 404
+        return build_cors_json_response(payload, status_code=status_code)
 
     @app.get("/api/meta/cron-jobs")
     def cron_inventory():
