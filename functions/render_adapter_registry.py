@@ -127,6 +127,18 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Read a staging-only Supabase property reporting overview payload.",
     ),
     HttpEndpointSpec(
+        route="/api/admin/website-manager",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="staging_supabase_website_manager_only",
+        purpose="Read and save staging-only website manager content from Supabase.",
+    ),
+    HttpEndpointSpec(
+        route="/api/admin/reporting-layout",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="staging_supabase_reporting_layout_only",
+        purpose="Read and save staging-only reporting layout content from Supabase.",
+    ),
+    HttpEndpointSpec(
         route="/api/staging/supabase/migration-validation",
         methods=("GET",),
         firebase_handler="staging_supabase_validation_only",

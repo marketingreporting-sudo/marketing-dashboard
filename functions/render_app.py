@@ -3,6 +3,12 @@ import os
 from flask import Flask, jsonify, make_response, request
 
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
+from render_supabase_admin_content import (
+    get_reporting_layout_summary,
+    get_website_manager_summary,
+    save_reporting_layout_summary,
+    save_website_manager_summary,
+)
 from render_supabase_analytics import get_cached_analytics_summary
 from render_supabase_reporting import get_property_reporting_overview_summary
 from render_supabase_roi import get_supabase_roi_pipeline_status_summary
@@ -194,6 +200,54 @@ def create_app() -> Flask:
             )
 
         payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date)
+        status_code = 200 if payload.get("status") != "error" else 503
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/website-manager", methods=["GET", "POST", "OPTIONS"])
+    def staged_website_manager():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        if request.method == "POST":
+            payload = save_website_manager_summary(str(property_id), req_json)
+        else:
+            payload = get_website_manager_summary(str(property_id))
+        status_code = 200 if payload.get("status") != "error" else 503
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/reporting-layout", methods=["GET", "POST", "OPTIONS"])
+    def staged_reporting_layout():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        if request.method == "POST":
+            payload = save_reporting_layout_summary(str(property_id), req_json)
+        else:
+            payload = get_reporting_layout_summary(str(property_id))
         status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 

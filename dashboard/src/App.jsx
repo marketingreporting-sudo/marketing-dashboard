@@ -5,8 +5,10 @@ import {
   GOOGLE_ADS_DASHBOARD_URL,
   META_ADS_DASHBOARD_URL,
   PROPERTY_REPORTING_OVERVIEW_URL,
+  REPORTING_LAYOUT_URL,
   REPUTATION_DASHBOARD_URL,
-  ROI_PIPELINE_STATUS_URL
+  ROI_PIPELINE_STATUS_URL,
+  WEBSITE_MANAGER_URL
 } from './apiConfig';
 import { DEFAULT_PROPERTY_ID, PROPERTY_CATALOG, PROPERTY_CATALOG_BY_ID } from './propertyCatalog';
 import { OPINIION_LOCATION_NAME_BY_PROPERTY_ID, OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
@@ -868,6 +870,8 @@ const DashboardApp = () => {
   const [metaAdsError, setMetaAdsError] = useState(null);
   const [reputationData, setReputationData] = useState(null);
   const [reputationError, setReputationError] = useState(null);
+  const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
+  const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
   const selectedProperty = useMemo(() => {
     const base = PROPERTY_CATALOG_BY_ID[selectedPropertyId];
     if (!base) return base;
@@ -1133,6 +1137,45 @@ const DashboardApp = () => {
   }, [selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
 
   useEffect(() => {
+    if (websiteManagerUsesStagedAdapter) {
+      let cancelled = false;
+
+      const loadWebsiteManager = async () => {
+        setWebsiteManagerLoading(true);
+        setWebsiteManagerError(null);
+        setWebsiteManagerNotice(null);
+
+        try {
+          const params = new URLSearchParams({ property_id: selectedPropertyId });
+          const response = await fetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
+          const payload = await response.json();
+          if (!response.ok || payload?.status === 'error') {
+            throw new Error(payload?.error || `Website manager fetch failed: ${response.status}`);
+          }
+
+          if (cancelled) return;
+
+          const normalized = normalizeWebsiteManagerRecord(payload.record);
+          setWebsiteManagerDoc(normalized);
+          setWebsiteManagerDraft(normalized);
+          setWebsiteManagerLoading(false);
+        } catch (error) {
+          console.error('Website manager staged fetch failed', error);
+          if (cancelled) return;
+          const fallback = normalizeWebsiteManagerRecord(null);
+          setWebsiteManagerDoc(fallback);
+          setWebsiteManagerDraft(fallback);
+          setWebsiteManagerError('Unable to load website manager content from the staged adapter.');
+          setWebsiteManagerLoading(false);
+        }
+      };
+
+      loadWebsiteManager();
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setWebsiteManagerLoading(true);
     setWebsiteManagerError(null);
     setWebsiteManagerNotice(null);
@@ -1156,7 +1199,7 @@ const DashboardApp = () => {
     );
 
     return () => unsubscribe();
-  }, [websiteManagerDocRef]);
+  }, [selectedPropertyId, websiteManagerUsesStagedAdapter]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1169,6 +1212,45 @@ const DashboardApp = () => {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
+    if (reportingLayoutUsesStagedAdapter) {
+      let cancelled = false;
+
+      const loadReportingLayout = async () => {
+        setReportingLayoutLoading(true);
+        setReportingLayoutError(null);
+        setReportingLayoutNotice(null);
+
+        try {
+          const params = new URLSearchParams({ property_id: selectedPropertyId });
+          const response = await fetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
+          const payload = await response.json();
+          if (!response.ok || payload?.status === 'error') {
+            throw new Error(payload?.error || `Reporting layout fetch failed: ${response.status}`);
+          }
+
+          if (cancelled) return;
+
+          const normalized = normalizeReportingLayoutRecord(payload.record);
+          setReportingLayoutDoc(normalized);
+          setReportingLayoutDraft(normalized);
+          setReportingLayoutLoading(false);
+        } catch (error) {
+          console.error('Reporting layout staged fetch failed', error);
+          if (cancelled) return;
+          const fallback = normalizeReportingLayoutRecord(null);
+          setReportingLayoutDoc(fallback);
+          setReportingLayoutDraft(fallback);
+          setReportingLayoutError('Unable to load the saved reporting layout from the staged adapter.');
+          setReportingLayoutLoading(false);
+        }
+      };
+
+      loadReportingLayout();
+      return () => {
+        cancelled = true;
+      };
+    }
+
     setReportingLayoutLoading(true);
     setReportingLayoutError(null);
     setReportingLayoutNotice(null);
@@ -1192,7 +1274,7 @@ const DashboardApp = () => {
     );
 
     return () => unsubscribe();
-  }, [reportingLayoutDocRef]);
+  }, [selectedPropertyId, reportingLayoutUsesStagedAdapter]);
 
   useEffect(() => {
     if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
@@ -1385,11 +1467,8 @@ const DashboardApp = () => {
       } catch (error) {
         if (error.name === 'AbortError') return;
         console.error('GA4 dashboard fetch failed', error);
-        const foundCached = await loadCachedSnapshot('Live GA4 refresh failed. Showing the last cached GA4 snapshot instead.');
-        if (!foundCached) {
-          setGa4Data(null);
-          setGa4Error(error.message || 'Unable to load GA4 analytics. The GA4 endpoint may not be deployed or reachable yet.');
-        }
+        setGa4Data(null);
+        setGa4Error(error.message || 'Unable to load GA4 analytics. The staged adapter may not be reachable yet.');
       } finally {
         setGa4Loading(false);
       }
@@ -1451,11 +1530,8 @@ const DashboardApp = () => {
       } catch (error) {
         if (error.name === 'AbortError') return;
         console.error('Google Ads dashboard fetch failed', error);
-        const foundCached = await loadCachedSnapshot('Live Google Ads refresh failed. Showing the last cached paid search snapshot instead.');
-        if (!foundCached) {
-          setGoogleAdsData(null);
-          setGoogleAdsError(error.message || 'Unable to load Google Ads analytics. The endpoint may not be deployed or reachable yet.');
-        }
+        setGoogleAdsData(null);
+        setGoogleAdsError(error.message || 'Unable to load Google Ads analytics. The staged adapter may not be reachable yet.');
       } finally {
         setGoogleAdsLoading(false);
       }
@@ -1524,11 +1600,8 @@ const DashboardApp = () => {
       } catch (error) {
         if (error.name === 'AbortError') return;
         console.error('Meta Ads dashboard fetch failed', error);
-        const foundCached = await loadCachedSnapshot('Live Meta Ads refresh failed. Showing the last cached paid social snapshot instead.');
-        if (!foundCached) {
-          setMetaAdsData(null);
-          setMetaAdsError(error.message || 'Unable to load Meta Ads analytics. The endpoint may not be deployed or reachable yet.');
-        }
+        setMetaAdsData(null);
+        setMetaAdsError(error.message || 'Unable to load Meta Ads analytics. The staged adapter may not be reachable yet.');
       } finally {
         setMetaAdsLoading(false);
       }
@@ -1593,11 +1666,8 @@ const DashboardApp = () => {
       } catch (error) {
         if (error.name === 'AbortError') return;
         console.error('Reputation dashboard fetch failed', error);
-        const foundCached = await loadCachedSnapshot('Live reputation refresh failed. Showing the last cached reputation snapshot instead.');
-        if (!foundCached) {
-          setReputationData(null);
-          setReputationError(error.message || 'Unable to load reputation data. The endpoint may not be deployed or the property may not be configured yet.');
-        }
+        setReputationData(null);
+        setReputationError(error.message || 'Unable to load reputation data. The staged adapter may not be reachable or the property may not be configured yet.');
       } finally {
         setReputationLoading(false);
       }
@@ -2092,13 +2162,34 @@ const DashboardApp = () => {
 
     try {
       const normalizedDraft = normalizeWebsiteManagerRecord(websiteManagerDraft);
-      await setDoc(websiteManagerDocRef, {
-        ...normalizedDraft,
-        propertyId: selectedPropertyId,
-        propertyName: selectedProperty?.name || '',
-        editable: isWebsiteManagerEditable(normalizedDraft.platform),
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      if (websiteManagerUsesStagedAdapter) {
+        const response = await fetch(WEBSITE_MANAGER_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            property_id: selectedPropertyId,
+            propertyId: selectedPropertyId,
+            propertyName: selectedProperty?.name || '',
+            ...normalizedDraft,
+            editable: isWebsiteManagerEditable(normalizedDraft.platform),
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Website manager save failed: ${response.status}`);
+        }
+        const savedRecord = normalizeWebsiteManagerRecord(payload.record);
+        setWebsiteManagerDoc(savedRecord);
+        setWebsiteManagerDraft(savedRecord);
+      } else {
+        await setDoc(websiteManagerDocRef, {
+          ...normalizedDraft,
+          propertyId: selectedPropertyId,
+          propertyName: selectedProperty?.name || '',
+          editable: isWebsiteManagerEditable(normalizedDraft.platform),
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
       setWebsiteManagerNotice('Website manager content saved for this property.');
     } catch (error) {
       console.error('Website manager save failed', error);
@@ -2159,12 +2250,32 @@ const DashboardApp = () => {
 
     try {
       const normalizedDraft = normalizeReportingLayoutRecord(reportingLayoutDraft);
-      await setDoc(reportingLayoutDocRef, {
-        ...normalizedDraft,
-        propertyId: selectedPropertyId,
-        propertyName: selectedProperty?.name || '',
-        updatedAt: serverTimestamp()
-      }, { merge: true });
+      if (reportingLayoutUsesStagedAdapter) {
+        const response = await fetch(REPORTING_LAYOUT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            property_id: selectedPropertyId,
+            propertyId: selectedPropertyId,
+            propertyName: selectedProperty?.name || '',
+            ...normalizedDraft,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Reporting layout save failed: ${response.status}`);
+        }
+        const savedRecord = normalizeReportingLayoutRecord(payload.record);
+        setReportingLayoutDoc(savedRecord);
+        setReportingLayoutDraft(savedRecord);
+      } else {
+        await setDoc(reportingLayoutDocRef, {
+          ...normalizedDraft,
+          propertyId: selectedPropertyId,
+          propertyName: selectedProperty?.name || '',
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      }
       setReportingLayoutNotice('Reporting layout saved for this property.');
     } catch (error) {
       console.error('Reporting layout save failed', error);

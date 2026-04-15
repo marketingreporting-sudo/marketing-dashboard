@@ -54,6 +54,8 @@ For staging, the frontend can point selected read-only routes at the Render adap
 That staged base URL currently covers:
 
 - `VITE_ROI_PIPELINE_STATUS_URL` via `/api/roi/pipeline-status`
+- `VITE_WEBSITE_MANAGER_URL` via `/api/admin/website-manager`
+- `VITE_REPORTING_LAYOUT_URL` via `/api/admin/reporting-layout`
 - `VITE_GA4_DASHBOARD_URL` via `/api/analytics/ga4`
 - `VITE_GOOGLE_ADS_DASHBOARD_URL` via `/api/analytics/google-ads`
 - `VITE_REPUTATION_DASHBOARD_URL` via `/api/analytics/reputation`
@@ -89,6 +91,8 @@ The staged adapter now also includes a read-only Supabase validation route for s
 - `GET|POST|OPTIONS /api/analytics/meta-ads`
 - `GET|POST|OPTIONS /api/analytics/reputation`
 - `GET|POST|OPTIONS /api/reporting/property-overview`
+- `GET|POST|OPTIONS /api/admin/website-manager`
+- `GET|POST|OPTIONS /api/admin/reporting-layout`
 
 These routes are intended for staging verification only. They read from Supabase and do not change production Firebase traffic.
 
