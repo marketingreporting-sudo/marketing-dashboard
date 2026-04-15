@@ -121,6 +121,12 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Fetch Opiniion reputation dashboard payloads and cache them.",
     ),
     HttpEndpointSpec(
+        route="/api/reporting/property-overview",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="staging_supabase_property_overview_only",
+        purpose="Read a staging-only Supabase property reporting overview payload.",
+    ),
+    HttpEndpointSpec(
         route="/api/staging/supabase/migration-validation",
         methods=("GET",),
         firebase_handler="staging_supabase_validation_only",

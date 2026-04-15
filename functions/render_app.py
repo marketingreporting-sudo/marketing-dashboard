@@ -4,6 +4,7 @@ from flask import Flask, jsonify, make_response, request
 
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
 from render_supabase_analytics import get_cached_analytics_summary
+from render_supabase_reporting import get_property_reporting_overview_summary
 from render_supabase_roi import get_supabase_roi_pipeline_status_summary
 from render_supabase_sync_state import get_supabase_sync_state_summary
 from render_supabase_validation import (
@@ -171,6 +172,29 @@ def create_app() -> Flask:
 
         payload = get_cached_analytics_summary(str(property_id), "meta_ads")
         status_code = 200 if payload.get("status") != "error" else 404
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/reporting/property-overview", methods=["GET", "POST", "OPTIONS"])
+    def staged_property_reporting_overview():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        start_date = request.args.get("start_date") or req_json.get("start_date")
+        end_date = request.args.get("end_date") or req_json.get("end_date")
+        if not property_id:
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date)
+        status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 
     @app.get("/api/meta/cron-jobs")

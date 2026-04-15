@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+import calendar
+from datetime import date, datetime, timedelta
+from typing import Any
+from urllib.error import HTTPError, URLError
+
+from render_supabase_sync_state import _fetch_json
+from render_supabase_validation import SupabaseValidationConfigError
+
+
+def _parse_iso_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _default_date_window() -> tuple[date, date]:
+    end = datetime.now().date()
+    start = end - timedelta(days=27)
+    return start, end
+
+
+def _month_bounded_window(start_date: date, end_date: date) -> tuple[date, date]:
+    invoice_start = start_date.replace(day=1)
+    last_day = calendar.monthrange(end_date.year, end_date.month)[1]
+    invoice_end = end_date.replace(day=last_day)
+    return invoice_start, invoice_end
+
+
+def _shape_property_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row.get("raw_data") or {})
+    payload.update(
+        {
+            "id": row.get("id"),
+            "property_id": row.get("property_id"),
+            "activity_date": row.get("activity_date"),
+            "date": row.get("source_date_id") or row.get("activity_date"),
+            "activity_at": row.get("activity_at"),
+            "firestore_path": row.get("firestore_path"),
+        }
+    )
+    return payload
+
+
+def _shape_child_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row.get("raw_data") or {})
+    payload.update(
+        {
+            "_date": row.get("activity_date"),
+            "_parentId": row.get("property_snapshot_id"),
+            "_firestorePath": row.get("firestore_path"),
+        }
+    )
+    return payload
+
+
+def _shape_current_snapshot(row: dict[str, Any] | None, *, fallback_array_keys: tuple[str, ...] = ()) -> dict[str, Any] | None:
+    if not row:
+        return None
+
+    payload = dict(row.get("raw_result") or {})
+    for key in fallback_array_keys:
+        payload.setdefault(key, row.get(key) or [])
+
+    payload.setdefault("last_synced_at", row.get("last_synced_at"))
+    payload.setdefault("firestore_path", row.get("firestore_path"))
+    return payload
+
+
+def _shape_roi_daily_row(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row.get("raw_data") or {})
+    payload.update(
+        {
+            "id": row.get("id"),
+            "property_id": row.get("property_id"),
+            "activity_date": row.get("activity_date"),
+            "firestore_path": row.get("firestore_path"),
+        }
+    )
+    return payload
+
+
+def get_property_reporting_overview_payload(
+    property_id: str,
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+) -> dict[str, Any]:
+    start_date = _parse_iso_date(start_date_value)
+    end_date = _parse_iso_date(end_date_value)
+    if not start_date or not end_date:
+        start_date, end_date = _default_date_window()
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    invoice_start, invoice_end = _month_bounded_window(start_date, end_date)
+
+    parent_rows = _fetch_json(
+        "property_daily_snapshots",
+        [
+            ("select", "id,property_id,activity_date,activity_at,source_date_id,raw_data,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{start_date.isoformat()}"),
+            ("activity_date", f"lte.{end_date.isoformat()}"),
+            ("order", "activity_date.asc"),
+        ],
+    )
+    parent_ids = [row["id"] for row in parent_rows if row.get("id")]
+    latest_parent_id = parent_ids[-1] if parent_ids else None
+    latest_activity_date = parent_rows[-1].get("activity_date") if parent_rows else None
+
+    leads_rows = _fetch_json(
+        "property_leads",
+        [
+            ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{start_date.isoformat()}"),
+            ("activity_date", f"lte.{end_date.isoformat()}"),
+            ("order", "activity_date.asc"),
+        ],
+    )
+    events_rows = _fetch_json(
+        "property_events",
+        [
+            ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{start_date.isoformat()}"),
+            ("activity_date", f"lte.{end_date.isoformat()}"),
+            ("order", "activity_date.asc"),
+        ],
+    )
+    invoice_rows = _fetch_json(
+        "property_invoices",
+        [
+            ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{invoice_start.isoformat()}"),
+            ("activity_date", f"lte.{invoice_end.isoformat()}"),
+            ("order", "activity_date.asc"),
+        ],
+    )
+    roi_rows = _fetch_json(
+        "property_roi_daily",
+        [
+            ("select", "id,property_id,activity_date,raw_data,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{start_date.isoformat()}"),
+            ("activity_date", f"lte.{end_date.isoformat()}"),
+            ("order", "activity_date.asc"),
+        ],
+    )
+    availability_rows = (
+        _fetch_json(
+            "property_availability",
+            [
+                ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+                ("property_snapshot_id", f"eq.{latest_parent_id}"),
+                ("order", "activity_date.asc"),
+            ],
+        )
+        if latest_parent_id
+        else []
+    )
+
+    specials_rows = _fetch_json(
+        "property_specials_current",
+        [
+            ("select", "property_id,special_count,specials,last_synced_at,raw_result,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("limit", "1"),
+        ],
+    )
+    pricing_rows = _fetch_json(
+        "property_availability_snapshots",
+        [
+            ("select", "property_id,floorplan_count,unit_count,availability_url,floorplans,units,last_synced_at,raw_result,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("limit", "1"),
+        ],
+    )
+
+    return {
+        "property_id": property_id,
+        "range": {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "invoice_start_date": invoice_start.isoformat(),
+            "invoice_end_date": invoice_end.isoformat(),
+        },
+        "parent_docs": [_shape_property_snapshot(row) for row in parent_rows],
+        "lead_items": [_shape_child_payload(row) for row in leads_rows],
+        "event_items": [_shape_child_payload(row) for row in events_rows],
+        "invoice_items": [_shape_child_payload(row) for row in invoice_rows],
+        "availability_items": [dict(row.get("raw_data") or {}) for row in availability_rows],
+        "latest_availability_date": latest_activity_date,
+        "specials_snapshot": _shape_current_snapshot(
+            specials_rows[0] if specials_rows else None,
+            fallback_array_keys=("specials",),
+        ),
+        "availability_pricing_snapshot": _shape_current_snapshot(
+            pricing_rows[0] if pricing_rows else None,
+            fallback_array_keys=("floorplans", "units"),
+        ),
+        "roi_daily_items": [_shape_roi_daily_row(row) for row in roi_rows],
+        "counts": {
+            "parent_docs": len(parent_rows),
+            "lead_items": len(leads_rows),
+            "event_items": len(events_rows),
+            "invoice_items": len(invoice_rows),
+            "availability_items": len(availability_rows),
+            "roi_daily_items": len(roi_rows),
+        },
+        "source": "supabase",
+        "staging_only": True,
+    }
+
+
+def get_property_reporting_overview_summary(
+    property_id: str,
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+) -> dict[str, Any]:
+    try:
+        payload = get_property_reporting_overview_payload(property_id, start_date_value, end_date_value)
+    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+        return {
+            "status": "error",
+            "message": str(error),
+            "staging_only": True,
+        }
+
+    payload["status"] = "ok"
+    return payload
