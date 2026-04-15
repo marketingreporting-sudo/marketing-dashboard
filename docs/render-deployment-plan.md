@@ -25,6 +25,7 @@ This adapter does not execute the existing Firebase business logic yet. It provi
 - health and readiness routes
 - route and cron inventory endpoints for staging verification
 - a read-only staging Supabase validation endpoint at `/api/staging/supabase/migration-validation`
+- a read-only staging Supabase-backed sync-state endpoint at `/api/entrata/sync-state`
 - a concrete Gunicorn start command
 
 ## Recommended future Render service types
@@ -79,6 +80,12 @@ For now:
 - use the Render adapter as the staging web-service shell
 - do not deploy `functions/main.py` directly to Render yet
 - use the staging validation endpoint to confirm migrated Supabase counts before moving any runtime reads
+
+The first real staging read path now available is:
+
+- `GET /api/entrata/sync-state`
+
+This route mirrors the Firebase handler's top-level payload shape while reading from Supabase staging tables instead of Firestore.
 
 ## Future Render settings to prepare for
 

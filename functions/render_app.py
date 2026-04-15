@@ -3,6 +3,7 @@ import os
 from flask import Flask, jsonify
 
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
+from render_supabase_sync_state import get_supabase_sync_state_summary
 from render_supabase_validation import (
     SupabaseValidationConfigError,
     get_supabase_migration_validation_summary,
@@ -66,6 +67,12 @@ def create_app() -> Flask:
                 "routes": get_http_endpoint_specs(),
             }
         )
+
+    @app.get("/api/entrata/sync-state")
+    def staged_sync_state():
+        payload = get_supabase_sync_state_summary()
+        status_code = 200 if payload.get("status") == "ok" else 503
+        return jsonify(payload), status_code
 
     @app.get("/api/meta/cron-jobs")
     def cron_inventory():

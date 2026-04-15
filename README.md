@@ -69,8 +69,9 @@ The repo now also includes a staged Render-native adapter entrypoint:
 The staged adapter now also includes a read-only Supabase validation route for staging:
 
 - `GET /api/staging/supabase/migration-validation`
+- `GET /api/entrata/sync-state`
 
-This route is intended for staging verification only. It reads table counts from Supabase and does not change runtime traffic.
+These routes are intended for staging verification only. They read from Supabase and do not change production Firebase traffic.
 
 Concrete staged Render start command:
 
