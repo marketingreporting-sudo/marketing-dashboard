@@ -87,6 +87,7 @@ The first real staging read path now available is:
 - `GET /api/roi/pipeline-status`
 - `GET|POST|OPTIONS /api/analytics/ga4`
 - `GET|POST|OPTIONS /api/analytics/google-ads`
+- `GET|POST|OPTIONS /api/analytics/meta-ads`
 - `GET|POST|OPTIONS /api/analytics/reputation`
 
 These routes mirror the Firebase handlers' top-level payload shapes while reading from Supabase staging tables instead of Firestore.

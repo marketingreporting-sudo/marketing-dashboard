@@ -86,6 +86,7 @@ The staged adapter now also includes a read-only Supabase validation route for s
 - `GET /api/roi/pipeline-status`
 - `GET|POST|OPTIONS /api/analytics/ga4`
 - `GET|POST|OPTIONS /api/analytics/google-ads`
+- `GET|POST|OPTIONS /api/analytics/meta-ads`
 - `GET|POST|OPTIONS /api/analytics/reputation`
 
 These routes are intended for staging verification only. They read from Supabase and do not change production Firebase traffic.

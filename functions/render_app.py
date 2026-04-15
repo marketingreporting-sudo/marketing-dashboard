@@ -152,6 +152,27 @@ def create_app() -> Flask:
         status_code = 200 if payload.get("status") != "error" else 404
         return build_cors_json_response(payload, status_code=status_code)
 
+    @app.route("/api/analytics/meta-ads", methods=["GET", "POST", "OPTIONS"])
+    def staged_meta_ads_dashboard():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        payload = get_cached_analytics_summary(str(property_id), "meta_ads")
+        status_code = 200 if payload.get("status") != "error" else 404
+        return build_cors_json_response(payload, status_code=status_code)
+
     @app.get("/api/meta/cron-jobs")
     def cron_inventory():
         return jsonify(
