@@ -4667,12 +4667,9 @@ def sync_property_date(property_id, date_str):
     fetch_events_for_date(property_id, date_str)
     fetch_leases_for_date(property_id, date_str)
     fetch_invoices_for_date(property_id, date_str)
-    try:
-        fetch_availability_for_date(property_id, date_str)
-    except Exception as e:
-        # Availability is not currently used by the dashboard, so do not let
-        # endpoint-specific property failures block core lead/lease/cost syncs.
-        print(f"Availability sync skipped for property {property_id} on {date_str}: {str(e)}")
+    # Keep daily refresh focused on the core reporting entities. Availability
+    # requests are handled by dedicated jobs and have known Entrata quirks that
+    # can create noisy failures without helping the refresh path.
 
 def property_day_doc_exists(property_id, date_id):
     db = firestore.client()

@@ -622,10 +622,9 @@ def sync_property_date(property_id: int, date_str: str) -> None:
     legacy.fetch_events_for_date(property_id, date_str)
     legacy.fetch_leases_for_date(property_id, date_str)
     legacy.fetch_invoices_for_date(property_id, date_str)
-    try:
-        legacy.fetch_availability_for_date(property_id, date_str)
-    except Exception as error:
-        print(f"Availability sync skipped for property {property_id} on {date_str}: {error}")
+    # Keep daily refresh focused on the core reporting entities. Availability
+    # requests are handled by dedicated jobs and have known Entrata quirks that
+    # can create noisy failures without helping the refresh path.
 
 
 def sync_property_date_for_roi(property_id: int, date_str: str) -> None:
