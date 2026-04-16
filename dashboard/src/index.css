@@ -3433,9 +3433,13 @@ textarea.website-manager-field__input {
 }
 
 .nav-item.active {
-  background-color: rgba(46, 74, 81, 0.72) !important;
-  border-color: var(--surface-line-strong) !important;
+  background-color: transparent !important;
+  border-color: transparent !important;
   color: var(--primary-white) !important;
+}
+
+.nav-item.active svg {
+  color: var(--primary-red) !important;
 }
 
 .nav-label {
@@ -3618,6 +3622,14 @@ textarea.website-manager-field__input {
 .recharts-wrapper,
 svg.recharts-surface {
   max-width: 100%;
+}
+
+.analytics-chart > .recharts-responsive-container,
+.analytics-chart > .recharts-responsive-container > .recharts-wrapper,
+.analytics-chart > .recharts-responsive-container > .recharts-wrapper > svg.recharts-surface {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
 }
 
 .property-info-table,
@@ -4090,6 +4102,35 @@ th {
 .search-ad-preview__footer {
   padding-top: 0.35rem;
   border-top: 1px solid rgba(215, 210, 207, 0.12);
+}
+
+/* Final nav + contrast cleanup */
+.nav-item.active:hover {
+  transform: none;
+}
+
+.nav-item.active::before {
+  background: var(--primary-red) !important;
+}
+
+.reports-kpi-card__meta,
+.property-info-card__meta,
+.property-info-panel__subhead,
+.property-info-panel__row-value,
+.reputation-review-card__meta,
+.reputation-review-card__body,
+.reputation-review-card__response,
+.analytics-kpi__meta,
+.analytics-row__detail,
+.analytics-subhead,
+.analytics-note,
+.website-manager-card__meta,
+.website-manager-subhead,
+.website-manager-preview__value,
+.website-manager-empty,
+.search-ad-preview__desc {
+  color: var(--primary-tan) !important;
+  opacity: 1 !important;
 }
 
 @media (max-width: 900px) {

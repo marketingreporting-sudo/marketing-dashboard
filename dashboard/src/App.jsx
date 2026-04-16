@@ -2475,7 +2475,7 @@ const DashboardApp = () => {
           <div className="analytics-stack">
             {ga4OutcomeChartData.length > 0 && (
               <div className="analytics-chart">
-                <ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={ga4OutcomeChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
                     <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} interval={0} />
@@ -2488,7 +2488,7 @@ const DashboardApp = () => {
             )}
             {ga4ConversionByDayChartData.length > 0 && (
               <div className="analytics-chart">
-                <ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={ga4ConversionByDayChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
                     <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} />
@@ -2564,7 +2564,7 @@ const DashboardApp = () => {
           <div className="analytics-stack">
             {ga4AcquisitionChartData.length > 0 && (
               <div className="analytics-chart analytics-chart--tall">
-                <ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={ga4AcquisitionChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
                     <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} interval={0} />
@@ -2579,7 +2579,7 @@ const DashboardApp = () => {
             )}
             {ga4TrafficByMonthChartData.length > 0 && (
               <div className="analytics-chart">
-                <ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={ga4TrafficByMonthChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
                     <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} />
@@ -2656,7 +2656,7 @@ const DashboardApp = () => {
           <div className="analytics-stack">
             {ga4MarketChartData.length > 0 && (
               <div className="analytics-chart analytics-chart--tall">
-                <ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={ga4MarketChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.1)" vertical={false} />
                     <XAxis dataKey="name" stroke="rgba(16,33,38,0.6)" tick={{ fontSize: 11 }} />
@@ -2718,7 +2718,7 @@ const DashboardApp = () => {
                 </div>
                 {ga4PathStartChartData.length > 0 && (
                   <div className="analytics-chart">
-                    <ResponsiveContainer>
+                    <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={ga4PathStartChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.1)" vertical={false} />
                         <XAxis dataKey="name" stroke="rgba(16,33,38,0.6)" tick={{ fontSize: 11 }} interval={0} />
@@ -2765,7 +2765,7 @@ const DashboardApp = () => {
             )}
             {ga4DiagnosticChartData.length > 0 && (
               <div className="analytics-chart analytics-chart--tall">
-                <ResponsiveContainer>
+                <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={ga4DiagnosticChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.1)" vertical={false} />
                     <XAxis dataKey="name" stroke="rgba(16,33,38,0.6)" tick={{ fontSize: 11 }} interval={0} />
@@ -2890,7 +2890,7 @@ const DashboardApp = () => {
               </div>
               {googleAdsDailyChartData.length > 0 && (
                 <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={googleAdsDailyChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
                       <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
@@ -2909,7 +2909,7 @@ const DashboardApp = () => {
               <div className="analytics-panel__eyebrow">Campaign Performance</div>
               {googleAdsCampaignChartData.length > 0 && (
                 <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={googleAdsCampaignChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
                       <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
@@ -2945,7 +2945,7 @@ const DashboardApp = () => {
               <div className="analytics-panel__eyebrow">Keyword Breakdown</div>
               {googleAdsKeywordChartData.length > 0 && (
                 <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={googleAdsKeywordChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" horizontal={false} />
                       <XAxis type="number" stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
@@ -3123,7 +3123,7 @@ const DashboardApp = () => {
               </div>
               {metaAdsDailyChartData.length > 0 && (
                 <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={metaAdsDailyChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
                       <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
@@ -3142,7 +3142,7 @@ const DashboardApp = () => {
               <div className="analytics-panel__eyebrow">Active Campaigns</div>
               {metaAdsCampaignChartData.length > 0 && (
                 <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={metaAdsCampaignChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
                       <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
