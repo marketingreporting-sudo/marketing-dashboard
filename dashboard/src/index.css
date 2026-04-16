@@ -3073,3 +3073,1034 @@ body,
 .header-status__avatar {
   background: #2e4a51 !important;
 }
+
+/* Accessibility + containment hardening */
+:root {
+  --primary-blue: #102126;
+  --primary-red: #792924;
+  --primary-white: #ffffff;
+  --secondary-blue: #2e4a51;
+  --primary-tan: #d7d2cf;
+  --secondary-tan: #b8aa9b;
+  --accent-green: #57886c;
+  --accent-pink: #e56870;
+  --accent-gold: #ee8413;
+  --accent-orange: #ff6416;
+  --chart-green: var(--accent-green);
+  --chart-pink: var(--accent-pink);
+  --chart-gold: var(--accent-gold);
+  --chart-orange: var(--accent-orange);
+  --chart-secondary-tan: var(--secondary-tan);
+  --surface-base: var(--primary-blue);
+  --surface-panel: var(--secondary-blue);
+  --surface-panel-strong: var(--secondary-blue);
+  --surface-panel-deep: var(--primary-blue);
+  --surface-line: rgba(215, 210, 207, 0.18);
+  --surface-line-strong: rgba(215, 210, 207, 0.28);
+  --panel-soft: var(--secondary-blue);
+  --panel-alt: var(--primary-blue);
+  --panel-deep: var(--primary-blue);
+  --panel-border: rgba(215, 210, 207, 0.16);
+  --text-main: #ffffff;
+  --text-soft: rgba(255, 255, 255, 0.84);
+  --text-muted: rgba(215, 210, 207, 0.8);
+}
+
+html,
+body,
+#root,
+.dashboard-container,
+.main-content,
+.content-body,
+.legal-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.dashboard-container,
+.main-content,
+.content-body,
+.reports-shell,
+.reports-panels,
+.reports-panel,
+.reports-panel__grid,
+.property-info-view,
+.property-info-panels,
+.property-info-panel,
+.analytics-view,
+.analytics-grid,
+.analytics-panel,
+.analytics-stack,
+.analytics-search-grid,
+.analytics-search-card,
+.analytics-search-kpis,
+.website-manager-view,
+.website-manager-summary-grid,
+.website-manager-layout,
+.website-manager-panel,
+.website-manager-form-grid,
+.website-manager-groups,
+.website-manager-group {
+  min-width: 0;
+}
+
+.header,
+.sidebar,
+.main-content,
+.content-body,
+.logo-container,
+.card,
+.chart-container,
+.notes-container,
+.reports-kpi-card,
+.reports-panel,
+.reports-minimap,
+.reports-minimap__item,
+.reports-stat,
+.reports-list__row,
+.property-info-card,
+.property-info-panel,
+.property-info-list__item,
+.property-info-panel__row,
+.property-info-table,
+.reputation-review-card,
+.analytics-panel,
+.analytics-search-card,
+.analytics-search-kpi,
+.analytics-row,
+.analytics-status,
+.analytics-placeholder,
+.analytics-callout,
+.analytics-path-module,
+.analytics-path-branch,
+.analytics-conversion-table,
+.website-manager-card,
+.website-manager-banner,
+.website-manager-panel,
+.website-manager-token,
+.website-manager-preview,
+.website-manager-checklist__item,
+.website-manager-lockup,
+.website-manager-group,
+.website-manager-field__input,
+.search-ad-preview,
+.legal-card,
+.reports-hero,
+.property-info-hero,
+.reputation-hero,
+.analytics-hero,
+.website-manager-hero,
+.legal-hero {
+  background-image: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+.reports-hero::before,
+.reports-hero::after,
+.property-info-hero::before,
+.property-info-hero::after,
+.reputation-hero::before,
+.reputation-hero::after,
+.analytics-hero::before,
+.analytics-hero::after,
+.website-manager-hero::before,
+.website-manager-hero::after,
+.legal-hero::before,
+.legal-hero::after {
+  display: none !important;
+  background: none !important;
+}
+
+.card,
+.chart-container,
+.notes-container,
+.reports-kpi-card,
+.reports-panel,
+.reports-minimap,
+.reports-minimap__item,
+.reports-stat,
+.reports-list__row,
+.property-info-card,
+.property-info-panel,
+.property-info-list__item,
+.property-info-panel__row,
+.property-info-table,
+.reputation-review-card,
+.analytics-panel,
+.analytics-search-card,
+.analytics-search-kpi,
+.analytics-row,
+.analytics-status,
+.analytics-placeholder,
+.analytics-callout,
+.analytics-path-module,
+.analytics-path-branch,
+.analytics-conversion-table,
+.website-manager-card,
+.website-manager-banner,
+.website-manager-panel,
+.website-manager-token,
+.website-manager-preview,
+.website-manager-checklist__item,
+.website-manager-lockup,
+.website-manager-group,
+.website-manager-field__input,
+.search-ad-preview,
+.legal-card {
+  background-color: var(--panel-soft) !important;
+  color: var(--text-main) !important;
+  border-color: var(--panel-border) !important;
+}
+
+.reports-hero,
+.property-info-hero,
+.reputation-hero,
+.analytics-hero,
+.website-manager-hero,
+.legal-hero,
+.reports-chip,
+.reports-admin-toggle,
+.property-info-pill,
+.reputation-pill,
+.analytics-chip,
+.website-manager-pill,
+.analytics-pill,
+.reports-minimap__actions button,
+.reports-admin-actions button,
+.website-manager-button,
+.property-selector,
+.global-date-controls__picker,
+.global-date-controls__select,
+.global-date-controls__input,
+.sidebar-toggle {
+  background-color: var(--panel-deep) !important;
+  color: var(--text-main) !important;
+  border-color: var(--surface-line) !important;
+}
+
+.reports-admin-toggle.active,
+.website-manager-button--primary,
+.analytics-callout,
+.analytics-pill--negative,
+.reports-layout-message--success,
+.website-manager-banner--success {
+  background-color: var(--secondary-blue) !important;
+  color: var(--text-main) !important;
+  border-color: var(--surface-line-strong) !important;
+}
+
+.reports-layout-message--error,
+.website-manager-banner--error,
+.analytics-status--warning {
+  background-color: var(--primary-red) !important;
+  color: var(--text-main) !important;
+  border-color: var(--surface-line-strong) !important;
+}
+
+.card-title,
+.reports-kpi-card__label,
+.reports-panel__eyebrow,
+.reports-minimap__eyebrow,
+.property-info-card__label,
+.property-info-panel__eyebrow,
+.property-info-panel__row-label,
+.reputation-kicker,
+.analytics-kicker,
+.analytics-panel__eyebrow,
+.analytics-search-kpi__label,
+.website-manager-kicker,
+.website-manager-card__label,
+.website-manager-field__label,
+.website-manager-token__name,
+.website-manager-preview__label,
+.website-manager-panel__eyebrow,
+.website-manager-group__title,
+.search-ad-preview__meta,
+.search-ad-preview__footer,
+.search-ad-preview__url,
+.property-selector__label,
+.global-date-controls__label {
+  color: var(--primary-tan) !important;
+}
+
+.reports-kpi-card__value,
+.reports-panel__title,
+.reports-minimap__title,
+.property-info-card__value,
+.property-info-panel__title,
+.property-info-list__title,
+.reputation-review-card__author,
+.reputation-review-card__rating,
+.analytics-panel__title,
+.analytics-kpi__value,
+.analytics-row__title,
+.analytics-row__metric,
+.analytics-status__title,
+.analytics-placeholder__title,
+.website-manager-card__value,
+.website-manager-panel__title,
+.website-manager-button,
+.website-manager-button--ghost,
+.website-manager-preview__value,
+.website-manager-empty,
+.card-value,
+th,
+td,
+code {
+  color: var(--text-main) !important;
+}
+
+.reports-kpi-card__meta,
+.reports-list__row small,
+.property-info-card__meta,
+.property-info-panel__subhead,
+.property-info-panel__row-value,
+.reputation-subhead,
+.reputation-review-card__meta,
+.reputation-review-card__body,
+.reputation-review-card__response,
+.analytics-subhead,
+.analytics-kpi__meta,
+.analytics-row__detail,
+.analytics-note,
+.analytics-status__detail,
+.analytics-placeholder__detail,
+.website-manager-subhead,
+.website-manager-card__meta,
+.website-manager-checklist__item,
+.website-manager-lockup,
+.search-ad-preview__desc,
+.app-footer-links,
+.legal-links,
+.legal-section p {
+  color: var(--text-soft) !important;
+}
+
+.website-manager-field__input,
+.website-manager-field__input::placeholder,
+.global-date-controls__select,
+.global-date-controls__input,
+.global-date-controls__input::placeholder,
+.property-selector__select,
+.property-selector__select option,
+select.website-manager-field__input,
+input.website-manager-field__input,
+textarea.website-manager-field__input {
+  color: var(--text-main) !important;
+}
+
+.website-manager-field__input:disabled,
+.global-date-controls__input:disabled,
+.global-date-controls__select:disabled {
+  color: var(--text-muted) !important;
+  background-color: rgba(15, 30, 35, 0.82) !important;
+}
+
+.sidebar-topbar {
+  margin-bottom: 0.9rem !important;
+}
+
+.sidebar-toggle {
+  width: 44px !important;
+  height: 36px !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.sidebar-toggle:hover {
+  background-color: var(--secondary-blue) !important;
+  border-color: var(--surface-line-strong) !important;
+  transform: translateY(-1px);
+}
+
+.nav-menu {
+  gap: 0.5rem !important;
+}
+
+.nav-item {
+  min-height: 46px !important;
+  padding: 0.82rem 0.92rem !important;
+  color: var(--primary-tan) !important;
+  border-color: transparent !important;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.nav-item:hover {
+  background-color: rgba(46, 74, 81, 0.58) !important;
+  border-color: var(--surface-line) !important;
+  color: var(--primary-white) !important;
+  transform: translateX(2px);
+}
+
+.nav-item.active {
+  background-color: rgba(46, 74, 81, 0.72) !important;
+  border-color: var(--surface-line-strong) !important;
+  color: var(--primary-white) !important;
+}
+
+.nav-label {
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+}
+
+.header {
+  min-height: 78px !important;
+  padding: 0 1.75rem !important;
+}
+
+.property-selector {
+  display: grid !important;
+  gap: 0.32rem !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.property-selector__label,
+.global-date-controls__label {
+  font-size: 0.7rem !important;
+  letter-spacing: 0.12em !important;
+  text-transform: uppercase;
+}
+
+.property-selector__control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  padding: 0 0.95rem;
+  background: rgba(16, 33, 38, 0.92);
+  border: 1px solid var(--surface-line);
+  transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+
+.property-selector__control:hover {
+  background: rgba(46, 74, 81, 0.68);
+  border-color: var(--surface-line-strong);
+}
+
+.property-selector__select {
+  min-width: 240px !important;
+  padding: 0.85rem 1.25rem 0.85rem 0 !important;
+  cursor: pointer;
+}
+
+.property-selector__chevron {
+  color: var(--primary-tan);
+  flex: 0 0 auto;
+}
+
+.header-status {
+  gap: 0.75rem !important;
+}
+
+.header-status__meta {
+  padding: 0.55rem 0.8rem;
+  background: rgba(16, 33, 38, 0.82);
+  border: 1px solid var(--surface-line);
+  color: var(--primary-tan) !important;
+}
+
+.global-date-controls {
+  align-items: end !important;
+  gap: 1rem !important;
+}
+
+.global-date-controls__picker {
+  display: grid !important;
+  gap: 0.4rem !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.global-date-controls__control,
+.global-date-controls__custom-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  padding: 0 0.95rem;
+  background: rgba(16, 33, 38, 0.92);
+  border: 1px solid var(--surface-line);
+}
+
+.global-date-controls__control {
+  min-width: 224px;
+}
+
+.global-date-controls__custom-range {
+  flex-wrap: wrap;
+}
+
+.global-date-controls__icon {
+  color: var(--primary-tan);
+  flex: 0 0 auto;
+}
+
+.global-date-controls__select,
+.global-date-controls__input {
+  min-height: 42px;
+  padding-top: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.global-date-controls__select {
+  min-width: 160px;
+  cursor: pointer;
+}
+
+.global-date-controls__input {
+  min-width: 140px;
+}
+
+.global-date-controls__to {
+  color: var(--primary-tan) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem !important;
+}
+
+.global-date-controls__meta {
+  min-height: 44px;
+  align-content: center;
+  justify-items: start !important;
+  padding: 0.55rem 0.9rem;
+  background: rgba(16, 33, 38, 0.82);
+  border: 1px solid var(--surface-line);
+}
+
+.global-date-controls__meta span {
+  color: var(--primary-tan);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.global-date-controls__meta strong {
+  color: var(--primary-white) !important;
+  font-size: 0.9rem !important;
+  letter-spacing: -0.01em;
+}
+
+.search-ad-preview__headline,
+.website-manager-pill--editable,
+.reports-admin-toggle.active,
+.website-manager-button--primary {
+  color: var(--primary-tan) !important;
+}
+
+.website-manager-pill--blocked,
+.website-manager-banner--error {
+  color: var(--primary-white) !important;
+}
+
+.website-manager-banner--success {
+  color: var(--primary-white) !important;
+}
+
+.analytics-pill--positive {
+  color: var(--chart-green) !important;
+}
+
+.analytics-pill--negative {
+  color: var(--chart-orange) !important;
+}
+
+.analytics-pill--neutral {
+  color: var(--chart-secondary-tan) !important;
+}
+
+.analytics-chart,
+.recharts-responsive-container,
+.recharts-wrapper,
+svg.recharts-surface {
+  max-width: 100%;
+}
+
+.property-info-table,
+.analytics-conversion-table {
+  overflow-x: auto;
+}
+
+.property-info-table__head,
+.property-info-table__cell,
+.analytics-conversion-table__head,
+.analytics-conversion-table__cell {
+  color: var(--text-main) !important;
+  border-color: var(--panel-border) !important;
+}
+
+.analytics-path-step__bar,
+.property-info-table__head,
+.analytics-conversion-table__head {
+  background-color: rgba(15, 30, 35, 0.9) !important;
+}
+
+.analytics-path-step__bar span,
+.header-status__avatar {
+  background: var(--surface-panel-strong) !important;
+}
+
+.analytics-path-step__bar span {
+  background: linear-gradient(90deg, var(--chart-green) 0%, var(--chart-gold) 100%) !important;
+}
+
+/* Spacing + typography rhythm pass */
+:root {
+  --page-gutter-x: 2rem;
+  --page-gutter-y: 1.75rem;
+  --section-gap: 1.5rem;
+  --panel-gap: 1rem;
+  --panel-pad: 1.35rem;
+  --hero-pad: 1.8rem;
+  --kicker-size: 0.73rem;
+  --body-size: 0.96rem;
+  --body-leading: 1.6;
+  --meta-size: 0.83rem;
+}
+
+.content-body {
+  padding: var(--page-gutter-y) var(--page-gutter-x) 2.5rem !important;
+}
+
+.dashboard-title-row {
+  margin-bottom: 1.75rem !important;
+}
+
+.title,
+.reports-headline,
+.property-info-headline,
+.reputation-headline,
+.analytics-headline,
+.website-manager-headline {
+  font-size: clamp(2.6rem, 4.4vw, 4.4rem) !important;
+  line-height: 0.94 !important;
+  letter-spacing: -0.045em !important;
+  margin-bottom: 0.4rem !important;
+}
+
+.reports-hero,
+.property-info-hero,
+.reputation-hero,
+.analytics-hero,
+.website-manager-hero,
+.legal-hero {
+  padding: var(--hero-pad) !important;
+  gap: 1.15rem !important;
+}
+
+.reports-shell,
+.property-info-view,
+.analytics-view,
+.website-manager-view {
+  gap: 1.75rem !important;
+}
+
+.reports-panels,
+.property-info-panels,
+.analytics-grid,
+.website-manager-layout,
+.website-manager-summary-grid {
+  gap: 1.15rem !important;
+}
+
+.card,
+.chart-container,
+.notes-container,
+.reports-kpi-card,
+.reports-panel,
+.reports-minimap,
+.property-info-card,
+.property-info-panel,
+.reputation-review-card,
+.analytics-panel,
+.analytics-search-card,
+.analytics-search-kpi,
+.analytics-status,
+.analytics-placeholder,
+.analytics-callout,
+.analytics-path-module,
+.analytics-path-branch,
+.website-manager-card,
+.website-manager-banner,
+.website-manager-panel,
+.website-manager-token,
+.website-manager-preview,
+.website-manager-checklist__item,
+.website-manager-lockup,
+.website-manager-group,
+.legal-card {
+  padding: var(--panel-pad) !important;
+}
+
+.reports-panel__grid,
+.analytics-stack,
+.analytics-search-kpis,
+.website-manager-groups,
+.website-manager-form-grid,
+.website-manager-token-list,
+.website-manager-preview-list,
+.website-manager-checklist {
+  gap: var(--panel-gap) !important;
+}
+
+.reports-kpi-card__label,
+.reports-panel__eyebrow,
+.reports-minimap__eyebrow,
+.property-info-card__label,
+.property-info-panel__eyebrow,
+.reputation-kicker,
+.analytics-kicker,
+.analytics-panel__eyebrow,
+.website-manager-kicker,
+.website-manager-card__label,
+.website-manager-panel__eyebrow {
+  font-size: var(--kicker-size) !important;
+  letter-spacing: 0.14em !important;
+  margin-bottom: 0.55rem !important;
+}
+
+.card-title,
+.reports-kpi-card__meta,
+.reports-list__row small,
+.property-info-card__meta,
+.property-info-panel__subhead,
+.property-info-panel__row-value,
+.reputation-subhead,
+.reputation-review-card__meta,
+.reputation-review-card__body,
+.reputation-review-card__response,
+.analytics-subhead,
+.analytics-kpi__meta,
+.analytics-row__detail,
+.analytics-note,
+.analytics-status__detail,
+.analytics-placeholder__detail,
+.website-manager-subhead,
+.website-manager-card__meta,
+.website-manager-checklist__item,
+.website-manager-lockup,
+.website-manager-preview__value,
+.website-manager-empty,
+.search-ad-preview__desc,
+.app-footer-links,
+.legal-links,
+.legal-section p {
+  font-size: var(--meta-size) !important;
+  line-height: 1.62 !important;
+}
+
+.reports-panel__title,
+.reports-minimap__title,
+.property-info-panel__title,
+.analytics-panel__title,
+.analytics-status__title,
+.analytics-placeholder__title,
+.website-manager-panel__title {
+  font-size: clamp(1.45rem, 1.5vw, 1.8rem) !important;
+  line-height: 1.08 !important;
+  letter-spacing: -0.03em !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.reports-kpi-card__value,
+.property-info-card__value,
+.analytics-kpi__value,
+.website-manager-card__value,
+.card-value {
+  font-size: clamp(2rem, 3vw, 2.6rem) !important;
+  line-height: 0.95 !important;
+  letter-spacing: -0.04em !important;
+}
+
+.reports-subhead,
+.property-info-subhead,
+.reputation-subhead,
+.analytics-subhead,
+.website-manager-subhead {
+  max-width: 64ch !important;
+  font-size: var(--body-size) !important;
+  line-height: var(--body-leading) !important;
+}
+
+.reports-chip,
+.reports-admin-toggle,
+.property-info-pill,
+.reputation-pill,
+.analytics-chip,
+.website-manager-pill,
+.analytics-pill,
+.website-manager-button,
+.property-selector,
+.global-date-controls__picker,
+.global-date-controls__select,
+.global-date-controls__input,
+.sidebar-toggle {
+  padding: 0.7rem 0.95rem !important;
+}
+
+.analytics-row,
+.property-info-panel__row,
+.reports-list__row,
+.website-manager-token,
+.website-manager-preview,
+.website-manager-checklist__item {
+  padding-top: 0.95rem !important;
+  padding-bottom: 0.95rem !important;
+}
+
+.analytics-row__title,
+.property-info-list__title,
+.reputation-review-card__author,
+.website-manager-group__title {
+  font-size: 1rem !important;
+  line-height: 1.35 !important;
+}
+
+.website-manager-field {
+  gap: 0.55rem !important;
+}
+
+.website-manager-field__label,
+.analytics-search-kpi__label,
+.website-manager-token__name,
+.website-manager-preview__label,
+.search-ad-preview__meta,
+.search-ad-preview__footer,
+.search-ad-preview__url {
+  font-size: 0.78rem !important;
+  letter-spacing: 0.08em !important;
+}
+
+.website-manager-field__input,
+.global-date-controls__select,
+.global-date-controls__input,
+.property-selector__select,
+select.website-manager-field__input,
+input.website-manager-field__input,
+textarea.website-manager-field__input {
+  padding: 0.9rem 1rem !important;
+  font-size: 0.95rem !important;
+  line-height: 1.45 !important;
+}
+
+.property-info-table__head,
+.property-info-table__cell,
+.analytics-conversion-table__head,
+.analytics-conversion-table__cell,
+th,
+td {
+  padding: 0.9rem 0.95rem !important;
+}
+
+.property-info-table__head,
+.analytics-conversion-table__head,
+th {
+  font-size: 0.75rem !important;
+  letter-spacing: 0.1em !important;
+}
+
+.search-ad-preview__headline {
+  font-size: 1.2rem !important;
+  line-height: 1.28 !important;
+}
+
+.app-footer-links,
+.legal-links {
+  padding-top: 0.25rem;
+  gap: 1rem !important;
+}
+
+@media (max-width: 900px) {
+  :root {
+    --page-gutter-x: 1.2rem;
+    --page-gutter-y: 1.1rem;
+    --hero-pad: 1.35rem;
+    --panel-pad: 1.05rem;
+  }
+
+  .reports-shell,
+  .property-info-view,
+  .analytics-view,
+  .website-manager-view,
+  .reports-panels,
+  .property-info-panels,
+  .analytics-grid,
+  .website-manager-layout,
+  .website-manager-summary-grid {
+    gap: 1rem !important;
+  }
+
+  .title,
+  .reports-headline,
+  .property-info-headline,
+  .reputation-headline,
+  .analytics-headline,
+  .website-manager-headline {
+    font-size: clamp(2.1rem, 8vw, 3rem) !important;
+  }
+
+  .header {
+    padding: 0 1rem !important;
+  }
+
+  .property-selector__select {
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .property-selector__control,
+  .global-date-controls__control,
+  .global-date-controls__custom-range,
+  .global-date-controls__meta {
+    width: 100%;
+  }
+
+  .global-date-controls {
+    justify-content: stretch !important;
+  }
+}
+
+/* Chart + table component polish */
+.analytics-chart {
+  height: 196px !important;
+  padding: 0.55rem 0.6rem 0.35rem !important;
+  border: 1px solid var(--panel-border) !important;
+  background-color: rgba(15, 30, 35, 0.52) !important;
+}
+
+.analytics-chart--compact {
+  height: 196px !important;
+}
+
+.analytics-panel--light .analytics-chart,
+.analytics-panel--search .analytics-chart,
+.analytics-search-card .analytics-chart {
+  background-color: rgba(15, 30, 35, 0.38) !important;
+}
+
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: transparent !important;
+}
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--panel-border) !important;
+  opacity: 0.6;
+}
+
+.recharts-text tspan {
+  fill: var(--primary-tan);
+  font-size: 11px;
+}
+
+.recharts-yAxis .recharts-text tspan,
+.recharts-xAxis .recharts-text tspan {
+  fill: var(--primary-tan);
+}
+
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+.property-info-table,
+.analytics-conversion-table {
+  border-width: 1px !important;
+  background-color: rgba(15, 30, 35, 0.56) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.property-info-table__head,
+.analytics-conversion-table__head {
+  background-color: rgba(10, 20, 24, 0.92) !important;
+  color: var(--primary-tan) !important;
+}
+
+.property-info-table__cell,
+.analytics-conversion-table__cell {
+  min-height: 76px;
+  align-content: start !important;
+  background-color: rgba(38, 62, 69, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.property-info-table__cell:nth-child(5n + 1),
+.analytics-conversion-table__cell:nth-child(8n + 1) {
+  color: var(--primary-white) !important;
+  font-weight: 600;
+}
+
+.property-info-table__cell:nth-child(5n + 5),
+.analytics-conversion-table__cell:nth-child(8n + 6),
+.analytics-conversion-table__cell:nth-child(8n + 7),
+.analytics-conversion-table__cell:nth-child(8n + 8) {
+  color: var(--primary-tan) !important;
+}
+
+.property-info-table__cell strong,
+.analytics-conversion-table__cell strong,
+.analytics-conversion-table__cell .analytics-row__title {
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+
+.reputation-review-card {
+  gap: 0.85rem !important;
+  border-left: 2px solid var(--surface-line-strong) !important;
+}
+
+.reputation-review-card__top {
+  align-items: baseline;
+}
+
+.reputation-review-card__rating {
+  padding-left: 0.85rem;
+  border-left: 1px solid var(--panel-border);
+}
+
+.reputation-review-card__response {
+  margin-top: 0.1rem;
+}
+
+.search-ad-preview {
+  background-color: rgba(16, 33, 38, 0.92) !important;
+  border-color: var(--panel-border) !important;
+}
+
+.search-ad-preview__meta,
+.search-ad-preview__url,
+.search-ad-preview__footer {
+  color: var(--primary-tan) !important;
+}
+
+.search-ad-preview__headline {
+  color: var(--primary-white) !important;
+  max-width: 26ch;
+}
+
+.search-ad-preview__desc {
+  color: var(--text-soft) !important;
+  max-width: 58ch;
+}
+
+.search-ad-preview__footer {
+  padding-top: 0.35rem;
+  border-top: 1px solid rgba(215, 210, 207, 0.12);
+}
+
+@media (max-width: 900px) {
+  .analytics-chart,
+  .analytics-chart--compact {
+    height: 180px !important;
+    padding: 0.45rem 0.35rem 0.25rem !important;
+  }
+
+  .property-info-table,
+  .analytics-conversion-table {
+    font-size: 0.82rem;
+  }
+}
