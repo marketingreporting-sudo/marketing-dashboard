@@ -106,6 +106,59 @@ def _iso_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
+_SYNC_STATE_COLUMNS = {
+    "id",
+    "active",
+    "completed",
+    "run_date",
+    "phase",
+    "initiated_by",
+    "target_offsets",
+    "property_ids",
+    "raw_start_date",
+    "raw_end_date",
+    "report_start_date",
+    "report_end_date",
+    "raw_day_index",
+    "raw_property_index",
+    "attribution_property_index",
+    "aggregate_property_index",
+    "batch_size",
+    "raw_batch_size",
+    "property_batch_size",
+    "total_days",
+    "next_day_offset",
+    "next_property_index",
+    "last_summary",
+    "last_attribution_results",
+    "last_aggregate_results",
+    "last_processed_count",
+    "last_skipped_count",
+    "last_error_count",
+    "started_at",
+    "completed_at",
+    "last_processed_at",
+    "raw_data",
+    "firestore_path",
+    "created_at",
+    "updated_at",
+}
+
+
+def _normalize_sync_state_row(row: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(row, dict):
+        return {}
+
+    raw_data = row.get("raw_data")
+    context = dict(raw_data) if isinstance(raw_data, dict) else {}
+    for key, value in row.items():
+        if key == "raw_data":
+            continue
+        if value is not None or key not in context:
+            context[key] = value
+    return context
+
+
 def _coerce_date_id(date_str: str) -> str:
     return datetime.datetime.strptime(date_str, "%m/%d/%Y").strftime("%Y-%m-%d")
 
@@ -577,15 +630,33 @@ def property_day_doc_exists(property_id: int, date_id: str) -> bool:
 
 
 def get_sync_state(name: str) -> dict[str, Any]:
-    return _get_row("sync_state", [("id", f"eq.{name}")]) or {}
+    return _normalize_sync_state_row(_get_row("sync_state", [("id", f"eq.{name}")]))
 
 
 def set_sync_state(name: str, patch: dict[str, Any], *, replace: bool = False) -> dict[str, Any]:
     current = {} if replace else get_sync_state(name)
-    row = {**current, **patch, "id": name}
+    state = {**current, **patch, "id": name}
+    if "firestore_path" not in state:
+        state["firestore_path"] = f"_sync_state/{name}"
+
+    raw_data = {}
+    if isinstance(current.get("raw_data"), dict):
+        raw_data.update(current["raw_data"])
+    if isinstance(patch.get("raw_data"), dict):
+        raw_data.update(patch["raw_data"])
+
+    row = {}
+    for key, value in state.items():
+        if key in _SYNC_STATE_COLUMNS:
+            row[key] = value
+        else:
+            raw_data[key] = value
+
+    row["id"] = name
+    row["raw_data"] = raw_data
     if "firestore_path" not in row:
         row["firestore_path"] = f"_sync_state/{name}"
-    return _upsert_row("sync_state", row, "id")
+    return _normalize_sync_state_row(_upsert_row("sync_state", row, "id"))
 
 
 def build_retry_doc_id(job_type: str, property_id: int, date_id: str) -> str:
