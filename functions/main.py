@@ -769,14 +769,16 @@ def make_entrata_request(
         }
     }
     
+    payload_json = json.dumps(payload, separators=(",", ":"))
+
     # Retry up to 3 times with exponential backoff for rate-limiting/SSL errors
     max_retries = 3
     for attempt in range(max_retries):
         try:
             response = requests.post(
-                url, 
-                json=payload, 
-                headers=headers, 
+                url,
+                data=payload_json,
+                headers=headers,
                 timeout=60
             )
             response.raise_for_status()
@@ -804,7 +806,13 @@ def make_entrata_request(
             else: return {}
             
     except Exception as e:
-        print(f"Entrata JSON Parse Error: {str(e)}")
+        response_text = (getattr(response, "text", "") or "")[:500]
+        response_content_type = getattr(response, "headers", {}).get("Content-Type", "")
+        response_status = getattr(response, "status_code", "unknown")
+        print(
+            "Entrata JSON Parse Error: "
+            f"{str(e)} | status={response_status} | content_type={response_content_type} | body={response_text!r}"
+        )
         raise
     
     if include_response_meta:
