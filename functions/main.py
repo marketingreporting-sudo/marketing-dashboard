@@ -750,12 +750,12 @@ def make_entrata_request(
     headers = {
         "Content-Type": "APPLICATION/JSON; CHARSET=UTF-8",
         "X-Api-Key": api_key_stripped,
-        "X-Send-Pagination-Links": "1" if include_pagination else "0",
+        "X-Send-pagination-Links": "1" if include_pagination else "0",
         "Authorization": "Basic " + auth_str,
         "User-Agent": "PostmanRuntime/7.39.1",
         "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
-        "Cache-Control": "no-cache"
     }
     
     # Constructing the payload exactly as the user's example
