@@ -146,6 +146,19 @@ const CHART_TOOLTIP_ITEM_STYLE = {
   padding: 0
 };
 
+const CHART_COLOR_TAN = '#D7D2CF';
+const CHART_COLOR_SECONDARY_TAN = '#B8AA9B';
+const CHART_COLOR_GREEN = '#57886C';
+const CHART_COLOR_PINK = '#E56870';
+const CHART_COLOR_GOLD = '#EE8413';
+const CHART_COLOR_ORANGE = '#FF6416';
+const CHART_GRID_DARK = 'rgba(215, 210, 207, 0.16)';
+const CHART_AXIS_DARK = 'rgba(215, 210, 207, 0.62)';
+const CHART_AXIS_DARK_SOFT = 'rgba(215, 210, 207, 0.4)';
+const CHART_GRID_LIGHT = 'rgba(16, 33, 38, 0.12)';
+const CHART_AXIS_LIGHT = 'rgba(16, 33, 38, 0.58)';
+const CHART_AXIS_LIGHT_SOFT = 'rgba(16, 33, 38, 0.3)';
+
 const collectPrimitiveValues = (value) => {
   if (Array.isArray(value)) {
     return value.flatMap(collectPrimitiveValues);
@@ -2477,11 +2490,11 @@ const DashboardApp = () => {
               <div className="analytics-chart">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <BarChart data={ga4OutcomeChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} interval={0} />
-                    <YAxis stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 11 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
+                    <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar dataKey="value" fill="var(--chart-gold)" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="value" fill={CHART_COLOR_GOLD} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -2490,13 +2503,13 @@ const DashboardApp = () => {
               <div className="analytics-chart">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart data={ga4ConversionByDayChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} />
-                    <YAxis yAxisId="left" stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 11 }} />
-                    <YAxis yAxisId="right" orientation="right" stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 11 }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                    <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                    <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar yAxisId="left" dataKey="keyEvents" fill="var(--chart-green)" radius={[6, 6, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="conversionRate" stroke="var(--chart-secondary-tan)" strokeWidth={2} dot={{ r: 3 }} />
+                    <Bar yAxisId="left" dataKey="keyEvents" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="conversionRate" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_SECONDARY_TAN }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -2566,13 +2579,13 @@ const DashboardApp = () => {
               <div className="analytics-chart analytics-chart--tall">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart data={ga4AcquisitionChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} interval={0} />
-                    <YAxis yAxisId="left" stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 11 }} />
-                    <YAxis yAxisId="right" orientation="right" stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 11 }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
+                    <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                    <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar yAxisId="left" dataKey="sessions" fill="var(--chart-green)" radius={[6, 6, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="engagement" stroke="var(--chart-secondary-tan)" strokeWidth={2} dot={{ r: 3 }} />
+                    <Bar yAxisId="left" dataKey="sessions" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="engagement" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_SECONDARY_TAN }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -2581,12 +2594,12 @@ const DashboardApp = () => {
               <div className="analytics-chart">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart data={ga4TrafficByMonthChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" tick={{ fontSize: 11 }} />
-                    <YAxis stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 11 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                    <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Area type="monotone" dataKey="sessions" stroke="var(--chart-pink)" fill="var(--chart-pink)" fillOpacity={0.16} strokeWidth={2} />
-                    <Line type="monotone" dataKey="newUsers" stroke="var(--chart-secondary-tan)" strokeWidth={2} dot={{ r: 2 }} />
+                    <Area type="monotone" dataKey="sessions" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} strokeWidth={2} />
+                    <Line type="monotone" dataKey="newUsers" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_SECONDARY_TAN }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -2658,12 +2671,12 @@ const DashboardApp = () => {
               <div className="analytics-chart analytics-chart--tall">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <BarChart data={ga4MarketChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.1)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(16,33,38,0.6)" tick={{ fontSize: 11 }} />
-                    <YAxis stroke="rgba(16,33,38,0.3)" tick={{ fontSize: 11 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                    <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar dataKey="users" fill="var(--chart-green)" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="keyEvents" fill="var(--chart-orange)" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="users" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="keyEvents" fill={CHART_COLOR_ORANGE} radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -2720,11 +2733,11 @@ const DashboardApp = () => {
                   <div className="analytics-chart">
                     <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                       <BarChart data={ga4PathStartChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.1)" vertical={false} />
-                        <XAxis dataKey="name" stroke="rgba(16,33,38,0.6)" tick={{ fontSize: 11 }} interval={0} />
-                        <YAxis stroke="rgba(16,33,38,0.3)" tick={{ fontSize: 11 }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                        <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
+                        <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                         <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                        <Bar dataKey="users" fill="var(--chart-green)" radius={[6, 6, 0, 0]} />
+                        <Bar dataKey="users" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -2767,13 +2780,13 @@ const DashboardApp = () => {
               <div className="analytics-chart analytics-chart--tall">
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart data={ga4DiagnosticChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.1)" vertical={false} />
-                    <XAxis dataKey="name" stroke="rgba(16,33,38,0.6)" tick={{ fontSize: 11 }} interval={0} />
-                    <YAxis yAxisId="left" stroke="rgba(16,33,38,0.3)" tick={{ fontSize: 11 }} />
-                    <YAxis yAxisId="right" orientation="right" stroke="rgba(16,33,38,0.3)" tick={{ fontSize: 11 }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                    <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
+                    <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                    <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Area yAxisId="left" type="monotone" dataKey="views" stroke="var(--chart-gold)" fill="var(--chart-gold)" fillOpacity={0.14} strokeWidth={2} />
-                    <Line yAxisId="right" type="monotone" dataKey="engagement" stroke="var(--chart-green)" strokeWidth={2} dot={{ r: 3 }} />
+                    <Area yAxisId="left" type="monotone" dataKey="views" stroke={CHART_COLOR_GOLD} fill={CHART_COLOR_GOLD} fillOpacity={0.14} strokeWidth={2} />
+                    <Line yAxisId="right" type="monotone" dataKey="engagement" stroke={CHART_COLOR_GREEN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_GREEN }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -2892,13 +2905,13 @@ const DashboardApp = () => {
                 <div className="analytics-chart analytics-chart--compact">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <AreaChart data={googleAdsDailyChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
-                      <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="left" stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="right" orientation="right" stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Area yAxisId="left" type="monotone" dataKey="clicks" stroke="var(--chart-gold)" fill="var(--chart-gold)" fillOpacity={0.16} strokeWidth={2} />
-                      <Line yAxisId="right" type="monotone" dataKey="conversions" stroke="var(--chart-orange)" strokeWidth={2} dot={{ r: 2 }} />
+                      <Area yAxisId="left" type="monotone" dataKey="clicks" stroke={CHART_COLOR_GOLD} fill={CHART_COLOR_GOLD} fillOpacity={0.16} strokeWidth={2} />
+                      <Line yAxisId="right" type="monotone" dataKey="conversions" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -2911,12 +2924,12 @@ const DashboardApp = () => {
                 <div className="analytics-chart analytics-chart--compact">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={googleAdsCampaignChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
-                      <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
-                      <YAxis stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Bar dataKey="clicks" fill="var(--chart-gold)" radius={[6, 6, 0, 0]} />
-                      <Bar dataKey="conversions" fill="var(--chart-orange)" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="clicks" fill={CHART_COLOR_GOLD} radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="conversions" fill={CHART_COLOR_ORANGE} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -2947,11 +2960,11 @@ const DashboardApp = () => {
                 <div className="analytics-chart analytics-chart--compact">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={googleAdsKeywordChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" horizontal={false} />
-                      <XAxis type="number" stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
-                      <YAxis type="category" dataKey="name" width={120} stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} horizontal={false} />
+                      <XAxis type="number" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis type="category" dataKey="name" width={120} stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Bar dataKey="clicks" fill="var(--chart-gold)" radius={[0, 6, 6, 0]} />
+                      <Bar dataKey="clicks" fill={CHART_COLOR_GOLD} radius={[0, 6, 6, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -3125,13 +3138,13 @@ const DashboardApp = () => {
                 <div className="analytics-chart analytics-chart--compact">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <AreaChart data={metaAdsDailyChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
-                      <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="left" stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
-                      <YAxis yAxisId="right" orientation="right" stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Area yAxisId="left" type="monotone" dataKey="spend" stroke="var(--chart-pink)" fill="var(--chart-pink)" fillOpacity={0.16} strokeWidth={2} />
-                      <Line yAxisId="right" type="monotone" dataKey="clicks" stroke="var(--chart-orange)" strokeWidth={2} dot={{ r: 2 }} />
+                      <Area yAxisId="left" type="monotone" dataKey="spend" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} strokeWidth={2} />
+                      <Line yAxisId="right" type="monotone" dataKey="clicks" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -3144,11 +3157,11 @@ const DashboardApp = () => {
                 <div className="analytics-chart analytics-chart--compact">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <BarChart data={metaAdsCampaignChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(16,33,38,0.08)" vertical={false} />
-                      <XAxis dataKey="name" stroke="rgba(16,33,38,0.55)" tick={{ fontSize: 11 }} />
-                      <YAxis stroke="rgba(16,33,38,0.28)" tick={{ fontSize: 11 }} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                      <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Bar dataKey="spend" fill="var(--chart-pink)" radius={[8, 8, 0, 0]} barSize={22} />
+                      <Bar dataKey="spend" fill={CHART_COLOR_PINK} radius={[8, 8, 0, 0]} barSize={22} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -3456,9 +3469,9 @@ const DashboardApp = () => {
           <ResponsiveContainer width="100%" height={160} minWidth={0}>
             <BarChart data={leadSourceBreakdown} layout="vertical" margin={{ left: 0, right: 10 }}>
               <XAxis type="number" hide />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: 'var(--primary-tan)' }} />
+              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-              <Bar dataKey="value" fill="var(--chart-orange)" radius={[0, 4, 4, 0]} barSize={14} />
+              <Bar dataKey="value" fill={CHART_COLOR_ORANGE} radius={[0, 4, 4, 0]} barSize={14} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
@@ -3516,13 +3529,13 @@ const DashboardApp = () => {
         {dailyChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={300} minWidth={0}>
             <AreaChart data={dailyChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--panel-border)" vertical={false} />
-              <XAxis dataKey="label" stroke="var(--primary-tan)" tick={{ fontSize: 11 }} />
-              <YAxis stroke="var(--primary-tan)" />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
+              <XAxis dataKey="label" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+              <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fill: CHART_COLOR_TAN }} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-              <Area type="monotone" dataKey="leads" stroke="var(--chart-pink)" fill="var(--chart-pink)" fillOpacity={0.16} name="Leads" />
-              <Area type="monotone" dataKey="applications" stroke="var(--chart-secondary-tan)" fill="var(--chart-secondary-tan)" fillOpacity={0.18} name="Applications" />
-              <Bar dataKey="leases" fill="var(--chart-green)" barSize={6} radius={[4, 4, 0, 0]} name="Leases" />
+              <Area type="monotone" dataKey="leads" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} name="Leads" />
+              <Area type="monotone" dataKey="applications" stroke={CHART_COLOR_SECONDARY_TAN} fill={CHART_COLOR_SECONDARY_TAN} fillOpacity={0.18} name="Applications" />
+              <Bar dataKey="leases" fill={CHART_COLOR_GREEN} barSize={6} radius={[4, 4, 0, 0]} name="Leases" />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
