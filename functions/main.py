@@ -751,12 +751,13 @@ def make_entrata_request(
     headers = {
         "Content-Type": "APPLICATION/JSON; CHARSET=UTF-8",
         "X-Api-Key": api_key_stripped,
-        "X-Send-pagination-Links": "1" if include_pagination else "0",
         "Authorization": "Basic " + auth_str,
         "User-Agent": "PostmanRuntime/7.39.1",
         "Accept": "*/*",
         "Connection": "keep-alive",
     }
+    if include_pagination:
+        headers["X-Send-pagination-Links"] = "1"
     
     # Constructing the payload exactly as the user's example
     payload = {
@@ -3676,15 +3677,15 @@ def fetch_specials(property_id):
 def fetch_units_availability_and_pricing(property_id, move_in_start_date=None, move_in_end_date=None):
     today = get_local_now().date()
     start_date = move_in_start_date or datetime.date(today.year, 1, 1)
-    end_date = move_in_end_date or today
+    end_date = move_in_end_date or datetime.date(today.year, 12, 30)
     params = {
         "propertyId": property_id,
         "availableUnitsOnly": "1",
         "unavailableUnitsOnly": "0",
         "skipPricing": "0",
         "showChildProperties": "1",
-        "includeDisabledFloorplans": "0",
-        "includeDisabledUnits": "0",
+        "includeDisabledFloorplans": "1",
+        "includeDisabledUnits": "1",
         "showUnitSpaces": "1",
         "useSpaceConfiguration": "0",
         "allowLeaseExpirationOverride": "1",
