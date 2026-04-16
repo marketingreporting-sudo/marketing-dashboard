@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
@@ -39,7 +39,7 @@ import {
   Globe
 } from 'lucide-react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   BarChart, Bar, LineChart, Line
 } from 'recharts';
 
@@ -158,6 +158,47 @@ const CHART_AXIS_DARK_SOFT = 'rgba(215, 210, 207, 0.4)';
 const CHART_GRID_LIGHT = 'rgba(16, 33, 38, 0.12)';
 const CHART_AXIS_LIGHT = 'rgba(16, 33, 38, 0.58)';
 const CHART_AXIS_LIGHT_SOFT = 'rgba(16, 33, 38, 0.3)';
+
+const MeasuredChart = ({ className, fixedHeight = null, children }) => {
+  const containerRef = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return undefined;
+
+    const updateSize = () => {
+      const nextWidth = Math.max(0, Math.floor(node.clientWidth));
+      const nextHeight = Math.max(0, Math.floor(fixedHeight ?? node.clientHeight));
+      setSize((previous) => (
+        previous.width === nextWidth && previous.height === nextHeight
+          ? previous
+          : { width: nextWidth, height: nextHeight }
+      ));
+    };
+
+    updateSize();
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => updateSize());
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, [fixedHeight]);
+
+  return (
+    <div
+      ref={containerRef}
+      className={className}
+      style={fixedHeight == null ? undefined : { height: `${fixedHeight}px` }}
+    >
+      {size.width > 0 && size.height > 0 ? children(size) : null}
+    </div>
+  );
+};
 
 const collectPrimitiveValues = (value) => {
   if (Array.isArray(value)) {
@@ -2487,22 +2528,22 @@ const DashboardApp = () => {
         ) : (
           <div className="analytics-stack">
             {ga4OutcomeChartData.length > 0 && (
-              <div className="analytics-chart">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <BarChart data={ga4OutcomeChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              <MeasuredChart className="analytics-chart">
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={ga4OutcomeChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                     <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
                     <Bar dataKey="value" fill={CHART_COLOR_GOLD} radius={[6, 6, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             )}
             {ga4ConversionByDayChartData.length > 0 && (
-              <div className="analytics-chart">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <LineChart data={ga4ConversionByDayChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              <MeasuredChart className="analytics-chart">
+                {({ width, height }) => (
+                  <LineChart width={width} height={height} data={ga4ConversionByDayChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2511,8 +2552,8 @@ const DashboardApp = () => {
                     <Bar yAxisId="left" dataKey="keyEvents" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
                     <Line yAxisId="right" type="monotone" dataKey="conversionRate" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_SECONDARY_TAN }} />
                   </LineChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             )}
             {ga4ConversionEvents.map((item) => (
               <div key={item.eventName} className="analytics-row analytics-row--split">
@@ -2576,9 +2617,9 @@ const DashboardApp = () => {
         ) : (
           <div className="analytics-stack">
             {ga4AcquisitionChartData.length > 0 && (
-              <div className="analytics-chart analytics-chart--tall">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <LineChart data={ga4AcquisitionChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              <MeasuredChart className="analytics-chart analytics-chart--tall">
+                {({ width, height }) => (
+                  <LineChart width={width} height={height} data={ga4AcquisitionChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                     <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2587,13 +2628,13 @@ const DashboardApp = () => {
                     <Bar yAxisId="left" dataKey="sessions" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
                     <Line yAxisId="right" type="monotone" dataKey="engagement" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_SECONDARY_TAN }} />
                   </LineChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             )}
             {ga4TrafficByMonthChartData.length > 0 && (
-              <div className="analytics-chart">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <AreaChart data={ga4TrafficByMonthChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              <MeasuredChart className="analytics-chart">
+                {({ width, height }) => (
+                  <AreaChart width={width} height={height} data={ga4TrafficByMonthChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2601,8 +2642,8 @@ const DashboardApp = () => {
                     <Area type="monotone" dataKey="sessions" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} strokeWidth={2} />
                     <Line type="monotone" dataKey="newUsers" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_SECONDARY_TAN }} />
                   </AreaChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             )}
             {ga4AcquisitionChannels.slice(0, 6).map((item) => (
               <div key={item.channel} className="analytics-row analytics-row--triple">
@@ -2668,9 +2709,9 @@ const DashboardApp = () => {
         ) : (
           <div className="analytics-stack">
             {ga4MarketChartData.length > 0 && (
-              <div className="analytics-chart analytics-chart--tall">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <BarChart data={ga4MarketChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              <MeasuredChart className="analytics-chart analytics-chart--tall">
+                {({ width, height }) => (
+                  <BarChart width={width} height={height} data={ga4MarketChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2678,8 +2719,8 @@ const DashboardApp = () => {
                     <Bar dataKey="users" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
                     <Bar dataKey="keyEvents" fill={CHART_COLOR_ORANGE} radius={[6, 6, 0, 0]} />
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             )}
             {ga4Cities.slice(0, 8).map((item) => (
               <div key={item.city || '(not set)'} className="analytics-row analytics-row--split">
@@ -2730,17 +2771,17 @@ const DashboardApp = () => {
                   Starting at <strong>{ga4PathExploration.startingPoint}</strong> across {formatNumber(ga4PathExploration.startingUsers)} tracked starts.
                 </div>
                 {ga4PathStartChartData.length > 0 && (
-                  <div className="analytics-chart">
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                      <BarChart data={ga4PathStartChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <MeasuredChart className="analytics-chart">
+                    {({ width, height }) => (
+                      <BarChart width={width} height={height} data={ga4PathStartChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                         <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                         <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                         <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
                         <Bar dataKey="users" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
                       </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                    )}
+                  </MeasuredChart>
                 )}
                 <div className="analytics-path-branches">
                   {(ga4PathExploration.branches || []).slice(0, 4).map((branch) => (
@@ -2777,9 +2818,9 @@ const DashboardApp = () => {
               </div>
             )}
             {ga4DiagnosticChartData.length > 0 && (
-              <div className="analytics-chart analytics-chart--tall">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <AreaChart data={ga4DiagnosticChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              <MeasuredChart className="analytics-chart analytics-chart--tall">
+                {({ width, height }) => (
+                  <AreaChart width={width} height={height} data={ga4DiagnosticChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                     <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2788,8 +2829,8 @@ const DashboardApp = () => {
                     <Area yAxisId="left" type="monotone" dataKey="views" stroke={CHART_COLOR_GOLD} fill={CHART_COLOR_GOLD} fillOpacity={0.14} strokeWidth={2} />
                     <Line yAxisId="right" type="monotone" dataKey="engagement" stroke={CHART_COLOR_GREEN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_GREEN }} />
                   </AreaChart>
-                </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             )}
             {ga4TopPages.slice(0, 6).map((item) => (
               <div key={item.pagePath || '(not set)'} className="analytics-row">
@@ -2902,9 +2943,9 @@ const DashboardApp = () => {
                 </span>
               </div>
               {googleAdsDailyChartData.length > 0 && (
-                <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <AreaChart data={googleAdsDailyChartData}>
+                <MeasuredChart className="analytics-chart analytics-chart--compact">
+                  {({ width, height }) => (
+                    <AreaChart width={width} height={height} data={googleAdsDailyChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2913,17 +2954,17 @@ const DashboardApp = () => {
                       <Area yAxisId="left" type="monotone" dataKey="clicks" stroke={CHART_COLOR_GOLD} fill={CHART_COLOR_GOLD} fillOpacity={0.16} strokeWidth={2} />
                       <Line yAxisId="right" type="monotone" dataKey="conversions" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
                     </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                  )}
+                </MeasuredChart>
               )}
             </div>
 
             <div className="analytics-search-card">
               <div className="analytics-panel__eyebrow">Campaign Performance</div>
               {googleAdsCampaignChartData.length > 0 && (
-                <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <BarChart data={googleAdsCampaignChartData}>
+                <MeasuredChart className="analytics-chart analytics-chart--compact">
+                  {({ width, height }) => (
+                    <BarChart width={width} height={height} data={googleAdsCampaignChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2931,8 +2972,8 @@ const DashboardApp = () => {
                       <Bar dataKey="clicks" fill={CHART_COLOR_GOLD} radius={[6, 6, 0, 0]} />
                       <Bar dataKey="conversions" fill={CHART_COLOR_ORANGE} radius={[6, 6, 0, 0]} />
                     </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                  )}
+                </MeasuredChart>
               )}
               <div className="analytics-stack">
                 {googleAdsCampaigns.slice(0, 5).map((item) => (
@@ -2957,17 +2998,17 @@ const DashboardApp = () => {
             <div className="analytics-search-card">
               <div className="analytics-panel__eyebrow">Keyword Breakdown</div>
               {googleAdsKeywordChartData.length > 0 && (
-                <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <BarChart data={googleAdsKeywordChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
+                <MeasuredChart className="analytics-chart analytics-chart--compact">
+                  {({ width, height }) => (
+                    <BarChart width={width} height={height} data={googleAdsKeywordChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} horizontal={false} />
                       <XAxis type="number" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis type="category" dataKey="name" width={120} stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
                       <Bar dataKey="clicks" fill={CHART_COLOR_GOLD} radius={[0, 6, 6, 0]} />
                     </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                  )}
+                </MeasuredChart>
               )}
               <div className="analytics-stack">
                 {googleAdsKeywords.slice(0, 6).map((item) => (
@@ -3135,9 +3176,9 @@ const DashboardApp = () => {
                 )}
               </div>
               {metaAdsDailyChartData.length > 0 && (
-                <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <AreaChart data={metaAdsDailyChartData}>
+                <MeasuredChart className="analytics-chart analytics-chart--compact">
+                  {({ width, height }) => (
+                    <AreaChart width={width} height={height} data={metaAdsDailyChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -3146,25 +3187,25 @@ const DashboardApp = () => {
                       <Area yAxisId="left" type="monotone" dataKey="spend" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} strokeWidth={2} />
                       <Line yAxisId="right" type="monotone" dataKey="clicks" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
                     </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                  )}
+                </MeasuredChart>
               )}
             </div>
 
             <div className="analytics-search-card">
               <div className="analytics-panel__eyebrow">Active Campaigns</div>
               {metaAdsCampaignChartData.length > 0 && (
-                <div className="analytics-chart analytics-chart--compact">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <BarChart data={metaAdsCampaignChartData}>
+                <MeasuredChart className="analytics-chart analytics-chart--compact">
+                  {({ width, height }) => (
+                    <BarChart width={width} height={height} data={metaAdsCampaignChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
                       <Bar dataKey="spend" fill={CHART_COLOR_PINK} radius={[8, 8, 0, 0]} barSize={22} />
                     </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                  )}
+                </MeasuredChart>
               )}
               <div className="analytics-stack">
                 {metaAdsCampaigns.slice(0, 6).map((item) => (
@@ -3466,14 +3507,16 @@ const DashboardApp = () => {
       <div className="card span-2">
         <div className="card-title">Top Lead Sources</div>
         {leadSourceBreakdown.length > 0 ? (
-          <ResponsiveContainer width="100%" height={160} minWidth={0}>
-            <BarChart data={leadSourceBreakdown} layout="vertical" margin={{ left: 0, right: 10 }}>
+          <MeasuredChart className="analytics-chart analytics-chart--compact" fixedHeight={160}>
+            {({ width, height }) => (
+            <BarChart width={width} height={height} data={leadSourceBreakdown} layout="vertical" margin={{ left: 0, right: 10 }}>
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
               <Bar dataKey="value" fill={CHART_COLOR_ORANGE} radius={[0, 4, 4, 0]} barSize={14} />
             </BarChart>
-          </ResponsiveContainer>
+            )}
+          </MeasuredChart>
         ) : (
           <div style={{ opacity: 0.5, fontSize: '0.85rem', marginTop: '1rem' }}>No source data</div>
         )}
@@ -3527,8 +3570,9 @@ const DashboardApp = () => {
           </div>
         </div>
         {dailyChartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={300} minWidth={0}>
-            <AreaChart data={dailyChartData}>
+          <MeasuredChart className="analytics-chart analytics-chart--tall" fixedHeight={300}>
+            {({ width, height }) => (
+            <AreaChart width={width} height={height} data={dailyChartData}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
               <XAxis dataKey="label" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
               <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fill: CHART_COLOR_TAN }} />
@@ -3537,7 +3581,8 @@ const DashboardApp = () => {
               <Area type="monotone" dataKey="applications" stroke={CHART_COLOR_SECONDARY_TAN} fill={CHART_COLOR_SECONDARY_TAN} fillOpacity={0.18} name="Applications" />
               <Bar dataKey="leases" fill={CHART_COLOR_GREEN} barSize={6} radius={[4, 4, 0, 0]} name="Leases" />
             </AreaChart>
-          </ResponsiveContainer>
+            )}
+          </MeasuredChart>
         ) : (
           <div style={{ color: 'var(--primary-tan)', opacity: 0.5, textAlign: 'center', paddingTop: '4rem' }}>
             {loading ? 'Loading chart data…' : 'No data for this date range'}
