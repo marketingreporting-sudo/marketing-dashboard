@@ -129,6 +129,42 @@ ALL_MARKETING_GL_CODES = {
 _GA4_CREDENTIALS_CACHE = None
 
 
+def _parse_service_account_info(raw_credentials):
+    candidates = []
+    stripped = str(raw_credentials or "").strip()
+    if not stripped:
+        return None
+
+    candidates.append(stripped)
+
+    # Some hosts end up storing the JSON blob as a quoted string. If so, peel
+    # the outer layer and try to parse the decoded payload as the real object.
+    try:
+        decoded = json.loads(stripped)
+        if isinstance(decoded, dict):
+            return decoded
+        if isinstance(decoded, str):
+            candidates.append(decoded.strip())
+    except json.JSONDecodeError:
+        pass
+
+    if len(stripped) >= 2 and stripped[0] == stripped[-1] and stripped[0] in {"'", '"'}:
+        candidates.append(stripped[1:-1].strip())
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            try:
+                return json.loads(candidate.encode("utf-8").decode("unicode_escape"))
+            except Exception:
+                continue
+
+    raise ValueError("GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON.")
+
+
 def get_ga4_credentials():
     global _GA4_CREDENTIALS_CACHE
     if _GA4_CREDENTIALS_CACHE is not None:
@@ -141,12 +177,7 @@ def get_ga4_credentials():
     if not raw_credentials:
         return None
 
-    try:
-        info = json.loads(raw_credentials)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON."
-        ) from exc
+    info = _parse_service_account_info(raw_credentials)
 
     _GA4_CREDENTIALS_CACHE = service_account.Credentials.from_service_account_info(info)
     return _GA4_CREDENTIALS_CACHE

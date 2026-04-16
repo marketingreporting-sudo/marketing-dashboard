@@ -31,11 +31,15 @@ def create_app() -> Flask:
     app = Flask(__name__)
     install_render_storage_overrides()
 
-    def build_cors_json_response(payload: dict, status_code: int = 200):
-        response = make_response(jsonify(payload), status_code)
+    @app.after_request
+    def apply_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+        return response
+
+    def build_cors_json_response(payload: dict, status_code: int = 200):
+        response = make_response(jsonify(payload), status_code)
         return response
 
     @app.get("/")

@@ -2389,6 +2389,7 @@ body {
 .website-manager-token,
 .website-manager-preview,
 .website-manager-checklist__item {
+  min-width: 0;
   color: var(--text-main);
   border: 1px solid var(--panel-border);
   background: var(--panel-soft);
@@ -3979,6 +3980,8 @@ th {
 /* Chart + table component polish */
 .analytics-chart {
   height: 196px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
   padding: 0.55rem 0.6rem 0.35rem !important;
   border: 1px solid var(--panel-border) !important;
   background-color: rgba(15, 30, 35, 0.52) !important;
@@ -3997,6 +4000,15 @@ th {
 .recharts-cartesian-axis-line,
 .recharts-cartesian-axis-tick-line {
   stroke: transparent !important;
+}
+
+.grid-layout > *,
+.analytics-grid > *,
+.reports-panels > *,
+.property-info-panels > *,
+.website-manager-layout > *,
+.website-manager-summary-grid > * {
+  min-width: 0;
 }
 
 .recharts-cartesian-grid-horizontal line,
