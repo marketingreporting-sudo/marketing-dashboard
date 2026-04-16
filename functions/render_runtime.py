@@ -1351,9 +1351,31 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
     elif job_name == "fetch_daily_entrata_availability":
         result = legacy.fetch_availability_for_date(default_property_id, today_str)
     elif job_name == "sync_daily_entrata_specials":
-        result = [legacy.fetch_specials(property_id) for property_id in property_ids]
+        result = []
+        for property_id in property_ids:
+            try:
+                result.append(legacy.fetch_specials(property_id))
+            except Exception as error:
+                result.append(
+                    {
+                        "property_id": property_id,
+                        "changed": False,
+                        "error": str(error),
+                    }
+                )
     elif job_name == "sync_daily_entrata_units_availability_pricing":
-        result = [legacy.fetch_units_availability_and_pricing(property_id) for property_id in property_ids]
+        result = []
+        for property_id in property_ids:
+            try:
+                result.append(legacy.fetch_units_availability_and_pricing(property_id))
+            except Exception as error:
+                result.append(
+                    {
+                        "property_id": property_id,
+                        "changed": False,
+                        "error": str(error),
+                    }
+                )
     elif job_name == "sync_daily_entrata_lease_attribution":
         result = sync_lease_attribution(property_ids)
     elif job_name == "aggregate_daily_roi":
