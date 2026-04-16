@@ -42,11 +42,19 @@ def _request_json(
         data=data,
         method=method,
     )
-    with urlopen(request, timeout=60) as response:
-        body = response.read().decode("utf-8")
-        if not body:
-            return None
-        return json.loads(body)
+    try:
+        with urlopen(request, timeout=60) as response:
+            body = response.read().decode("utf-8")
+            if not body:
+                return None
+            return json.loads(body)
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")[:1000]
+        print(
+            f"Supabase HTTPError table={table_name} method={method} "
+            f"query_params={query_params or []} status={error.code} body={body!r}"
+        )
+        raise
 
 
 def _get_row(table_name: str, filters: list[tuple[str, str]]) -> dict[str, Any] | None:
@@ -880,7 +888,17 @@ def sync_lease_attribution(property_ids: list[int], start_date: datetime.date | 
         start_date = end_date - datetime.timedelta(days=max(legacy.LEASE_ATTRIBUTION_LOOKBACK_DAYS - 1, 0))
     results = []
     for property_id in property_ids:
-        results.append(sync_lease_attribution_for_property(property_id, start_date, end_date))
+        try:
+            results.append(sync_lease_attribution_for_property(property_id, start_date, end_date))
+        except Exception as error:
+            results.append(
+                {
+                    "property_id": property_id,
+                    "error": str(error),
+                    "queried_move_in_start": legacy.serialize_date(start_date),
+                    "queried_move_in_end": legacy.serialize_date(end_date),
+                }
+            )
         time.sleep(2)
     return results
 
