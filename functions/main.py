@@ -797,7 +797,7 @@ def make_entrata_request(
         raw_content = response.content or b""
         content_encoding = (response.headers.get("Content-Encoding", "") or "").lower()
 
-        if raw_content.startswith(b"\x1f\x8b") or "gzip" in content_encoding:
+        if raw_content.startswith(b"\x1f\x8b"):
             decoded_text = gzip.decompress(raw_content).decode(response.encoding or "utf-8")
             data = json.loads(decoded_text)
         else:
