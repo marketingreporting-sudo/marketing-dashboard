@@ -32,7 +32,7 @@ Current status:
 Staging prep tasks:
 
 - Create a Render web service from the staged adapter layer
-- Create Render cron job placeholders for the scheduled jobs that currently run in Firebase
+- Create and verify Render cron jobs for the scheduled jobs that currently run in Firebase
 - Add backend environment variables in Render, but do not disable Firebase jobs yet
 - Decide whether the first Render backend step will be:
   - a Flask/FastAPI adapter around existing logic, or
@@ -44,7 +44,7 @@ Recommended future service split:
 - Scheduled cron jobs
 - Optional worker/service for long-running backfills
 
-Cron candidates to recreate later on Render:
+Cron candidates to recreate on Render:
 
 - daily Entrata leads/events/leases/invoices/availability syncs
 - specials sync
@@ -66,7 +66,7 @@ Cron candidates to recreate later on Render:
 - Use `npm run build`
 - Use output directory `dist`
 - Add the browser-safe `VITE_*` environment variables
-- Keep Firebase client config present during transition
+- Remove Firebase client config from Vercel once backend dependencies are also cleared
 - Optionally point the endpoint override variables at staging Render APIs later
 
 ## 5. Validation before any cutover
@@ -78,6 +78,6 @@ Cron candidates to recreate later on Render:
 - Supabase schema is applied
 - Firestore export + migration utility runs in a staging environment
 - Render service plan is finalized
-- Render cron mapping is reviewed
+- Render cron mapping is reviewed and `render_cron.py` commands are configured
 - No secrets are committed
 - Firebase remains intact until explicit cutover approval

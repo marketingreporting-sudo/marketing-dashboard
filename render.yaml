@@ -5,3 +5,108 @@ services:
     rootDir: functions
     buildCommand: pip install -r requirements-render.txt
     startCommand: gunicorn render_wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 120
+  - type: cron
+    name: data-analysis-fetch-daily-entrata-leads
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py fetch_daily_entrata_leads
+    schedule: "0 2 * * *"
+  - type: cron
+    name: data-analysis-fetch-daily-entrata-events
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py fetch_daily_entrata_events
+    schedule: "0 2 * * *"
+  - type: cron
+    name: data-analysis-fetch-daily-entrata-leases
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py fetch_daily_entrata_leases
+    schedule: "0 2 * * *"
+  - type: cron
+    name: data-analysis-fetch-daily-entrata-invoices
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py fetch_daily_entrata_invoices
+    schedule: "0 2 * * *"
+  - type: cron
+    name: data-analysis-fetch-daily-entrata-availability
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py fetch_daily_entrata_availability
+    schedule: "0 2 * * *"
+  - type: cron
+    name: data-analysis-sync-daily-entrata-specials
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py sync_daily_entrata_specials
+    schedule: "10 1 * * *"
+  - type: cron
+    name: data-analysis-sync-daily-entrata-units-availability-pricing
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py sync_daily_entrata_units_availability_pricing
+    schedule: "20 1 * * *"
+  - type: cron
+    name: data-analysis-sync-daily-entrata-lease-attribution
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py sync_daily_entrata_lease_attribution
+    schedule: "30 2 * * *"
+  - type: cron
+    name: data-analysis-aggregate-daily-roi
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py aggregate_daily_roi
+    schedule: "0 3 * * *"
+  - type: cron
+    name: data-analysis-start-daily-roi-pipeline
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py start_daily_roi_pipeline
+    schedule: "0 2 * * *"
+  - type: cron
+    name: data-analysis-run-roi-pipeline-jobs
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py run_roi_pipeline_jobs
+    schedule: "*/5 * * * *"
+  - type: cron
+    name: data-analysis-run-background-entrata-backfill
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py run_background_entrata_backfill
+    schedule: "* * * * *"
+  - type: cron
+    name: data-analysis-run-daily-entrata-refresh
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py run_daily_entrata_refresh
+    schedule: "20 * * * *"
+  - type: cron
+    name: data-analysis-run-entrata-retry-queue
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py run_entrata_retry_queue
+    schedule: "2-59/5 * * * *"
+  - type: cron
+    name: data-analysis-weekly-site-audit
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py weekly_site_audit
+    schedule: "0 3 * * 1"

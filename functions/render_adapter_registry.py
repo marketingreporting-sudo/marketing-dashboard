@@ -7,6 +7,7 @@ class HttpEndpointSpec:
     methods: tuple[str, ...]
     firebase_handler: str
     purpose: str
+    render_handler: str | None = None
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class CronJobSpec:
     schedule: str
     firebase_handler: str
     purpose: str
+    render_command: str | None = None
 
 
 HTTP_ENDPOINT_SPECS = (
@@ -23,54 +25,63 @@ HTTP_ENDPOINT_SPECS = (
         methods=("POST",),
         firebase_handler="trigger_entrata_backfill",
         purpose="Manual Entrata backfill trigger.",
+        render_handler="trigger_entrata_backfill",
     ),
     HttpEndpointSpec(
         route="/api/entrata/background-backfill/run",
         methods=("POST",),
         firebase_handler="trigger_background_backfill_batch",
         purpose="Run one background backfill batch.",
+        render_handler="run_named_cron_job(run_background_entrata_backfill)",
     ),
     HttpEndpointSpec(
         route="/api/entrata/daily-refresh/run",
         methods=("POST",),
         firebase_handler="trigger_daily_refresh_batch",
         purpose="Run one daily refresh batch.",
+        render_handler="run_named_cron_job(run_daily_entrata_refresh)",
     ),
     HttpEndpointSpec(
         route="/api/entrata/retry-queue/run",
         methods=("POST",),
         firebase_handler="trigger_retry_queue_batch",
         purpose="Run one retry queue batch.",
+        render_handler="run_named_cron_job(run_entrata_retry_queue)",
     ),
     HttpEndpointSpec(
         route="/api/entrata/specials/sync",
         methods=("POST",),
         firebase_handler="sync_entrata_specials",
         purpose="Sync Entrata specials.",
+        render_handler="run_named_cron_job(sync_daily_entrata_specials)",
     ),
     HttpEndpointSpec(
         route="/api/entrata/availability-pricing/sync",
         methods=("POST",),
         firebase_handler="sync_entrata_units_availability_pricing",
         purpose="Sync Entrata availability and pricing snapshots.",
+        render_handler="run_named_cron_job(sync_daily_entrata_units_availability_pricing)",
     ),
     HttpEndpointSpec(
         route="/api/entrata/lease-attribution/sync",
         methods=("POST",),
         firebase_handler="sync_entrata_lease_attribution",
         purpose="Sync normalized lease attribution data.",
+        render_handler="run_named_cron_job(sync_daily_entrata_lease_attribution)",
     ),
     HttpEndpointSpec(
         route="/api/roi/aggregate",
         methods=("POST",),
         firebase_handler="aggregate_live_roi",
         purpose="Aggregate ROI into property daily reporting rows.",
+        render_handler="run_named_cron_job(aggregate_daily_roi)",
     ),
     HttpEndpointSpec(
         route="/api/roi/ytd-backfill",
         methods=("POST",),
         firebase_handler="start_ytd_roi_backfill",
         purpose="Launch the YTD ROI backfill pipeline.",
+        render_handler="run_named_cron_job(start_daily_roi_pipeline)",
     ),
     HttpEndpointSpec(
         route="/api/entrata/sync-state",
@@ -101,24 +112,35 @@ HTTP_ENDPOINT_SPECS = (
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="get_ga4_dashboard_data",
         purpose="Fetch GA4 dashboard payloads and cache them.",
+        render_handler="fetch_and_store_ga4_dashboard",
     ),
     HttpEndpointSpec(
         route="/api/analytics/google-ads",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="get_google_ads_dashboard_data",
         purpose="Fetch Google Ads dashboard payloads and cache them.",
+        render_handler="fetch_and_store_google_ads_dashboard",
     ),
     HttpEndpointSpec(
         route="/api/analytics/meta-ads",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="get_meta_ads_dashboard_data",
         purpose="Fetch Meta Ads dashboard payloads and cache them.",
+        render_handler="fetch_and_store_meta_ads_dashboard",
     ),
     HttpEndpointSpec(
         route="/api/analytics/reputation",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="get_reputation_dashboard_data",
         purpose="Fetch Opiniion reputation dashboard payloads and cache them.",
+        render_handler="fetch_and_store_reputation_dashboard",
+    ),
+    HttpEndpointSpec(
+        route="/api/cron/run",
+        methods=("POST", "OPTIONS"),
+        firebase_handler="not_available_in_firebase",
+        purpose="Run a named cron job through the Render runtime.",
+        render_handler="run_named_cron_job",
     ),
     HttpEndpointSpec(
         route="/api/reporting/property-overview",
@@ -153,90 +175,105 @@ CRON_JOB_SPECS = (
         schedule="0 2 * * * America/Denver",
         firebase_handler="fetch_daily_entrata_leads_scheduled",
         purpose="Daily lead sync.",
+        render_command="python render_cron.py fetch_daily_entrata_leads",
     ),
     CronJobSpec(
         name="fetch_daily_entrata_events",
         schedule="0 2 * * * America/Denver",
         firebase_handler="fetch_daily_entrata_events_scheduled",
         purpose="Daily events sync.",
+        render_command="python render_cron.py fetch_daily_entrata_events",
     ),
     CronJobSpec(
         name="fetch_daily_entrata_leases",
         schedule="0 2 * * * America/Denver",
         firebase_handler="fetch_daily_entrata_leases_scheduled",
         purpose="Daily leases sync.",
+        render_command="python render_cron.py fetch_daily_entrata_leases",
     ),
     CronJobSpec(
         name="fetch_daily_entrata_invoices",
         schedule="0 2 * * * America/Denver",
         firebase_handler="fetch_daily_entrata_invoices_scheduled",
         purpose="Daily invoices sync.",
+        render_command="python render_cron.py fetch_daily_entrata_invoices",
     ),
     CronJobSpec(
         name="fetch_daily_entrata_availability",
         schedule="0 2 * * * America/Denver",
         firebase_handler="fetch_daily_entrata_availability_scheduled",
         purpose="Daily availability sync.",
+        render_command="python render_cron.py fetch_daily_entrata_availability",
     ),
     CronJobSpec(
         name="sync_daily_entrata_specials",
         schedule="10 1 * * * America/Denver",
         firebase_handler="sync_daily_entrata_specials_scheduled",
         purpose="Daily specials sync.",
+        render_command="python render_cron.py sync_daily_entrata_specials",
     ),
     CronJobSpec(
         name="sync_daily_entrata_units_availability_pricing",
         schedule="20 1 * * * America/Denver",
         firebase_handler="sync_daily_entrata_units_availability_pricing_scheduled",
         purpose="Daily availability pricing sync.",
+        render_command="python render_cron.py sync_daily_entrata_units_availability_pricing",
     ),
     CronJobSpec(
         name="sync_daily_entrata_lease_attribution",
         schedule="30 2 * * * America/Denver",
         firebase_handler="sync_daily_entrata_lease_attribution_scheduled",
         purpose="Daily lease attribution sync.",
+        render_command="python render_cron.py sync_daily_entrata_lease_attribution",
     ),
     CronJobSpec(
         name="aggregate_daily_roi",
         schedule="0 3 * * * America/Denver",
         firebase_handler="aggregate_daily_roi_scheduled",
         purpose="Daily ROI aggregation.",
+        render_command="python render_cron.py aggregate_daily_roi",
     ),
     CronJobSpec(
         name="start_daily_roi_pipeline",
         schedule="0 2 * * * America/Denver",
         firebase_handler="start_daily_roi_pipeline_scheduled",
         purpose="Launch the daily ROI pipeline.",
+        render_command="python render_cron.py start_daily_roi_pipeline",
     ),
     CronJobSpec(
         name="run_roi_pipeline_jobs",
         schedule="*/5 * * * * America/Denver",
         firebase_handler="run_roi_pipeline_jobs_scheduled",
         purpose="Advance ROI pipeline jobs.",
+        render_command="python render_cron.py run_roi_pipeline_jobs",
     ),
     CronJobSpec(
         name="run_background_entrata_backfill",
         schedule="* * * * * America/Denver",
         firebase_handler="run_background_entrata_backfill_scheduled",
         purpose="Advance background backfill work.",
+        render_command="python render_cron.py run_background_entrata_backfill",
     ),
     CronJobSpec(
         name="run_daily_entrata_refresh",
         schedule="20 * * * * America/Denver",
         firebase_handler="run_daily_entrata_refresh_scheduled",
         purpose="Advance the daily refresh job.",
+        render_command="python render_cron.py run_daily_entrata_refresh",
     ),
     CronJobSpec(
         name="run_entrata_retry_queue",
         schedule="2-59/5 * * * * America/Denver",
         firebase_handler="run_entrata_retry_queue_scheduled",
         purpose="Advance the retry queue.",
+        render_command="python render_cron.py run_entrata_retry_queue",
     ),
     CronJobSpec(
         name="weekly_site_audit",
         schedule="0 3 * * 1 America/Denver",
         firebase_handler="weekly_site_audit_scheduled",
         purpose="Weekly marketing site audit.",
+        render_command="python render_cron.py weekly_site_audit",
     ),
 )
 

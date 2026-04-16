@@ -106,11 +106,15 @@ The staged Render web service can now use:
 
 There is also a staging Render blueprint at `render.yaml`.
 
-## What this adapter intentionally does not do yet
+## Current staged capabilities
 
-- it does not replace Firebase HTTP handlers
-- it does not run scheduled business logic
-- it does not move Firestore persistence to Supabase
-- it does not change production traffic
+- it serves staged admin and reporting routes from Supabase
+- it runs staged analytics fetch-and-cache handlers for GA4, Google Ads, Meta Ads, and Opiniion
+- it includes a Render cron CLI entrypoint for Entrata, attribution, ROI, refresh, and retry jobs
+- it defines Render cron services in `render.yaml`
 
-That work should come in the next stage, once you are ready to map selected Firebase handlers into Render-native routes one by one.
+## What still remains before full Firebase shutdown
+
+- any backend jobs that have not yet been ported into the Render runtime
+- any Firestore-dependent utilities that still sit outside the staged adapter
+- final production cutover sequencing and secret cleanup

@@ -1,6 +1,6 @@
 const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 
-const RENDER_API_BASE_URL = trimTrailingSlash(import.meta.env.VITE_RENDER_API_BASE_URL || '');
+export const RENDER_API_BASE_URL = trimTrailingSlash(import.meta.env.VITE_RENDER_API_BASE_URL || '');
 
 const resolveApiUrl = (explicitUrl, renderPath, productionFallback = '') => {
   if (explicitUrl) {

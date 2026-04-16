@@ -1183,6 +1183,21 @@ td {
   backdrop-filter: blur(6px);
 }
 
+.analytics-chip--staged {
+  background: rgba(115, 201, 140, 0.2);
+  border-color: rgba(150, 231, 173, 0.45);
+}
+
+.analytics-chip--fallback {
+  background: rgba(235, 186, 92, 0.18);
+  border-color: rgba(245, 207, 131, 0.42);
+}
+
+.analytics-chip--error {
+  background: rgba(192, 77, 77, 0.2);
+  border-color: rgba(235, 124, 124, 0.45);
+}
+
 .analytics-kpis {
   position: relative;
   z-index: 1;

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { db } from './firebase';
 import {
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
@@ -22,7 +21,6 @@ import {
   resolveMustacheTokens
 } from './websiteManager';
 import loaderMark from './assets/redstone_logo_loader.svg';
-import { collection, query, orderBy, onSnapshot, where, Timestamp, getDocs, getDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -599,6 +597,11 @@ const getSnapshotTimestampLabel = (value) => {
   return parsed.toLocaleString();
 };
 
+const isRenderAdapterUrl = (value) => {
+  if (!value || !RENDER_API_BASE_URL) return false;
+  return String(value).startsWith(RENDER_API_BASE_URL);
+};
+
 const isStartedApplicationEvent = (event) => {
   const reason = String(event.eventReason || event.type || '').toLowerCase();
   return event.typeId === 12 && (
@@ -859,7 +862,7 @@ const DashboardApp = () => {
   const [roiDailyItems, setRoiDailyItems] = useState([]);
   const reportingUsesStagedOverview = Boolean(PROPERTY_REPORTING_OVERVIEW_URL);
   const [reportingDataSource, setReportingDataSource] = useState(() => (
-    reportingUsesStagedOverview ? 'loading' : 'firebase'
+    reportingUsesStagedOverview ? 'loading' : 'error'
   ));
   const [roiPipelineStatus, setRoiPipelineStatus] = useState(null);
   const [ga4Data, setGa4Data] = useState(null);
@@ -872,6 +875,13 @@ const DashboardApp = () => {
   const [reputationError, setReputationError] = useState(null);
   const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
   const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
+  const analyticsEndpointsConfigured = Boolean(
+    GA4_DASHBOARD_URL && GOOGLE_ADS_DASHBOARD_URL && META_ADS_DASHBOARD_URL && REPUTATION_DASHBOARD_URL
+  );
+  const analyticsUsesRenderAdapter = useMemo(
+    () => [GA4_DASHBOARD_URL, GOOGLE_ADS_DASHBOARD_URL, META_ADS_DASHBOARD_URL, REPUTATION_DASHBOARD_URL].every(isRenderAdapterUrl),
+    []
+  );
   const selectedProperty = useMemo(() => {
     const base = PROPERTY_CATALOG_BY_ID[selectedPropertyId];
     if (!base) return base;
@@ -882,15 +892,6 @@ const DashboardApp = () => {
     }
     return base;
   }, [selectedPropertyId]);
-  const websiteManagerDocRef = useMemo(
-    () => doc(db, 'properties', String(selectedPropertyId), 'website_manager', 'current'),
-    [selectedPropertyId]
-  );
-  const reportingLayoutDocRef = useMemo(
-    () => doc(db, 'properties', String(selectedPropertyId), 'reporting_layout', 'current'),
-    [selectedPropertyId]
-  );
-
   // Derived Date Range
   const rangeDates = useMemo(() => {
     const end = new Date();
@@ -925,20 +926,25 @@ const DashboardApp = () => {
     return { start, end };
   }, [dateRange, customRange]);
 
-  const invoiceFetchRange = useMemo(() => {
-    const start = new Date(rangeDates.start.getFullYear(), rangeDates.start.getMonth(), 1);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(rangeDates.end.getFullYear(), rangeDates.end.getMonth() + 1, 0);
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
-  }, [rangeDates]);
-
   useEffect(() => {
     let cancelled = false;
 
     const loadPropertyOverview = async () => {
       if (!reportingUsesStagedOverview) {
-        setReportingDataSource('firebase');
+        setParentDocs([]);
+        setLeadItems([]);
+        setEventItems([]);
+        setInvoiceItems([]);
+        setAvailabilityItems([]);
+        setAvailabilityPricingSnapshot(null);
+        setSpecialsSnapshot(null);
+        setLatestAvailabilityDate(null);
+        setRoiDailyItems([]);
+        setReportingDataSource('error');
+        setLoading(false);
+        setInvoiceLoading(false);
+        setPropertyInfoLoading(false);
+        setRoiLoading(false);
         return;
       }
 
@@ -1003,202 +1009,52 @@ const DashboardApp = () => {
     };
   }, [rangeDates, selectedPropertyId, reportingUsesStagedOverview]);
 
-  // Fetch real data from Firestore
   useEffect(() => {
-    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
+    let cancelled = false;
 
-    setLoading(true);
-    const startTs = Timestamp.fromDate(rangeDates.start);
-    const endTs = Timestamp.fromDate(rangeDates.end);
-
-    // 1. Fetch parent docs (property_data) for date range
-    const parentQuery = query(
-      collection(db, 'property_data'),
-      where('activity_date', '>=', startTs),
-      where('activity_date', '<=', endTs),
-      orderBy('activity_date', 'asc')
-    );
-
-    const unsubParent = onSnapshot(
-      parentQuery,
-      async (snapshot) => {
-        const parents = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() }))
-          .filter((parent) => String(parent.property_id) === selectedPropertyId);
-        setParentDocs(parents);
-
-        // For each parent doc, fetch subcollection data
-        const allLeads = [];
-        const allEvents = [];
-
-        for (const parent of parents) {
-          try {
-            // Leads
-            const leadsSnap = await getDocs(collection(db, 'property_data', parent.id, 'leads'));
-            leadsSnap.docs.forEach(doc => {
-              const d = doc.data();
-              allLeads.push({ ...d.data, _date: parent.date, _parentId: parent.id });
-            });
-
-            // Lead events
-            const eventsSnap = await getDocs(collection(db, 'property_data', parent.id, 'events'));
-            eventsSnap.docs.forEach(doc => {
-              const d = doc.data();
-              allEvents.push({ ...d.data, _date: parent.date, _parentId: parent.id });
-            });
-          } catch (err) {
-            console.warn('Error fetching subcollections for', parent.id, err);
-          }
-        }
-
-        setLeadItems(allLeads);
-        setEventItems(allEvents);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Parent property_data subscription failed', error);
-        setParentDocs([]);
-        setLeadItems([]);
-        setEventItems([]);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubParent();
-  }, [rangeDates, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
-
-  useEffect(() => {
-    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
-
-    setInvoiceLoading(true);
-    const startTs = Timestamp.fromDate(invoiceFetchRange.start);
-    const endTs = Timestamp.fromDate(invoiceFetchRange.end);
-
-    const invoiceParentQuery = query(
-      collection(db, 'property_data'),
-      where('activity_date', '>=', startTs),
-      where('activity_date', '<=', endTs),
-      orderBy('activity_date', 'asc')
-    );
-
-    const unsubInvoices = onSnapshot(
-      invoiceParentQuery,
-      async (snapshot) => {
-        const parents = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((parent) => String(parent.property_id) === selectedPropertyId);
-        const allInvoices = [];
-
-        for (const parent of parents) {
-          try {
-            const invoicesSnap = await getDocs(collection(db, 'property_data', parent.id, 'invoices'));
-            invoicesSnap.docs.forEach((doc) => {
-              const d = doc.data();
-              allInvoices.push({ ...d.data, _date: parent.date, _parentId: parent.id });
-            });
-          } catch (err) {
-            console.warn('Error fetching invoices for', parent.id, err);
-          }
-        }
-
-        setInvoiceItems(allInvoices);
-        setInvoiceLoading(false);
-      },
-      (error) => {
-        console.error('Invoice property_data subscription failed', error);
-        setInvoiceItems([]);
-        setInvoiceLoading(false);
-      }
-    );
-
-    return () => unsubInvoices();
-  }, [invoiceFetchRange, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
-
-  useEffect(() => {
-    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
-
-    setPropertyInfoLoading(true);
-    const specialsRef = doc(db, 'properties', String(selectedPropertyId), 'specials', 'current');
-
-    const unsubscribe = onSnapshot(
-      specialsRef,
-      (snapshot) => {
-        setSpecialsSnapshot(snapshot.exists() ? snapshot.data() : null);
-        setPropertyInfoLoading(false);
-      },
-      (error) => {
-        console.error('Specials subscription failed', error);
-        setSpecialsSnapshot(null);
-        setPropertyInfoLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
-
-  useEffect(() => {
-    if (websiteManagerUsesStagedAdapter) {
-      let cancelled = false;
-
-      const loadWebsiteManager = async () => {
-        setWebsiteManagerLoading(true);
-        setWebsiteManagerError(null);
-        setWebsiteManagerNotice(null);
-
-        try {
-          const params = new URLSearchParams({ property_id: selectedPropertyId });
-          const response = await fetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
-          const payload = await response.json();
-          if (!response.ok || payload?.status === 'error') {
-            throw new Error(payload?.error || `Website manager fetch failed: ${response.status}`);
-          }
-
-          if (cancelled) return;
-
-          const normalized = normalizeWebsiteManagerRecord(payload.record);
-          setWebsiteManagerDoc(normalized);
-          setWebsiteManagerDraft(normalized);
-          setWebsiteManagerLoading(false);
-        } catch (error) {
-          console.error('Website manager staged fetch failed', error);
-          if (cancelled) return;
-          const fallback = normalizeWebsiteManagerRecord(null);
-          setWebsiteManagerDoc(fallback);
-          setWebsiteManagerDraft(fallback);
-          setWebsiteManagerError('Unable to load website manager content from the staged adapter.');
-          setWebsiteManagerLoading(false);
-        }
-      };
-
-      loadWebsiteManager();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setWebsiteManagerLoading(true);
-    setWebsiteManagerError(null);
-    setWebsiteManagerNotice(null);
-
-    const unsubscribe = onSnapshot(
-      websiteManagerDocRef,
-      (snapshot) => {
-        const normalized = normalizeWebsiteManagerRecord(snapshot.exists() ? snapshot.data() : null);
-        setWebsiteManagerDoc(normalized);
-        setWebsiteManagerDraft(normalized);
-        setWebsiteManagerLoading(false);
-      },
-      (error) => {
-        console.error('Website manager subscription failed', error);
+    const loadWebsiteManager = async () => {
+      if (!websiteManagerUsesStagedAdapter) {
         const fallback = normalizeWebsiteManagerRecord(null);
         setWebsiteManagerDoc(fallback);
         setWebsiteManagerDraft(fallback);
-        setWebsiteManagerError('Unable to load saved website manager content for this property yet.');
+        setWebsiteManagerError('Website manager endpoint is not configured.');
+        setWebsiteManagerLoading(false);
+        return;
+      }
+
+      setWebsiteManagerLoading(true);
+      setWebsiteManagerError(null);
+      setWebsiteManagerNotice(null);
+
+      try {
+        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const response = await fetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Website manager fetch failed: ${response.status}`);
+        }
+
+        if (cancelled) return;
+
+        const normalized = normalizeWebsiteManagerRecord(payload.record);
+        setWebsiteManagerDoc(normalized);
+        setWebsiteManagerDraft(normalized);
+        setWebsiteManagerLoading(false);
+      } catch (error) {
+        console.error('Website manager staged fetch failed', error);
+        if (cancelled) return;
+        const fallback = normalizeWebsiteManagerRecord(null);
+        setWebsiteManagerDoc(fallback);
+        setWebsiteManagerDraft(fallback);
+        setWebsiteManagerError('Unable to load website manager content from the staged adapter.');
         setWebsiteManagerLoading(false);
       }
-    );
+    };
 
-    return () => unsubscribe();
+    loadWebsiteManager();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedPropertyId, websiteManagerUsesStagedAdapter]);
 
   useEffect(() => {
@@ -1212,171 +1068,52 @@ const DashboardApp = () => {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    if (reportingLayoutUsesStagedAdapter) {
-      let cancelled = false;
+    let cancelled = false;
 
-      const loadReportingLayout = async () => {
-        setReportingLayoutLoading(true);
-        setReportingLayoutError(null);
-        setReportingLayoutNotice(null);
-
-        try {
-          const params = new URLSearchParams({ property_id: selectedPropertyId });
-          const response = await fetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
-          const payload = await response.json();
-          if (!response.ok || payload?.status === 'error') {
-            throw new Error(payload?.error || `Reporting layout fetch failed: ${response.status}`);
-          }
-
-          if (cancelled) return;
-
-          const normalized = normalizeReportingLayoutRecord(payload.record);
-          setReportingLayoutDoc(normalized);
-          setReportingLayoutDraft(normalized);
-          setReportingLayoutLoading(false);
-        } catch (error) {
-          console.error('Reporting layout staged fetch failed', error);
-          if (cancelled) return;
-          const fallback = normalizeReportingLayoutRecord(null);
-          setReportingLayoutDoc(fallback);
-          setReportingLayoutDraft(fallback);
-          setReportingLayoutError('Unable to load the saved reporting layout from the staged adapter.');
-          setReportingLayoutLoading(false);
-        }
-      };
-
-      loadReportingLayout();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    setReportingLayoutLoading(true);
-    setReportingLayoutError(null);
-    setReportingLayoutNotice(null);
-
-    const unsubscribe = onSnapshot(
-      reportingLayoutDocRef,
-      (snapshot) => {
-        const normalized = normalizeReportingLayoutRecord(snapshot.exists() ? snapshot.data() : null);
-        setReportingLayoutDoc(normalized);
-        setReportingLayoutDraft(normalized);
-        setReportingLayoutLoading(false);
-      },
-      (error) => {
-        console.error('Reporting layout subscription failed', error);
+    const loadReportingLayout = async () => {
+      if (!reportingLayoutUsesStagedAdapter) {
         const fallback = normalizeReportingLayoutRecord(null);
         setReportingLayoutDoc(fallback);
         setReportingLayoutDraft(fallback);
-        setReportingLayoutError('Unable to load the saved reporting layout for this property yet.');
+        setReportingLayoutError('Reporting layout endpoint is not configured.');
         setReportingLayoutLoading(false);
+        return;
       }
-    );
 
-    return () => unsubscribe();
-  }, [selectedPropertyId, reportingLayoutUsesStagedAdapter]);
+      setReportingLayoutLoading(true);
+      setReportingLayoutError(null);
+      setReportingLayoutNotice(null);
 
-  useEffect(() => {
-    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
-
-    setPropertyInfoLoading(true);
-    const pricingRef = doc(db, 'properties', String(selectedPropertyId), 'availability_pricing', 'current');
-
-    const unsubscribe = onSnapshot(
-      pricingRef,
-      (snapshot) => {
-        setAvailabilityPricingSnapshot(snapshot.exists() ? snapshot.data() : null);
-        setPropertyInfoLoading(false);
-      },
-      (error) => {
-        console.error('Availability pricing subscription failed', error);
-        setAvailabilityPricingSnapshot(null);
-        setPropertyInfoLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
-
-  useEffect(() => {
-    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
-
-    let cancelled = false;
-
-    const loadAvailability = async () => {
-      setPropertyInfoLoading(true);
       try {
-        const selectedParents = parentDocs
-          .filter((parent) => String(parent.property_id) === selectedPropertyId)
-          .sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
-        const latestParent = selectedParents[selectedParents.length - 1];
-
-        if (!latestParent) {
-          if (!cancelled) {
-            setAvailabilityItems([]);
-            setLatestAvailabilityDate(null);
-          }
-          return;
+        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const response = await fetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Reporting layout fetch failed: ${response.status}`);
         }
 
-        const availabilitySnap = await getDocs(collection(db, 'property_data', latestParent.id, 'availability'));
-        if (!cancelled) {
-          const items = availabilitySnap.docs.map((snapshot) => {
-            const payload = snapshot.data();
-            return payload?.data || {};
-          });
-          setAvailabilityItems(items);
-          setLatestAvailabilityDate(latestParent.date || null);
-        }
+        if (cancelled) return;
+
+        const normalized = normalizeReportingLayoutRecord(payload.record);
+        setReportingLayoutDoc(normalized);
+        setReportingLayoutDraft(normalized);
+        setReportingLayoutLoading(false);
       } catch (error) {
-        console.error('Availability load failed', error);
-        if (!cancelled) {
-          setAvailabilityItems([]);
-          setLatestAvailabilityDate(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setPropertyInfoLoading(false);
-        }
+        console.error('Reporting layout staged fetch failed', error);
+        if (cancelled) return;
+        const fallback = normalizeReportingLayoutRecord(null);
+        setReportingLayoutDoc(fallback);
+        setReportingLayoutDraft(fallback);
+        setReportingLayoutError('Unable to load the saved reporting layout from the staged adapter.');
+        setReportingLayoutLoading(false);
       }
     };
 
-    loadAvailability();
+    loadReportingLayout();
     return () => {
       cancelled = true;
     };
-  }, [parentDocs, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
-
-  useEffect(() => {
-    if (reportingUsesStagedOverview || reportingDataSource !== 'firebase') return undefined;
-
-    setRoiLoading(true);
-    const startTs = Timestamp.fromDate(rangeDates.start);
-    const endTs = Timestamp.fromDate(rangeDates.end);
-
-    const roiQuery = query(
-      collection(db, 'properties', String(selectedPropertyId), 'roi_daily'),
-      where('activity_date', '>=', startTs),
-      where('activity_date', '<=', endTs),
-      orderBy('activity_date', 'asc')
-    );
-
-    const unsubRoi = onSnapshot(
-      roiQuery,
-      (snapshot) => {
-        const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-        setRoiDailyItems(items);
-        setRoiLoading(false);
-      },
-      (error) => {
-        console.error('ROI daily subscription failed', error);
-        setRoiDailyItems([]);
-        setRoiLoading(false);
-      }
-    );
-
-    return () => unsubRoi();
-  }, [rangeDates, selectedPropertyId, reportingDataSource, reportingUsesStagedOverview]);
+  }, [selectedPropertyId, reportingLayoutUsesStagedAdapter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1430,24 +1167,9 @@ const DashboardApp = () => {
       setGa4Loading(true);
       setGa4Error(null);
 
-      const loadCachedSnapshot = async (message) => {
-        const snapshotRef = doc(db, 'properties', String(selectedPropertyId), 'analytics', 'ga4_dashboard');
-        const snapshot = await getDoc(snapshotRef);
-        if (snapshot.exists()) {
-          setGa4Data(snapshot.data());
-          setGa4Error(message);
-          return true;
-        }
-        return false;
-      };
-
       try {
         if (!GA4_DASHBOARD_URL) {
-          const foundCached = await loadCachedSnapshot('Live GA4 refresh URL is not configured. Showing the last cached GA4 snapshot.');
-          if (!foundCached) {
-            throw new Error('GA4 endpoint is not configured. Set VITE_GA4_DASHBOARD_URL and deploy get_ga4_dashboard_data to enable live refresh.');
-          }
-          return;
+          throw new Error('GA4 endpoint is not configured. Set VITE_GA4_DASHBOARD_URL to enable live refresh.');
         }
 
         const params = new URLSearchParams({
@@ -1492,24 +1214,9 @@ const DashboardApp = () => {
       setGoogleAdsLoading(true);
       setGoogleAdsError(null);
 
-      const loadCachedSnapshot = async (message) => {
-        const snapshotRef = doc(db, 'properties', String(selectedPropertyId), 'analytics', 'google_ads_dashboard');
-        const snapshot = await getDoc(snapshotRef);
-        if (snapshot.exists()) {
-          setGoogleAdsData(snapshot.data());
-          setGoogleAdsError(message);
-          return true;
-        }
-        return false;
-      };
-
       try {
         if (!GOOGLE_ADS_DASHBOARD_URL) {
-          const foundCached = await loadCachedSnapshot('Live Google Ads refresh URL is not configured. Showing the last cached paid search snapshot.');
-          if (!foundCached) {
-            throw new Error('Google Ads endpoint is not configured. Set VITE_GOOGLE_ADS_DASHBOARD_URL and deploy get_google_ads_dashboard_data to enable live refresh.');
-          }
-          return;
+          throw new Error('Google Ads endpoint is not configured. Set VITE_GOOGLE_ADS_DASHBOARD_URL to enable live refresh.');
         }
 
         const params = new URLSearchParams({
@@ -1555,24 +1262,9 @@ const DashboardApp = () => {
       setMetaAdsLoading(true);
       setMetaAdsError(null);
 
-      const loadCachedSnapshot = async (message) => {
-        const snapshotRef = doc(db, 'properties', String(selectedPropertyId), 'analytics', 'meta_ads_dashboard');
-        const snapshot = await getDoc(snapshotRef);
-        if (snapshot.exists()) {
-          setMetaAdsData(snapshot.data());
-          setMetaAdsError(message);
-          return true;
-        }
-        return false;
-      };
-
       try {
         if (!META_ADS_DASHBOARD_URL) {
-          const foundCached = await loadCachedSnapshot('Live Meta Ads refresh URL is not configured. Showing the last cached paid social snapshot.');
-          if (!foundCached) {
-            throw new Error('Meta Ads endpoint is not configured. Set VITE_META_ADS_DASHBOARD_URL and deploy get_meta_ads_dashboard_data to enable live refresh.');
-          }
-          return;
+          throw new Error('Meta Ads endpoint is not configured. Set VITE_META_ADS_DASHBOARD_URL to enable live refresh.');
         }
 
         const params = new URLSearchParams({
@@ -1625,24 +1317,9 @@ const DashboardApp = () => {
       setReputationLoading(true);
       setReputationError(null);
 
-      const loadCachedSnapshot = async (message) => {
-        const snapshotRef = doc(db, 'properties', String(selectedPropertyId), 'analytics', 'reputation_dashboard');
-        const snapshot = await getDoc(snapshotRef);
-        if (snapshot.exists()) {
-          setReputationData(snapshot.data());
-          setReputationError(message);
-          return true;
-        }
-        return false;
-      };
-
       try {
         if (!REPUTATION_DASHBOARD_URL) {
-          const foundCached = await loadCachedSnapshot('Live reputation refresh URL is not configured. Showing the last cached reputation snapshot.');
-          if (!foundCached) {
-            throw new Error('Reputation endpoint is not configured. Set VITE_REPUTATION_DASHBOARD_URL and deploy get_reputation_dashboard_data to enable live refresh.');
-          }
-          return;
+          throw new Error('Reputation endpoint is not configured. Set VITE_REPUTATION_DASHBOARD_URL to enable live refresh.');
         }
 
         const params = new URLSearchParams({
@@ -2081,11 +1758,20 @@ const DashboardApp = () => {
     if (reportingDataSource === 'loading') {
       return { label: 'Data source: Checking staged route…', className: 'reports-chip reports-chip--loading' };
     }
-    if (reportingDataSource === 'error') {
-      return { label: 'Data source: Staged route unavailable', className: 'reports-chip reports-chip--error' };
-    }
-    return { label: 'Data source: Firebase', className: 'reports-chip reports-chip--fallback' };
+    return {
+      label: reportingUsesStagedOverview ? 'Data source: Staged route unavailable' : 'Data source: Endpoint unavailable',
+      className: 'reports-chip reports-chip--error'
+    };
   }, [reportingDataSource]);
+  const analyticsSourceBadge = useMemo(() => {
+    if (analyticsUsesRenderAdapter) {
+      return { label: 'Data source: Staged Render', className: 'analytics-chip analytics-chip--staged' };
+    }
+    if (analyticsEndpointsConfigured) {
+      return { label: 'Data source: External endpoints', className: 'analytics-chip analytics-chip--fallback' };
+    }
+    return { label: 'Data source: Endpoint unavailable', className: 'analytics-chip analytics-chip--error' };
+  }, [analyticsEndpointsConfigured, analyticsUsesRenderAdapter]);
   const websitePlatformMeta = useMemo(
     () => getWebsitePlatformMeta(websiteManagerDraft.platform),
     [websiteManagerDraft.platform]
@@ -2161,35 +1847,28 @@ const DashboardApp = () => {
     setWebsiteManagerNotice(null);
 
     try {
+      if (!websiteManagerUsesStagedAdapter) {
+        throw new Error('Website manager endpoint is not configured.');
+      }
       const normalizedDraft = normalizeWebsiteManagerRecord(websiteManagerDraft);
-      if (websiteManagerUsesStagedAdapter) {
-        const response = await fetch(WEBSITE_MANAGER_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            property_id: selectedPropertyId,
-            propertyId: selectedPropertyId,
-            propertyName: selectedProperty?.name || '',
-            ...normalizedDraft,
-            editable: isWebsiteManagerEditable(normalizedDraft.platform),
-          }),
-        });
-        const payload = await response.json();
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Website manager save failed: ${response.status}`);
-        }
-        const savedRecord = normalizeWebsiteManagerRecord(payload.record);
-        setWebsiteManagerDoc(savedRecord);
-        setWebsiteManagerDraft(savedRecord);
-      } else {
-        await setDoc(websiteManagerDocRef, {
-          ...normalizedDraft,
+      const response = await fetch(WEBSITE_MANAGER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
           propertyId: selectedPropertyId,
           propertyName: selectedProperty?.name || '',
+          ...normalizedDraft,
           editable: isWebsiteManagerEditable(normalizedDraft.platform),
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Website manager save failed: ${response.status}`);
       }
+      const savedRecord = normalizeWebsiteManagerRecord(payload.record);
+      setWebsiteManagerDoc(savedRecord);
+      setWebsiteManagerDraft(savedRecord);
       setWebsiteManagerNotice('Website manager content saved for this property.');
     } catch (error) {
       console.error('Website manager save failed', error);
@@ -2249,33 +1928,27 @@ const DashboardApp = () => {
     setReportingLayoutNotice(null);
 
     try {
+      if (!reportingLayoutUsesStagedAdapter) {
+        throw new Error('Reporting layout endpoint is not configured.');
+      }
       const normalizedDraft = normalizeReportingLayoutRecord(reportingLayoutDraft);
-      if (reportingLayoutUsesStagedAdapter) {
-        const response = await fetch(REPORTING_LAYOUT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            property_id: selectedPropertyId,
-            propertyId: selectedPropertyId,
-            propertyName: selectedProperty?.name || '',
-            ...normalizedDraft,
-          }),
-        });
-        const payload = await response.json();
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Reporting layout save failed: ${response.status}`);
-        }
-        const savedRecord = normalizeReportingLayoutRecord(payload.record);
-        setReportingLayoutDoc(savedRecord);
-        setReportingLayoutDraft(savedRecord);
-      } else {
-        await setDoc(reportingLayoutDocRef, {
-          ...normalizedDraft,
+      const response = await fetch(REPORTING_LAYOUT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
           propertyId: selectedPropertyId,
           propertyName: selectedProperty?.name || '',
-          updatedAt: serverTimestamp()
-        }, { merge: true });
+          ...normalizedDraft,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Reporting layout save failed: ${response.status}`);
       }
+      const savedRecord = normalizeReportingLayoutRecord(payload.record);
+      setReportingLayoutDoc(savedRecord);
+      setReportingLayoutDraft(savedRecord);
       setReportingLayoutNotice('Reporting layout saved for this property.');
     } catch (error) {
       console.error('Reporting layout save failed', error);
@@ -2729,6 +2402,7 @@ const DashboardApp = () => {
             <div className="analytics-chip">
               {rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}
             </div>
+            <div className={analyticsSourceBadge.className}>{analyticsSourceBadge.label}</div>
           </div>
         </div>
 

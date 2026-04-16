@@ -70,7 +70,7 @@ The backend logic currently lives in Firebase Functions under `functions/main.py
 - scheduled jobs exposed through `@scheduler_fn.on_schedule`
 - Firestore reads/writes via `firebase_admin`
 
-Render preparation is currently documentation-first because this code is still structured for Firebase Functions, not yet for a Render-native web server or worker process. The service and cron migration plan is documented in [docs/architecture-inventory.md](/Users/steele/Desktop/Data Analysis/docs/architecture-inventory.md) and [docs/deployment-checklist.md](/Users/steele/Desktop/Data Analysis/docs/deployment-checklist.md).
+Render preparation is now active for the staged adapter layer. The Flask app and cron runner reuse the existing business logic while writing staged data to Supabase, and the remaining migration work is documented in [docs/architecture-inventory.md](/Users/steele/Desktop/Data Analysis/docs/architecture-inventory.md) and [docs/deployment-checklist.md](/Users/steele/Desktop/Data Analysis/docs/deployment-checklist.md).
 
 Private backend environment variables are documented in [functions/.env.example](/Users/steele/Desktop/Data Analysis/functions/.env.example).
 
@@ -78,14 +78,18 @@ The repo now also includes a staged Render-native adapter entrypoint:
 
 - WSGI entrypoint: `functions/render_wsgi.py`
 - Flask app shell: `functions/render_app.py`
+- cron CLI entrypoint: `functions/render_cron.py`
+- Render runtime/storage bridge: `functions/render_runtime.py`
 - Render build requirements: `functions/requirements-render.txt`
 - Render blueprint: `render.yaml`
 
-The staged adapter now also includes a read-only Supabase validation route for staging:
+The staged adapter now includes live staging routes backed by Supabase:
 
 - `GET /api/staging/supabase/migration-validation`
 - `GET /api/entrata/sync-state`
 - `GET /api/roi/pipeline-status`
+- `POST /api/cron/run`
+- `POST /api/entrata/backfill`
 - `GET|POST|OPTIONS /api/analytics/ga4`
 - `GET|POST|OPTIONS /api/analytics/google-ads`
 - `GET|POST|OPTIONS /api/analytics/meta-ads`
@@ -94,7 +98,7 @@ The staged adapter now also includes a read-only Supabase validation route for s
 - `GET|POST|OPTIONS /api/admin/website-manager`
 - `GET|POST|OPTIONS /api/admin/reporting-layout`
 
-These routes are intended for staging verification only. They read from Supabase and do not change production Firebase traffic.
+These routes are intended for staging verification and staged cutover work. They run against Supabase and Render-managed job execution without changing production Firebase traffic by default.
 
 Concrete staged Render start command:
 
