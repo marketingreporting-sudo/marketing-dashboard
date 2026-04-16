@@ -1338,17 +1338,18 @@ def trigger_entrata_backfill(days: int = 30, start_from: int = 0, property_ids: 
 def run_named_cron_job(job_name: str) -> dict[str, Any]:
     today_str = datetime.datetime.now().strftime("%m/%d/%Y")
     property_ids = legacy.get_automation_property_ids()
+    default_property_id = int(legacy.ENTRATA_PROPERTY_ID)
 
     if job_name == "fetch_daily_entrata_leads":
-        result = [legacy.fetch_leads_for_date(property_id, today_str) for property_id in property_ids]
+        result = legacy.fetch_leads_for_date(default_property_id, today_str)
     elif job_name == "fetch_daily_entrata_events":
-        result = [legacy.fetch_events_for_date(property_id, today_str) for property_id in property_ids]
+        result = legacy.fetch_events_for_date(default_property_id, today_str)
     elif job_name == "fetch_daily_entrata_leases":
-        result = [legacy.fetch_leases_for_date(property_id, today_str) for property_id in property_ids]
+        result = legacy.fetch_leases_for_date(default_property_id, today_str)
     elif job_name == "fetch_daily_entrata_invoices":
-        result = [legacy.fetch_invoices_for_date(property_id, today_str) for property_id in property_ids]
+        result = legacy.fetch_invoices_for_date(default_property_id, today_str)
     elif job_name == "fetch_daily_entrata_availability":
-        result = [legacy.fetch_availability_for_date(property_id, today_str) for property_id in property_ids]
+        result = legacy.fetch_availability_for_date(default_property_id, today_str)
     elif job_name == "sync_daily_entrata_specials":
         result = [legacy.fetch_specials(property_id) for property_id in property_ids]
     elif job_name == "sync_daily_entrata_units_availability_pricing":
