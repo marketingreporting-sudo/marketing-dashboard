@@ -3,6 +3,7 @@ import json
 import time
 import datetime
 import hashlib
+import gzip
 import re
 import requests
 from urllib.parse import urlparse
@@ -754,7 +755,6 @@ def make_entrata_request(
         "Authorization": "Basic " + auth_str,
         "User-Agent": "PostmanRuntime/7.39.1",
         "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
     }
     
@@ -794,7 +794,14 @@ def make_entrata_request(
             raise
     
     try:
-        data = response.json()
+        raw_content = response.content or b""
+        content_encoding = (response.headers.get("Content-Encoding", "") or "").lower()
+
+        if raw_content.startswith(b"\x1f\x8b") or "gzip" in content_encoding:
+            decoded_text = gzip.decompress(raw_content).decode(response.encoding or "utf-8")
+            data = json.loads(decoded_text)
+        else:
+            data = response.json()
         
         if isinstance(data, list):
             if len(data) > 0: data = data[0]
