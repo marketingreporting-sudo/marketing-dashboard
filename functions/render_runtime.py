@@ -1389,15 +1389,24 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
         end_date = legacy.get_local_now().date()
         raw_start_date = end_date - datetime.timedelta(days=max(legacy.ROI_DAILY_RAW_LOOKBACK_DAYS - 1, 0))
         report_start_date = end_date - datetime.timedelta(days=max(legacy.ROI_DAILY_REPORT_LOOKBACK_DAYS - 1, 0))
-        result = start_roi_pipeline_job(
-            "roi_daily_pipeline",
-            property_ids,
-            raw_start_date=raw_start_date,
-            raw_end_date=end_date,
-            report_start_date=report_start_date,
-            report_end_date=end_date,
-            initiated_by="scheduler",
-        )
+        try:
+            result = start_roi_pipeline_job(
+                "roi_daily_pipeline",
+                property_ids,
+                raw_start_date=raw_start_date,
+                raw_end_date=end_date,
+                report_start_date=report_start_date,
+                report_end_date=end_date,
+                initiated_by="scheduler",
+            )
+        except Exception as error:
+            print(
+                "start_daily_roi_pipeline failed "
+                f"raw_start_date={raw_start_date} raw_end_date={end_date} "
+                f"report_start_date={report_start_date} report_end_date={end_date} "
+                f"property_count={len(property_ids)} error={error}"
+            )
+            raise
     elif job_name == "run_roi_pipeline_jobs":
         result = [process_roi_pipeline_job("roi_ytd_backfill"), process_roi_pipeline_job("roi_daily_pipeline")]
     elif job_name == "run_background_entrata_backfill":

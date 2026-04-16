@@ -103,7 +103,7 @@ def save_audit(report):
         "firestore_path": f"site_audits/{audited_at}",
     }
     request = Request(
-        _table_query_url("site_audits"),
+        _table_query_url("site_audits", []),
         headers={**_supabase_headers(), "Content-Type": "application/json", "Prefer": "return=representation"},
         data=json.dumps(payload).encode("utf-8"),
         method="POST",
