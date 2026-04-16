@@ -1349,7 +1349,12 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
     elif job_name == "fetch_daily_entrata_invoices":
         result = legacy.fetch_invoices_for_date(default_property_id, today_str)
     elif job_name == "fetch_daily_entrata_availability":
-        result = legacy.fetch_availability_for_date(default_property_id, today_str)
+        result = {
+            "status": "skipped",
+            "reason": "Legacy /v1/properties availability sync is disabled on Render; use propertyunits availability pricing snapshot instead.",
+            "property_id": default_property_id,
+            "date": today_str,
+        }
     elif job_name == "sync_daily_entrata_specials":
         result = []
         for property_id in property_ids:
