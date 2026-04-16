@@ -11,6 +11,7 @@ from firebase_functions import https_fn, scheduler_fn
 from firebase_admin import initialize_app, firestore, get_app
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from google.analytics.data_v1alpha import AlphaAnalyticsDataClient
+from google.oauth2 import service_account
 from google.analytics.data_v1alpha.types import (
     DateRange as FunnelDateRange,
     Dimension as FunnelDimension,
@@ -123,6 +124,41 @@ ALL_MARKETING_GL_CODES = {
     "5300-0400",
     "5300-0410",
 }
+
+_GA4_CREDENTIALS_CACHE = None
+
+
+def get_ga4_credentials():
+    global _GA4_CREDENTIALS_CACHE
+    if _GA4_CREDENTIALS_CACHE is not None:
+        return _GA4_CREDENTIALS_CACHE
+
+    raw_credentials = (
+        os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+        or os.environ.get("GOOGLE_SERVICE_ACCOUNT_KEY")
+    )
+    if not raw_credentials:
+        return None
+
+    try:
+        info = json.loads(raw_credentials)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON."
+        ) from exc
+
+    _GA4_CREDENTIALS_CACHE = service_account.Credentials.from_service_account_info(info)
+    return _GA4_CREDENTIALS_CACHE
+
+
+def build_ga4_clients():
+    credentials = get_ga4_credentials()
+    if credentials is None:
+        return BetaAnalyticsDataClient(), AlphaAnalyticsDataClient()
+    return (
+        BetaAnalyticsDataClient(credentials=credentials),
+        AlphaAnalyticsDataClient(credentials=credentials),
+    )
 PERFORMANCE_MARKETING_DESCRIPTIONS = [
     "internet advertising",
     "ppc management fees",
@@ -2911,8 +2947,7 @@ def fetch_opiniion_reputation_payload(property_id, location_id=None, location_na
     return normalized
 
 def fetch_ga4_dashboard_payload(property_id, ga4_property_id, start_date_value=None, end_date_value=None, default_days=90):
-    client = BetaAnalyticsDataClient()
-    funnel_client = AlphaAnalyticsDataClient()
+    client, funnel_client = build_ga4_clients()
     window = resolve_reporting_window(start_date_value, end_date_value, default_days=default_days)
     current_start = window["current_start"]
     current_end = window["current_end"]
