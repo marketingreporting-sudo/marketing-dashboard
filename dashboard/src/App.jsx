@@ -158,6 +158,9 @@ const CHART_AXIS_DARK_SOFT = 'rgba(215, 210, 207, 0.4)';
 const CHART_GRID_LIGHT = 'rgba(16, 33, 38, 0.12)';
 const CHART_AXIS_LIGHT = 'rgba(16, 33, 38, 0.58)';
 const CHART_AXIS_LIGHT_SOFT = 'rgba(16, 33, 38, 0.3)';
+const CHART_MARGIN_STANDARD = { top: 8, right: 12, left: 0, bottom: 20 };
+const CHART_MARGIN_TALL = { top: 8, right: 12, left: 0, bottom: 24 };
+const CHART_MARGIN_VERTICAL = { top: 8, right: 12, left: 8, bottom: 10 };
 
 const MeasuredChart = ({ className, fixedHeight = null, children }) => {
   const containerRef = useRef(null);
@@ -2530,7 +2533,7 @@ const DashboardApp = () => {
             {ga4OutcomeChartData.length > 0 && (
               <MeasuredChart className="analytics-chart">
                 {({ width, height }) => (
-                  <BarChart width={width} height={height} data={ga4OutcomeChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <BarChart width={width} height={height} data={ga4OutcomeChartData} margin={CHART_MARGIN_STANDARD}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                     <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2543,7 +2546,7 @@ const DashboardApp = () => {
             {ga4ConversionByDayChartData.length > 0 && (
               <MeasuredChart className="analytics-chart">
                 {({ width, height }) => (
-                  <LineChart width={width} height={height} data={ga4ConversionByDayChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <LineChart width={width} height={height} data={ga4ConversionByDayChartData} margin={CHART_MARGIN_STANDARD}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2619,7 +2622,7 @@ const DashboardApp = () => {
             {ga4AcquisitionChartData.length > 0 && (
               <MeasuredChart className="analytics-chart analytics-chart--tall">
                 {({ width, height }) => (
-                  <LineChart width={width} height={height} data={ga4AcquisitionChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <LineChart width={width} height={height} data={ga4AcquisitionChartData} margin={CHART_MARGIN_TALL}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                     <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2634,7 +2637,7 @@ const DashboardApp = () => {
             {ga4TrafficByMonthChartData.length > 0 && (
               <MeasuredChart className="analytics-chart">
                 {({ width, height }) => (
-                  <AreaChart width={width} height={height} data={ga4TrafficByMonthChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <AreaChart width={width} height={height} data={ga4TrafficByMonthChartData} margin={CHART_MARGIN_STANDARD}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2711,7 +2714,7 @@ const DashboardApp = () => {
             {ga4MarketChartData.length > 0 && (
               <MeasuredChart className="analytics-chart analytics-chart--tall">
                 {({ width, height }) => (
-                  <BarChart width={width} height={height} data={ga4MarketChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <BarChart width={width} height={height} data={ga4MarketChartData} margin={CHART_MARGIN_TALL}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                     <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2773,7 +2776,7 @@ const DashboardApp = () => {
                 {ga4PathStartChartData.length > 0 && (
                   <MeasuredChart className="analytics-chart">
                     {({ width, height }) => (
-                      <BarChart width={width} height={height} data={ga4PathStartChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                      <BarChart width={width} height={height} data={ga4PathStartChartData} margin={CHART_MARGIN_STANDARD}>
                         <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                         <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                         <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2820,7 +2823,7 @@ const DashboardApp = () => {
             {ga4DiagnosticChartData.length > 0 && (
               <MeasuredChart className="analytics-chart analytics-chart--tall">
                 {({ width, height }) => (
-                  <AreaChart width={width} height={height} data={ga4DiagnosticChartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                  <AreaChart width={width} height={height} data={ga4DiagnosticChartData} margin={CHART_MARGIN_TALL}>
                     <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                     <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
                     <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2945,7 +2948,7 @@ const DashboardApp = () => {
               {googleAdsDailyChartData.length > 0 && (
                 <MeasuredChart className="analytics-chart analytics-chart--compact">
                   {({ width, height }) => (
-                    <AreaChart width={width} height={height} data={googleAdsDailyChartData}>
+                    <AreaChart width={width} height={height} data={googleAdsDailyChartData} margin={CHART_MARGIN_STANDARD}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -2964,7 +2967,7 @@ const DashboardApp = () => {
               {googleAdsCampaignChartData.length > 0 && (
                 <MeasuredChart className="analytics-chart analytics-chart--compact">
                   {({ width, height }) => (
-                    <BarChart width={width} height={height} data={googleAdsCampaignChartData}>
+                    <BarChart width={width} height={height} data={googleAdsCampaignChartData} margin={CHART_MARGIN_STANDARD}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -3000,7 +3003,7 @@ const DashboardApp = () => {
               {googleAdsKeywordChartData.length > 0 && (
                 <MeasuredChart className="analytics-chart analytics-chart--compact">
                   {({ width, height }) => (
-                    <BarChart width={width} height={height} data={googleAdsKeywordChartData} layout="vertical" margin={{ left: 10, right: 10 }}>
+                    <BarChart width={width} height={height} data={googleAdsKeywordChartData} layout="vertical" margin={CHART_MARGIN_VERTICAL}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} horizontal={false} />
                       <XAxis type="number" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis type="category" dataKey="name" width={120} stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -3178,7 +3181,7 @@ const DashboardApp = () => {
               {metaAdsDailyChartData.length > 0 && (
                 <MeasuredChart className="analytics-chart analytics-chart--compact">
                   {({ width, height }) => (
-                    <AreaChart width={width} height={height} data={metaAdsDailyChartData}>
+                    <AreaChart width={width} height={height} data={metaAdsDailyChartData} margin={CHART_MARGIN_STANDARD}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -3197,7 +3200,7 @@ const DashboardApp = () => {
               {metaAdsCampaignChartData.length > 0 && (
                 <MeasuredChart className="analytics-chart analytics-chart--compact">
                   {({ width, height }) => (
-                    <BarChart width={width} height={height} data={metaAdsCampaignChartData}>
+                    <BarChart width={width} height={height} data={metaAdsCampaignChartData} margin={CHART_MARGIN_STANDARD}>
                       <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
                       <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
                       <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
@@ -3509,7 +3512,7 @@ const DashboardApp = () => {
         {leadSourceBreakdown.length > 0 ? (
           <MeasuredChart className="analytics-chart analytics-chart--compact" fixedHeight={160}>
             {({ width, height }) => (
-            <BarChart width={width} height={height} data={leadSourceBreakdown} layout="vertical" margin={{ left: 0, right: 10 }}>
+            <BarChart width={width} height={height} data={leadSourceBreakdown} layout="vertical" margin={CHART_MARGIN_VERTICAL}>
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
               <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
@@ -3572,7 +3575,7 @@ const DashboardApp = () => {
         {dailyChartData.length > 0 ? (
           <MeasuredChart className="analytics-chart analytics-chart--tall" fixedHeight={300}>
             {({ width, height }) => (
-            <AreaChart width={width} height={height} data={dailyChartData}>
+            <AreaChart width={width} height={height} data={dailyChartData} margin={CHART_MARGIN_TALL}>
               <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
               <XAxis dataKey="label" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
               <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fill: CHART_COLOR_TAN }} />
