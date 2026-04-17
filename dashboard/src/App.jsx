@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import {
+  ADMIN_ACCESS_USERS_URL,
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
   META_ADS_DASHBOARD_URL,
@@ -10,8 +11,14 @@ import {
   ROI_PIPELINE_STATUS_URL,
   WEBSITE_MANAGER_URL
 } from './apiConfig';
-import { DEFAULT_PROPERTY_ID, PROPERTY_CATALOG, PROPERTY_CATALOG_BY_ID } from './propertyCatalog';
-import { OPINIION_LOCATION_NAME_BY_PROPERTY_ID, OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
+import { authFetch } from './lib/authFetch';
+import { OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
+import {
+  DEFAULT_TAB_ORDER,
+  REPORTING_LAYOUT_EDIT_PERMISSION,
+  TAB_PERMISSIONS,
+  WEBSITE_MANAGER_EDIT_PERMISSION
+} from './access/accessModel';
 import {
   WEBSITE_MANAGER_DEFAULT_RECORD,
   WEBSITE_MANAGER_FIELD_GROUPS,
@@ -108,6 +115,16 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
 ];
 const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: TAB_PERMISSIONS.dashboard },
+  { id: 'website manager', label: 'Website Manager', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
+  { id: 'property info', label: 'Property Info', icon: Home, permission: TAB_PERMISSIONS['property info'] },
+  { id: 'reports', label: 'Reports', icon: FileText, permission: TAB_PERMISSIONS.reports },
+  { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
+  { id: 'reputation', label: 'Reputation', icon: MessageSquareText, permission: TAB_PERMISSIONS.reputation },
+  { id: 'notes', label: 'Notes', icon: ClipboardList, permission: TAB_PERMISSIONS.notes },
+  { id: 'admin', label: 'Admin', icon: Users, permission: TAB_PERMISSIONS.admin }
+];
 const MONTH_INDEX_BY_NAME = {
   jan: 0,
   feb: 1,
@@ -871,21 +888,13 @@ const TermsOfServicePage = () => (
   </LegalLayout>
 );
 
-const App = () => {
-  const path = typeof window !== 'undefined' ? window.location.pathname.replace(/\/+$/, '') || '/' : '/';
-
-  if (path === '/privacy-policy') {
-    return <PrivacyPolicyPage />;
-  }
-
-  if (path === '/terms-of-service') {
-    return <TermsOfServicePage />;
-  }
-
-  return <DashboardApp />;
-};
-
-const DashboardApp = () => {
+const DashboardApp = ({
+  currentUser = null,
+  onSignOut = null,
+  availableProperties = [],
+  propertyAccessById = {},
+  defaultPropertyId = null,
+}) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dateRange, setDateRange] = useState('28d');
   const [customRange, setCustomRange] = useState(() => {
@@ -899,7 +908,7 @@ const DashboardApp = () => {
       end: formatDateInputValue(end),
     };
   });
-  const [selectedPropertyId, setSelectedPropertyId] = useState(DEFAULT_PROPERTY_ID);
+  const [selectedPropertyId, setSelectedPropertyId] = useState(defaultPropertyId);
   const [loading, setLoading] = useState(true);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
   const [roiLoading, setRoiLoading] = useState(true);
@@ -954,6 +963,22 @@ const DashboardApp = () => {
   const [metaAdsError, setMetaAdsError] = useState(null);
   const [reputationData, setReputationData] = useState(null);
   const [reputationError, setReputationError] = useState(null);
+  const [adminAccessLoading, setAdminAccessLoading] = useState(false);
+  const [adminAccessError, setAdminAccessError] = useState(null);
+  const [adminAccessNotice, setAdminAccessNotice] = useState(null);
+  const [adminInviteLink, setAdminInviteLink] = useState('');
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminRoles, setAdminRoles] = useState([]);
+  const [adminProperties, setAdminProperties] = useState([]);
+  const [adminSelectedUserId, setAdminSelectedUserId] = useState(null);
+  const [adminUserDraft, setAdminUserDraft] = useState(null);
+  const [adminInviteDraft, setAdminInviteDraft] = useState({
+    email: '',
+    fullName: '',
+    globalRole: '',
+    propertyRole: '',
+    propertyIds: [],
+  });
   const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
   const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
   const analyticsEndpointsConfigured = Boolean(
@@ -964,15 +989,112 @@ const DashboardApp = () => {
     []
   );
   const selectedProperty = useMemo(() => {
-    const base = PROPERTY_CATALOG_BY_ID[selectedPropertyId];
-    if (!base) return base;
-    const opiniionLocationName = OPINIION_LOCATION_NAME_BY_PROPERTY_ID[selectedPropertyId];
-    const opiniionSkip = OPINIION_SKIPPED_PROPERTY_IDS.has(selectedPropertyId);
-    if (opiniionLocationName || opiniionSkip) {
-      return { ...base, ...(opiniionLocationName ? { opiniionLocationName } : {}), opiniionSkip };
+    const base = availableProperties.find((property) => property.propertyId === selectedPropertyId) || null;
+    if (!base) return null;
+    return {
+      ...base,
+      opiniionSkip: OPINIION_SKIPPED_PROPERTY_IDS.has(selectedPropertyId),
+    };
+  }, [availableProperties, selectedPropertyId]);
+  const currentPropertyPermissionSet = useMemo(
+    () => new Set(propertyAccessById[selectedPropertyId]?.permissions || []),
+    [propertyAccessById, selectedPropertyId]
+  );
+  const visibleNavItems = useMemo(
+    () => NAV_ITEMS.filter((item) => currentPropertyPermissionSet.has(item.permission)),
+    [currentPropertyPermissionSet]
+  );
+  const canEditReportingLayout = currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
+  const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
+  const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
+  const adminGlobalRoles = useMemo(
+    () => adminRoles.filter((role) => role.scope === 'global'),
+    [adminRoles]
+  );
+  const adminPropertyRoles = useMemo(
+    () => adminRoles.filter((role) => role.scope === 'property'),
+    [adminRoles]
+  );
+
+  useEffect(() => {
+    if (availableProperties.length === 0) {
+      if (selectedPropertyId !== null) {
+        setSelectedPropertyId(null);
+      }
+      return;
     }
-    return base;
-  }, [selectedPropertyId]);
+
+    const allowedIds = new Set(availableProperties.map((property) => property.propertyId));
+    const nextPropertyId = defaultPropertyId || availableProperties[0]?.propertyId || null;
+    if (!selectedPropertyId || !allowedIds.has(selectedPropertyId)) {
+      setSelectedPropertyId(nextPropertyId);
+    }
+  }, [availableProperties, defaultPropertyId, selectedPropertyId]);
+
+  useEffect(() => {
+    const preferredTab = DEFAULT_TAB_ORDER.find((tabId) => visibleNavItems.some((item) => item.id === tabId));
+    if (!preferredTab) return;
+    if (!visibleNavItems.some((item) => item.id === activeTab)) {
+      setActiveTab(preferredTab);
+    }
+  }, [activeTab, visibleNavItems]);
+
+  useEffect(() => {
+    if (!canEditReportingLayout && reportingAdminEnabled) {
+      setReportingAdminEnabled(false);
+    }
+  }, [canEditReportingLayout, reportingAdminEnabled]);
+
+  const hydrateAdminDraftFromUser = (user) => {
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email || '',
+      fullName: user.fullName || '',
+      globalRole: user.globalRole || '',
+      propertyRole: user.memberships?.[0]?.role || '',
+      propertyIds: Array.isArray(user.memberships)
+        ? user.memberships.filter((membership) => membership.isActive).map((membership) => membership.propertyId)
+        : [],
+      isActive: user.isActive !== false,
+    };
+  };
+
+  const loadAdminAccess = useCallback(async () => {
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+
+    try {
+      const response = await authFetch(ADMIN_ACCESS_USERS_URL);
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Admin access load failed: ${response.status}`);
+      }
+
+      const users = Array.isArray(payload.users) ? payload.users : [];
+      const roles = Array.isArray(payload.roles) ? payload.roles : [];
+      const properties = Array.isArray(payload.properties) ? payload.properties : [];
+      const nextSelectedUserId = users.some((user) => user.id === adminSelectedUserId)
+        ? adminSelectedUserId
+        : users[0]?.id || null;
+
+      setAdminUsers(users);
+      setAdminRoles(roles);
+      setAdminProperties(properties);
+      setAdminSelectedUserId(nextSelectedUserId);
+      setAdminUserDraft(hydrateAdminDraftFromUser(users.find((user) => user.id === nextSelectedUserId) || null));
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to load admin access data.');
+    } finally {
+      setAdminAccessLoading(false);
+    }
+  }, [adminSelectedUserId]);
+
+  useEffect(() => {
+    if (!canManageUsers || activeTab !== 'admin') return;
+    loadAdminAccess();
+  }, [activeTab, canManageUsers, loadAdminAccess]);
   // Derived Date Range
   const rangeDates = useMemo(() => {
     const end = new Date();
@@ -1011,6 +1133,24 @@ const DashboardApp = () => {
     let cancelled = false;
 
     const loadPropertyOverview = async () => {
+      if (!selectedPropertyId) {
+        setParentDocs([]);
+        setLeadItems([]);
+        setEventItems([]);
+        setInvoiceItems([]);
+        setAvailabilityItems([]);
+        setAvailabilityPricingSnapshot(null);
+        setSpecialsSnapshot(null);
+        setLatestAvailabilityDate(null);
+        setRoiDailyItems([]);
+        setReportingDataSource('error');
+        setLoading(false);
+        setInvoiceLoading(false);
+        setPropertyInfoLoading(false);
+        setRoiLoading(false);
+        return;
+      }
+
       if (!reportingUsesStagedOverview) {
         setParentDocs([]);
         setLeadItems([]);
@@ -1041,7 +1181,7 @@ const DashboardApp = () => {
           start_date: formatDateInputValue(rangeDates.start),
           end_date: formatDateInputValue(rangeDates.end),
         });
-        const response = await fetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+        const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
           throw new Error(payload?.message || `Property overview fetch failed: ${response.status}`);
@@ -1094,6 +1234,15 @@ const DashboardApp = () => {
     let cancelled = false;
 
     const loadWebsiteManager = async () => {
+      if (!selectedPropertyId) {
+        const fallback = normalizeWebsiteManagerRecord(null);
+        setWebsiteManagerDoc(fallback);
+        setWebsiteManagerDraft(fallback);
+        setWebsiteManagerError('No property is currently available for this account.');
+        setWebsiteManagerLoading(false);
+        return;
+      }
+
       if (!websiteManagerUsesStagedAdapter) {
         const fallback = normalizeWebsiteManagerRecord(null);
         setWebsiteManagerDoc(fallback);
@@ -1109,7 +1258,7 @@ const DashboardApp = () => {
 
       try {
         const params = new URLSearchParams({ property_id: selectedPropertyId });
-        const response = await fetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
+        const response = await authFetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
           throw new Error(payload?.error || `Website manager fetch failed: ${response.status}`);
@@ -1152,6 +1301,15 @@ const DashboardApp = () => {
     let cancelled = false;
 
     const loadReportingLayout = async () => {
+      if (!selectedPropertyId) {
+        const fallback = normalizeReportingLayoutRecord(null);
+        setReportingLayoutDoc(fallback);
+        setReportingLayoutDraft(fallback);
+        setReportingLayoutError('No property is currently available for this account.');
+        setReportingLayoutLoading(false);
+        return;
+      }
+
       if (!reportingLayoutUsesStagedAdapter) {
         const fallback = normalizeReportingLayoutRecord(null);
         setReportingLayoutDoc(fallback);
@@ -1167,7 +1325,7 @@ const DashboardApp = () => {
 
       try {
         const params = new URLSearchParams({ property_id: selectedPropertyId });
-        const response = await fetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
+        const response = await authFetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
           throw new Error(payload?.error || `Reporting layout fetch failed: ${response.status}`);
@@ -1209,13 +1367,13 @@ const DashboardApp = () => {
         return;
       }
       try {
-        const response = await fetch(ROI_PIPELINE_STATUS_URL);
+        const response = await authFetch(ROI_PIPELINE_STATUS_URL);
         if (!response.ok) throw new Error(`Status fetch failed: ${response.status}`);
         const payload = await response.json();
         if (!cancelled) {
           setRoiPipelineStatus(payload);
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setRoiPipelineStatus(null);
         }
@@ -1235,6 +1393,13 @@ const DashboardApp = () => {
   }, []);
 
   useEffect(() => {
+    if (!selectedPropertyId) {
+      setGa4Data(null);
+      setGa4Error(null);
+      setGa4Loading(false);
+      return;
+    }
+
     const ga4PropertyId = selectedProperty?.googleAnalyticsId;
     if (!ga4PropertyId) {
       setGa4Data(null);
@@ -1259,7 +1424,7 @@ const DashboardApp = () => {
           start_date: rangeDates.start.toISOString().slice(0, 10),
           end_date: rangeDates.end.toISOString().slice(0, 10)
         });
-        const response = await fetch(`${GA4_DASHBOARD_URL}?${params.toString()}`, {
+        const response = await authFetch(`${GA4_DASHBOARD_URL}?${params.toString()}`, {
           signal: controller.signal
         });
         const payload = await response.json();
@@ -1282,6 +1447,13 @@ const DashboardApp = () => {
   }, [rangeDates, selectedPropertyId, selectedProperty]);
 
   useEffect(() => {
+    if (!selectedPropertyId) {
+      setGoogleAdsData(null);
+      setGoogleAdsError(null);
+      setGoogleAdsLoading(false);
+      return;
+    }
+
     const googleAdsCustomerId = selectedProperty?.googleAdsId;
     if (!googleAdsCustomerId) {
       setGoogleAdsData(null);
@@ -1307,7 +1479,7 @@ const DashboardApp = () => {
           start_date: rangeDates.start.toISOString().slice(0, 10),
           end_date: rangeDates.end.toISOString().slice(0, 10)
         });
-        const response = await fetch(`${GOOGLE_ADS_DASHBOARD_URL}?${params.toString()}`, {
+        const response = await authFetch(`${GOOGLE_ADS_DASHBOARD_URL}?${params.toString()}`, {
           signal: controller.signal
         });
         const payload = await response.json();
@@ -1330,6 +1502,13 @@ const DashboardApp = () => {
   }, [rangeDates, selectedPropertyId, selectedProperty]);
 
   useEffect(() => {
+    if (!selectedPropertyId) {
+      setMetaAdsData(null);
+      setMetaAdsError(null);
+      setMetaAdsLoading(false);
+      return;
+    }
+
     const metaAdsAccountId = selectedProperty?.metaAdsAccountId;
     if (!metaAdsAccountId) {
       setMetaAdsData(null);
@@ -1362,7 +1541,7 @@ const DashboardApp = () => {
         if (selectedProperty?.metaAdsMatchTerms?.length) {
           params.set('match_terms', JSON.stringify(selectedProperty.metaAdsMatchTerms));
         }
-        const response = await fetch(`${META_ADS_DASHBOARD_URL}?${params.toString()}`, {
+        const response = await authFetch(`${META_ADS_DASHBOARD_URL}?${params.toString()}`, {
           signal: controller.signal
         });
         const payload = await response.json();
@@ -1385,6 +1564,13 @@ const DashboardApp = () => {
   }, [metaAdsAttributionMode, rangeDates, selectedPropertyId, selectedProperty]);
 
   useEffect(() => {
+    if (!selectedPropertyId) {
+      setReputationData(null);
+      setReputationError(null);
+      setReputationLoading(false);
+      return;
+    }
+
     if (selectedProperty?.opiniionSkip) {
       setReputationData(null);
       setReputationError('This property is intentionally excluded from Opiniion mapping.');
@@ -1413,7 +1599,7 @@ const DashboardApp = () => {
         if (selectedProperty?.opiniionLocationName) {
           params.set('location_name', selectedProperty.opiniionLocationName);
         }
-        const response = await fetch(`${REPUTATION_DASHBOARD_URL}?${params.toString()}`, {
+        const response = await authFetch(`${REPUTATION_DASHBOARD_URL}?${params.toString()}`, {
           signal: controller.signal
         });
         const payload = await response.json();
@@ -1923,6 +2109,15 @@ const DashboardApp = () => {
   };
 
   const saveWebsiteManagerDraft = async () => {
+    if (!selectedPropertyId) {
+      setWebsiteManagerError('No property is currently available for this account.');
+      return;
+    }
+    if (!canEditWebsiteManager) {
+      setWebsiteManagerError('Your current role can view website manager content, but cannot edit it.');
+      return;
+    }
+
     setWebsiteManagerSaving(true);
     setWebsiteManagerError(null);
     setWebsiteManagerNotice(null);
@@ -1932,7 +2127,7 @@ const DashboardApp = () => {
         throw new Error('Website manager endpoint is not configured.');
       }
       const normalizedDraft = normalizeWebsiteManagerRecord(websiteManagerDraft);
-      const response = await fetch(WEBSITE_MANAGER_URL, {
+      const response = await authFetch(WEBSITE_MANAGER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1960,6 +2155,10 @@ const DashboardApp = () => {
   };
 
   const toggleReportingAdminMode = () => {
+    if (!canEditReportingLayout) {
+      setReportingLayoutError('Your current role can view reports, but cannot change reporting layout.');
+      return;
+    }
     setReportingLayoutNotice(null);
     setReportingLayoutError(null);
     setReportingAdminEnabled((current) => !current);
@@ -2004,6 +2203,15 @@ const DashboardApp = () => {
   };
 
   const saveReportingLayoutDraft = async () => {
+    if (!selectedPropertyId) {
+      setReportingLayoutError('No property is currently available for this account.');
+      return;
+    }
+    if (!canEditReportingLayout) {
+      setReportingLayoutError('Your current role can view reporting, but cannot change panel layout.');
+      return;
+    }
+
     setReportingLayoutSaving(true);
     setReportingLayoutError(null);
     setReportingLayoutNotice(null);
@@ -2013,7 +2221,7 @@ const DashboardApp = () => {
         throw new Error('Reporting layout endpoint is not configured.');
       }
       const normalizedDraft = normalizeReportingLayoutRecord(reportingLayoutDraft);
-      const response = await fetch(REPORTING_LAYOUT_URL, {
+      const response = await authFetch(REPORTING_LAYOUT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3693,9 +3901,11 @@ const DashboardApp = () => {
             <div className="reports-chip">{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</div>
             <div className="reports-chip">{activeReportingPanels.length} live panels</div>
             <div className={reportingSourceBadge.className}>{reportingSourceBadge.label}</div>
-            <button type="button" className={`reports-admin-toggle ${reportingAdminEnabled ? 'active' : ''}`} onClick={toggleReportingAdminMode}>
-              {reportingAdminEnabled ? 'Exit Admin Layout' : 'Admin Layout Mode'}
-            </button>
+            {canEditReportingLayout && (
+              <button type="button" className={`reports-admin-toggle ${reportingAdminEnabled ? 'active' : ''}`} onClick={toggleReportingAdminMode}>
+                {reportingAdminEnabled ? 'Exit Admin Layout' : 'Admin Layout Mode'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -3773,7 +3983,9 @@ const DashboardApp = () => {
               )}
               {!reportingAdminEnabled && (
                 <div className="reports-layout-hint">
-                  Admin layout mode unlocks per-property panel ordering and hide/show controls. It currently uses a local toggle until frontend auth is wired in.
+                  {canEditReportingLayout
+                    ? 'Admin layout mode unlocks per-property panel ordering and hide/show controls.'
+                    : 'This account can review reporting, but layout changes are reserved for roles with reporting admin access.'}
                 </div>
               )}
             </div>
@@ -4163,6 +4375,12 @@ const DashboardApp = () => {
         </div>
       )}
 
+      {!canEditWebsiteManager && (
+        <div className="website-manager-banner">
+          Your current role can view website manager content for this property, but editing is disabled.
+        </div>
+      )}
+
       <div className="website-manager-layout">
         <div className="website-manager-panel website-manager-panel--editor">
           <div className="website-manager-section-head">
@@ -4179,6 +4397,7 @@ const DashboardApp = () => {
                 value={websiteManagerDraft.platform}
                 onChange={(event) => updateWebsiteManagerField('platform', event.target.value)}
                 className="website-manager-field__input"
+                disabled={!canEditWebsiteManager}
               >
                 {[
                   { value: 'unknown', label: 'Needs review' },
@@ -4198,6 +4417,7 @@ const DashboardApp = () => {
                 onChange={(event) => updateWebsiteManagerField('websiteUrl', event.target.value)}
                 className="website-manager-field__input"
                 placeholder="https://www.example.com"
+                disabled={!canEditWebsiteManager}
               />
             </label>
             <label className="website-manager-field">
@@ -4208,6 +4428,7 @@ const DashboardApp = () => {
                 onChange={(event) => updateWebsiteManagerField('wordpressSiteKey', event.target.value)}
                 className="website-manager-field__input"
                 placeholder="montaire"
+                disabled={!canEditWebsiteManager}
               />
             </label>
             <label className="website-manager-field website-manager-field--wide">
@@ -4217,6 +4438,7 @@ const DashboardApp = () => {
                 onChange={(event) => updateWebsiteManagerField('notes', event.target.value)}
                 className="website-manager-field__input website-manager-field__input--textarea"
                 placeholder="Add rollout notes, environment reminders, or page-level mapping details."
+                disabled={!canEditWebsiteManager}
               />
             </label>
           </div>
@@ -4251,7 +4473,7 @@ const DashboardApp = () => {
                           onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
                           className="website-manager-field__input website-manager-field__input--textarea"
                           placeholder={field.placeholder}
-                          disabled={!websiteManagerEditable}
+                          disabled={!websiteManagerEditable || !canEditWebsiteManager}
                         />
                       ) : (
                         <input
@@ -4260,7 +4482,7 @@ const DashboardApp = () => {
                           onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
                           className="website-manager-field__input"
                           placeholder={field.placeholder}
-                          disabled={!websiteManagerEditable}
+                          disabled={!websiteManagerEditable || !canEditWebsiteManager}
                         />
                       )}
                     </label>
@@ -4275,7 +4497,7 @@ const DashboardApp = () => {
               type="button"
               className="website-manager-button website-manager-button--ghost"
               onClick={resetWebsiteManagerDraft}
-              disabled={!websiteManagerDirty || websiteManagerSaving}
+              disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
             >
               Reset
             </button>
@@ -4283,7 +4505,7 @@ const DashboardApp = () => {
               type="button"
               className="website-manager-button website-manager-button--primary"
               onClick={saveWebsiteManagerDraft}
-              disabled={!websiteManagerDirty || websiteManagerSaving}
+              disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
             >
               {websiteManagerSaving ? 'Saving…' : 'Save Website Config'}
             </button>
@@ -4365,6 +4587,329 @@ const DashboardApp = () => {
     </div>
   );
 
+  const handleAdminUserSelection = (userId) => {
+    setAdminSelectedUserId(userId);
+    const user = adminUsers.find((candidate) => candidate.id === userId) || null;
+    setAdminUserDraft(hydrateAdminDraftFromUser(user));
+    setAdminAccessNotice(null);
+    setAdminAccessError(null);
+    setAdminInviteLink('');
+  };
+
+  const updateAdminUserDraft = (field, value) => {
+    setAdminUserDraft((current) => (current ? { ...current, [field]: value } : current));
+  };
+
+  const toggleAdminUserProperty = (propertyId) => {
+    setAdminUserDraft((current) => {
+      if (!current) return current;
+      const selected = new Set(current.propertyIds);
+      if (selected.has(propertyId)) selected.delete(propertyId);
+      else selected.add(propertyId);
+      return { ...current, propertyIds: Array.from(selected) };
+    });
+  };
+
+  const updateAdminInviteDraft = (field, value) => {
+    setAdminInviteDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const toggleAdminInviteProperty = (propertyId) => {
+    setAdminInviteDraft((current) => {
+      const selected = new Set(current.propertyIds);
+      if (selected.has(propertyId)) selected.delete(propertyId);
+      else selected.add(propertyId);
+      return { ...current, propertyIds: Array.from(selected) };
+    });
+  };
+
+  const saveAdminUserAccess = async () => {
+    if (!adminUserDraft?.id) {
+      setAdminAccessError('Choose a user before saving access changes.');
+      return;
+    }
+
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+    setAdminInviteLink('');
+
+    try {
+      const response = await authFetch(`${ADMIN_ACCESS_USERS_URL}/${adminUserDraft.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: adminUserDraft.fullName,
+          globalRole: adminUserDraft.globalRole || null,
+          propertyRole: adminUserDraft.propertyRole || null,
+          propertyIds: adminUserDraft.propertyIds,
+          isActive: adminUserDraft.isActive,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Access save failed: ${response.status}`);
+      }
+
+      setAdminAccessNotice('User access updated.');
+      await loadAdminAccess();
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to save user access.');
+      setAdminAccessLoading(false);
+    }
+  };
+
+  const inviteAdminUser = async () => {
+    if (!adminInviteDraft.email.trim()) {
+      setAdminAccessError('Enter an email address to create an invite.');
+      return;
+    }
+
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+    setAdminInviteLink('');
+
+    try {
+      const response = await authFetch(ADMIN_ACCESS_USERS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: adminInviteDraft.email,
+          fullName: adminInviteDraft.fullName,
+          globalRole: adminInviteDraft.globalRole || null,
+          propertyRole: adminInviteDraft.propertyRole || null,
+          propertyIds: adminInviteDraft.propertyIds,
+          redirectTo: `${window.location.origin}/sign-in`,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Invite failed: ${response.status}`);
+      }
+
+      setAdminAccessNotice(`Invite created for ${adminInviteDraft.email}.`);
+      setAdminInviteLink(payload?.invite?.actionLink || '');
+      setAdminInviteDraft({
+        email: '',
+        fullName: '',
+        globalRole: '',
+        propertyRole: '',
+        propertyIds: [],
+      });
+      await loadAdminAccess();
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to create invite.');
+      setAdminAccessLoading(false);
+    }
+  };
+
+  const renderAdmin = () => (
+    <div className="admin-access-view">
+      <div className="admin-access-hero">
+        <div>
+          <div className="admin-access-kicker">Access Control</div>
+          <div className="admin-access-headline">Invite teammates and shape what they can see.</div>
+          <div className="admin-access-subhead">
+            This admin view lets you create invite links, assign a top-level admin role, or give a property-scoped role across selected communities.
+          </div>
+        </div>
+        <div className="admin-access-stats">
+          <div className="admin-access-stat">
+            <span>Users</span>
+            <strong>{adminUsers.length}</strong>
+          </div>
+          <div className="admin-access-stat">
+            <span>Roles</span>
+            <strong>{adminRoles.length}</strong>
+          </div>
+          <div className="admin-access-stat">
+            <span>Properties</span>
+            <strong>{adminProperties.length}</strong>
+          </div>
+        </div>
+      </div>
+
+      {(adminAccessError || adminAccessNotice) && (
+        <div className={`admin-access-banner ${adminAccessError ? 'admin-access-banner--error' : 'admin-access-banner--success'}`}>
+          {adminAccessError || adminAccessNotice}
+        </div>
+      )}
+
+      {adminInviteLink && (
+        <div className="admin-access-banner admin-access-banner--info">
+          Invite link: <a href={adminInviteLink} target="_blank" rel="noreferrer">{adminInviteLink}</a>
+        </div>
+      )}
+
+      <div className="admin-access-layout">
+        <div className="admin-access-panel">
+          <div className="admin-access-section-head">
+            <div className="admin-access-panel__eyebrow">Invite</div>
+            <h3 className="admin-access-panel__title">Create a new user invite</h3>
+          </div>
+
+          <div className="admin-access-form-grid">
+            <label className="admin-access-field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={adminInviteDraft.email}
+                onChange={(event) => updateAdminInviteDraft('email', event.target.value)}
+                placeholder="name@redstoneresidential.com"
+              />
+            </label>
+            <label className="admin-access-field">
+              <span>Full name</span>
+              <input
+                type="text"
+                value={adminInviteDraft.fullName}
+                onChange={(event) => updateAdminInviteDraft('fullName', event.target.value)}
+                placeholder="Full name"
+              />
+            </label>
+            <label className="admin-access-field">
+              <span>Global role</span>
+              <select
+                value={adminInviteDraft.globalRole}
+                onChange={(event) => updateAdminInviteDraft('globalRole', event.target.value)}
+              >
+                <option value="">No global role</option>
+                {adminGlobalRoles.map((role) => (
+                  <option key={role.name} value={role.name}>{role.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="admin-access-field">
+              <span>Property role</span>
+              <select
+                value={adminInviteDraft.propertyRole}
+                onChange={(event) => updateAdminInviteDraft('propertyRole', event.target.value)}
+              >
+                <option value="">No property role</option>
+                {adminPropertyRoles.map((role) => (
+                  <option key={role.name} value={role.name}>{role.name}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="admin-access-property-picker">
+            {adminProperties.map((property) => (
+              <label key={property.id} className="admin-access-property-pill">
+                <input
+                  type="checkbox"
+                  checked={adminInviteDraft.propertyIds.includes(property.id)}
+                  onChange={() => toggleAdminInviteProperty(property.id)}
+                />
+                <span>{property.name}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="admin-access-actions">
+            <button type="button" onClick={inviteAdminUser} disabled={adminAccessLoading}>
+              {adminAccessLoading ? 'Working…' : 'Create Invite Link'}
+            </button>
+          </div>
+        </div>
+
+        <div className="admin-access-panel">
+          <div className="admin-access-section-head">
+            <div className="admin-access-panel__eyebrow">Users</div>
+            <h3 className="admin-access-panel__title">Existing accounts</h3>
+          </div>
+
+          <div className="admin-access-user-list">
+            {adminUsers.map((user) => (
+              <button
+                key={user.id}
+                type="button"
+                className={`admin-access-user-card ${adminSelectedUserId === user.id ? 'active' : ''}`}
+                onClick={() => handleAdminUserSelection(user.id)}
+              >
+                <strong>{user.fullName || user.email}</strong>
+                <span>{user.email}</span>
+                <small>{user.globalRole || user.memberships?.[0]?.role || 'No role assigned'}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="admin-access-panel">
+          <div className="admin-access-section-head">
+            <div className="admin-access-panel__eyebrow">Assignments</div>
+            <h3 className="admin-access-panel__title">Edit user access</h3>
+          </div>
+
+          {adminUserDraft ? (
+            <>
+              <div className="admin-access-form-grid">
+                <label className="admin-access-field">
+                  <span>Email</span>
+                  <input type="text" value={adminUserDraft.email} disabled />
+                </label>
+                <label className="admin-access-field">
+                  <span>Full name</span>
+                  <input
+                    type="text"
+                    value={adminUserDraft.fullName}
+                    onChange={(event) => updateAdminUserDraft('fullName', event.target.value)}
+                  />
+                </label>
+                <label className="admin-access-field">
+                  <span>Global role</span>
+                  <select
+                    value={adminUserDraft.globalRole}
+                    onChange={(event) => updateAdminUserDraft('globalRole', event.target.value)}
+                  >
+                    <option value="">No global role</option>
+                    {adminGlobalRoles.map((role) => (
+                      <option key={role.name} value={role.name}>{role.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-access-field">
+                  <span>Property role</span>
+                  <select
+                    value={adminUserDraft.propertyRole}
+                    onChange={(event) => updateAdminUserDraft('propertyRole', event.target.value)}
+                  >
+                    <option value="">No property role</option>
+                    {adminPropertyRoles.map((role) => (
+                      <option key={role.name} value={role.name}>{role.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="admin-access-property-picker">
+                {adminProperties.map((property) => (
+                  <label key={property.id} className="admin-access-property-pill">
+                    <input
+                      type="checkbox"
+                      checked={adminUserDraft.propertyIds.includes(property.id)}
+                      onChange={() => toggleAdminUserProperty(property.id)}
+                    />
+                    <span>{property.name}</span>
+                  </label>
+                ))}
+              </div>
+
+              <div className="admin-access-actions">
+                <button type="button" onClick={saveAdminUserAccess} disabled={adminAccessLoading}>
+                  {adminAccessLoading ? 'Saving…' : 'Save Access'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="admin-access-empty">Choose a user to edit roles and property memberships.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
       {showLoader && (
@@ -4394,67 +4939,77 @@ const DashboardApp = () => {
         </div>
         
         <div className="nav-menu">
-          <div className={`nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-            <LayoutDashboard size={20} />
-            <span className="nav-label">Dashboard</span>
-          </div>
-          <div className={`nav-item ${activeTab === 'website manager' ? 'active' : ''}`} onClick={() => setActiveTab('website manager')}>
-            <Globe size={20} />
-            <span className="nav-label">Website Manager</span>
-          </div>
-          <div className={`nav-item ${activeTab === 'property info' ? 'active' : ''}`} onClick={() => setActiveTab('property info')}>
-            <Home size={20} />
-            <span className="nav-label">Property Info</span>
-          </div>
-          <div className={`nav-item ${activeTab === 'reports' ? 'active' : ''}`} onClick={() => setActiveTab('reports')}>
-            <FileText size={20} />
-            <span className="nav-label">Reports</span>
-          </div>
-          <div className={`nav-item ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => setActiveTab('analytics')}>
-            <TrendingUp size={20} />
-            <span className="nav-label">Analytics</span>
-          </div>
-          <div className={`nav-item ${activeTab === 'reputation' ? 'active' : ''}`} onClick={() => setActiveTab('reputation')}>
-            <MessageSquareText size={20} />
-            <span className="nav-label">Reputation</span>
-          </div>
-          <div className={`nav-item ${activeTab === 'notes' ? 'active' : ''}`} onClick={() => setActiveTab('notes')}>
-            <ClipboardList size={20} />
-            <span className="nav-label">Notes</span>
-          </div>
+          {visibleNavItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.id}
+                className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(item.id)}
+              >
+                <Icon size={20} />
+                <span className="nav-label">{item.label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Main Content */}
       <div className="main-content">
         <div className="header">
-          <div className="property-selector">
-            <span className="property-selector__label">Property</span>
-            <div className="property-selector__control">
-              <select
-                value={selectedPropertyId}
-                onChange={(e) => setSelectedPropertyId(e.target.value)}
-                className="property-selector__select"
-              >
-                {PROPERTY_CATALOG.map((property) => (
-                  <option key={property.propertyId} value={property.propertyId}>
-                    {property.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown size={16} className="property-selector__chevron" />
+          {activeTab === 'admin' ? (
+            <div className="property-selector property-selector--admin">
+              <span className="property-selector__label">Access scope</span>
+              <div className="property-selector__admin-summary">
+                Manage user invites, global roles, and property assignments.
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="property-selector">
+              <span className="property-selector__label">Property</span>
+              <div className="property-selector__control">
+                <select
+                  value={selectedPropertyId}
+                  onChange={(e) => setSelectedPropertyId(e.target.value)}
+                  className="property-selector__select"
+                >
+                  {availableProperties.map((property) => (
+                    <option key={property.propertyId} value={property.propertyId}>
+                      {property.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="property-selector__chevron" />
+              </div>
+            </div>
+          )}
           <div className="header-status">
-            <span className="header-status__meta">v2.0 - Live Entrata Data</span>
-            <div className="header-status__avatar" aria-hidden="true"></div>
+            <div className="header-status__identity">
+              <span className="header-status__meta">v2.0 - Live Entrata Data</span>
+              {currentUser?.email && (
+                <span className="header-status__email">{currentUser.email}</span>
+              )}
+            </div>
+            <div className="header-status__actions">
+              <div className="header-status__avatar" aria-hidden="true"></div>
+              {typeof onSignOut === 'function' && (
+                <button
+                  type="button"
+                  className="header-status__signout"
+                  onClick={onSignOut}
+                >
+                  Sign out
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="content-body">
           <div className="dashboard-title-row">
             <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
-            {activeTab !== 'website manager' && (
+            {activeTab !== 'website manager' && activeTab !== 'admin' && (
               <div className="global-date-controls">
                 <div className="global-date-controls__picker">
                   <div className="global-date-controls__label">Date range</div>
@@ -4505,6 +5060,7 @@ const DashboardApp = () => {
           {activeTab === 'analytics' && renderAnalytics()}
           {activeTab === 'reputation' && renderReputation()}
           {activeTab === 'notes' && renderNotes()}
+          {activeTab === 'admin' && renderAdmin()}
 
           <div className="app-footer-links">
             <a href="/privacy-policy">Privacy Policy</a>
@@ -4516,4 +5072,6 @@ const DashboardApp = () => {
   );
 };
 
-export default App;
+export { DashboardApp, PrivacyPolicyPage, TermsOfServicePage };
+
+export default DashboardApp;

@@ -138,3 +138,25 @@ After the cutover to Supabase/Render/Vercel is stable, I’d expect a second pas
 ## Immediate next step after schema
 
 The next best move is to update the Firestore migration utility so it writes into these tables instead of generic one-table-per-collection JSON storage. That gives you a working data landing zone for Render and a much easier frontend migration after that.
+
+## Auth and access model
+
+The frontend now expects a second SQL pass for authz:
+
+- [supabase/auth_access_model.sql](/Users/steele/Desktop/Data%20Analysis/supabase/auth_access_model.sql)
+
+That script adds:
+
+- `profiles`
+- `app_roles`
+- `role_permissions`
+- `property_memberships`
+- helper functions for property and permission checks
+- RLS policies for `properties` and the current property-scoped dashboard tables
+
+The intended workflow is:
+
+1. Supabase Auth creates the user.
+2. The profile trigger creates `public.profiles`.
+3. An admin assigns one or more `property_memberships`.
+4. The dashboard loads only the properties and tabs allowed by the user’s role set.

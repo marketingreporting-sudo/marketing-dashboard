@@ -1,0 +1,232 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { DEFAULT_PROPERTY_ID, PROPERTY_CATALOG_BY_ID } from '../propertyCatalog';
+import { useAuth } from '../auth/useAuth';
+import { supabase } from '../lib/supabase';
+import { AccessContext } from './AccessContext';
+
+const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+
+const normalizePropertyRecord = (row) => {
+  const fallback = PROPERTY_CATALOG_BY_ID[row?.id] || {};
+
+  return {
+    propertyId: row?.id || fallback.propertyId || '',
+    name: row?.name || fallback.name || `Property ${row?.id || ''}`.trim(),
+    city: row?.city || fallback.city || '',
+    state: row?.state || fallback.state || '',
+    portfolio: row?.portfolio || fallback.portfolio || '',
+    orgSlug: row?.org_slug || fallback.orgSlug || '',
+    googleAdsId: row?.google_ads_id || fallback.googleAdsId || '',
+    googleAnalyticsId: row?.google_analytics_id || fallback.googleAnalyticsId || '',
+    metaAdsAccountId: row?.meta_ads_account_id || fallback.metaAdsAccountId || '',
+    metaAdsMatchTerms: normalizeArray(row?.meta_ads_match_terms).length
+      ? normalizeArray(row?.meta_ads_match_terms)
+      : normalizeArray(fallback.metaAdsMatchTerms),
+    opiniionLocationId: row?.opiniion_location_id || fallback.opiniionLocationId || '',
+    opiniionLocationName: row?.opiniion_location_name || fallback.opiniionLocationName || '',
+  };
+};
+
+const buildPropertyAccessMap = ({ properties, memberships, profileRole, rolePermissions }) => {
+  const propertyById = new Map(properties.map((property) => [property.propertyId, property]));
+  const permissionsByRole = rolePermissions.reduce((accumulator, row) => {
+    const current = accumulator.get(row.role) || new Set();
+    current.add(row.permission);
+    accumulator.set(row.role, current);
+    return accumulator;
+  }, new Map());
+
+  const globalPermissions = profileRole ? permissionsByRole.get(profileRole) || new Set() : new Set();
+
+  return properties.reduce((accumulator, property) => {
+    const membership = memberships.find((item) => item.property_id === property.propertyId) || null;
+    const membershipPermissions = membership?.role
+      ? permissionsByRole.get(membership.role) || new Set()
+      : new Set();
+    const permissionSet = new Set([...globalPermissions, ...membershipPermissions]);
+
+    accumulator[property.propertyId] = {
+      property: propertyById.get(property.propertyId) || property,
+      role: membership?.role || profileRole || null,
+      permissions: Array.from(permissionSet).sort(),
+    };
+    return accumulator;
+  }, {});
+};
+
+export const AccessProvider = ({ children }) => {
+  const { user, isAuthenticated, isConfigured } = useAuth();
+  const [loading, setLoading] = useState(Boolean(isAuthenticated && isConfigured));
+  const [profile, setProfile] = useState(null);
+  const [memberships, setMemberships] = useState([]);
+  const [properties, setProperties] = useState([]);
+  const [propertyAccessById, setPropertyAccessById] = useState({});
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!isAuthenticated || !user || !supabase || !isConfigured) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadAccess = async () => {
+      setLoading(true);
+      setError('');
+
+      const profileResponse = await supabase
+        .from('profiles')
+        .select('id, email, full_name, global_role, is_active')
+        .eq('id', user.id)
+        .maybeSingle();
+
+      if (profileResponse.error) {
+        if (!cancelled) {
+          setError(profileResponse.error.message || 'Unable to load the user profile.');
+          setLoading(false);
+        }
+        return;
+      }
+
+      const profileRecord = profileResponse.data || null;
+
+      const membershipsResponse = await supabase
+        .from('property_memberships')
+        .select('property_id, role, is_active')
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+
+      if (membershipsResponse.error) {
+        if (!cancelled) {
+          setError(membershipsResponse.error.message || 'Unable to load property memberships.');
+          setLoading(false);
+        }
+        return;
+      }
+
+      const membershipRows = membershipsResponse.data || [];
+      const propertyIds = Array.from(new Set(membershipRows.map((row) => row.property_id).filter(Boolean)));
+
+      let propertyRows = [];
+      const roles = Array.from(
+        new Set([
+          ...(profileRecord?.global_role ? [profileRecord.global_role] : []),
+          ...membershipRows.map((row) => row.role).filter(Boolean),
+        ])
+      );
+
+      let rolePermissions = [];
+      if (roles.length > 0) {
+        const permissionsResponse = await supabase
+          .from('role_permissions')
+          .select('role, permission')
+          .in('role', roles);
+
+        if (permissionsResponse.error) {
+          if (!cancelled) {
+            setError(permissionsResponse.error.message || 'Unable to load role permissions.');
+            setLoading(false);
+          }
+          return;
+        }
+
+        rolePermissions = permissionsResponse.data || [];
+      }
+
+      const globalPermissionSet = new Set(
+        rolePermissions
+          .filter((row) => row.role === profileRecord?.global_role)
+          .map((row) => row.permission)
+      );
+      const hasGlobalPropertyAccess = globalPermissionSet.has('properties.view_all');
+
+      if (hasGlobalPropertyAccess) {
+        const propertiesResponse = await supabase
+          .from('properties')
+          .select('id, name, city, state, portfolio, org_slug, google_ads_id, google_analytics_id, meta_ads_account_id, meta_ads_match_terms, opiniion_location_id, opiniion_location_name')
+          .order('name', { ascending: true });
+
+        if (propertiesResponse.error) {
+          if (!cancelled) {
+            setError(propertiesResponse.error.message || 'Unable to load property catalog.');
+            setLoading(false);
+          }
+          return;
+        }
+
+        propertyRows = propertiesResponse.data || [];
+      } else if (propertyIds.length > 0) {
+        const propertiesResponse = await supabase
+          .from('properties')
+          .select('id, name, city, state, portfolio, org_slug, google_ads_id, google_analytics_id, meta_ads_account_id, meta_ads_match_terms, opiniion_location_id, opiniion_location_name')
+          .in('id', propertyIds)
+          .order('name', { ascending: true });
+
+        if (propertiesResponse.error) {
+          if (!cancelled) {
+            setError(propertiesResponse.error.message || 'Unable to load assigned properties.');
+            setLoading(false);
+          }
+          return;
+        }
+
+        propertyRows = propertiesResponse.data || [];
+      }
+
+      const mergedProperties = Array.from(
+        new Map(
+          [
+            ...propertyRows.map((row) => normalizePropertyRecord(row)),
+            ...propertyIds
+              .filter((propertyId) => !propertyRows.some((row) => row.id === propertyId) && PROPERTY_CATALOG_BY_ID[propertyId])
+              .map((propertyId) => PROPERTY_CATALOG_BY_ID[propertyId]),
+          ].map((property) => [property.propertyId, property])
+        ).values()
+      ).sort((left, right) => left.name.localeCompare(right.name));
+
+      if (cancelled) return;
+
+      setProfile(profileRecord);
+      setMemberships(membershipRows);
+      setProperties(mergedProperties);
+      setPropertyAccessById(
+        buildPropertyAccessMap({
+          properties: mergedProperties,
+          memberships: membershipRows,
+          profileRole: profileRecord?.global_role || null,
+          rolePermissions,
+        })
+      );
+      setLoading(false);
+    };
+
+    loadAccess();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isConfigured, user]);
+
+  const defaultPropertyId = useMemo(() => {
+    if (properties.some((property) => property.propertyId === DEFAULT_PROPERTY_ID)) {
+      return DEFAULT_PROPERTY_ID;
+    }
+    return properties[0]?.propertyId || null;
+  }, [properties]);
+
+  const value = useMemo(
+    () => ({
+      loading: isAuthenticated ? loading : false,
+      error: isAuthenticated ? error : '',
+      profile: isAuthenticated ? profile : null,
+      memberships: isAuthenticated ? memberships : [],
+      properties: isAuthenticated ? properties : [],
+      propertyAccessById: isAuthenticated ? propertyAccessById : {},
+      defaultPropertyId,
+      hasAnyPropertyAccess: isAuthenticated ? properties.length > 0 : false,
+    }),
+    [defaultPropertyId, error, isAuthenticated, loading, memberships, profile, properties, propertyAccessById]
+  );
+
+  return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;
+};

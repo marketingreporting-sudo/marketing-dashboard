@@ -2,6 +2,13 @@ import os
 
 from flask import Flask, jsonify, make_response, request
 
+from render_auth import (
+    RenderAuthError,
+    RenderPermissionError,
+    require_authenticated_user,
+    user_has_platform_permission,
+    user_has_property_permission,
+)
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
 from render_runtime import (
     fetch_and_store_ga4_dashboard,
@@ -17,6 +24,11 @@ from render_supabase_admin_content import (
     get_website_manager_summary,
     save_reporting_layout_summary,
     save_website_manager_summary,
+)
+from render_supabase_admin_access import (
+    invite_user_with_access_summary,
+    list_access_admin_summary,
+    update_user_access_summary,
 )
 from render_supabase_reporting import get_property_reporting_overview_summary
 from render_supabase_roi import get_supabase_roi_pipeline_status_summary
@@ -41,6 +53,24 @@ def create_app() -> Flask:
     def build_cors_json_response(payload: dict, status_code: int = 200):
         response = make_response(jsonify(payload), status_code)
         return response
+
+    def get_authenticated_request_context():
+        access_token, user = require_authenticated_user(request.headers.get("Authorization"))
+        return access_token, user
+
+    def require_property_permission(property_id: str, permission: str):
+        access_token, user = get_authenticated_request_context()
+        if not user_has_property_permission(access_token, property_id, permission):
+            raise RenderPermissionError(
+                f"Authenticated user does not have '{permission}' access for property {property_id}."
+            )
+        return access_token, user
+
+    def require_platform_permission(permission: str):
+        access_token, user = get_authenticated_request_context()
+        if not user_has_platform_permission(access_token, permission):
+            raise RenderPermissionError(f"Authenticated user does not have '{permission}' access.")
+        return access_token, user
 
     @app.get("/")
     def root():
@@ -93,6 +123,13 @@ def create_app() -> Flask:
         if request.method == "OPTIONS":
             return build_cors_json_response({})
 
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
         req_json = request.get_json(silent=True) or {}
         job_name = request.args.get("job_name") or req_json.get("job_name")
         if not job_name:
@@ -120,13 +157,23 @@ def create_app() -> Flask:
 
     @app.get("/api/entrata/sync-state")
     def staged_sync_state():
-        payload = get_supabase_sync_state_summary()
+        try:
+            access_token, _user = get_authenticated_request_context()
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        payload = get_supabase_sync_state_summary(access_token=access_token)
         status_code = 200 if payload.get("status") == "ok" else 503
         return jsonify(payload), status_code
 
     @app.get("/api/roi/pipeline-status")
     def staged_roi_pipeline_status():
-        payload = get_supabase_roi_pipeline_status_summary()
+        try:
+            access_token, _user = get_authenticated_request_context()
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        payload = get_supabase_roi_pipeline_status_summary(access_token=access_token)
         status_code = 200 if payload.get("status") == "ok" else 503
         return jsonify(payload), status_code
 
@@ -155,6 +202,7 @@ def create_app() -> Flask:
             )
 
         try:
+            require_property_permission(str(property_id), "reputation.view")
             payload = fetch_and_store_reputation_dashboard(
                 property_id=str(property_id),
                 location_id=location_id,
@@ -169,6 +217,12 @@ def create_app() -> Flask:
         except ValueError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 400
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
         except Exception as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 500
@@ -201,6 +255,7 @@ def create_app() -> Flask:
             )
 
         try:
+            require_property_permission(str(property_id), "analytics.view")
             payload = fetch_and_store_ga4_dashboard(
                 property_id=str(property_id),
                 ga4_property_id=str(ga4_property_id),
@@ -212,6 +267,12 @@ def create_app() -> Flask:
         except ValueError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 400
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
         except Exception as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 500
@@ -245,6 +306,7 @@ def create_app() -> Flask:
             )
 
         try:
+            require_property_permission(str(property_id), "analytics.view")
             payload = fetch_and_store_google_ads_dashboard(
                 property_id=str(property_id),
                 google_ads_customer_id=str(google_ads_customer_id),
@@ -257,6 +319,12 @@ def create_app() -> Flask:
         except ValueError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 400
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
         except Exception as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 500
@@ -294,6 +362,7 @@ def create_app() -> Flask:
             )
 
         try:
+            require_property_permission(str(property_id), "analytics.view")
             payload = fetch_and_store_meta_ads_dashboard(
                 property_id=str(property_id),
                 meta_ads_account_id=str(meta_ads_account_id),
@@ -310,6 +379,12 @@ def create_app() -> Flask:
         except ValueError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 400
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
         except Exception as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 500
@@ -319,6 +394,13 @@ def create_app() -> Flask:
     def staged_entrata_backfill():
         if request.method == "OPTIONS":
             return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
 
         req_json = request.get_json(silent=True) or {}
         days = int(request.args.get("days") or req_json.get("days") or 30)
@@ -359,7 +441,12 @@ def create_app() -> Flask:
                 status_code=400,
             )
 
-        payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date)
+        try:
+            access_token, _user = get_authenticated_request_context()
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
         status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 
@@ -380,10 +467,15 @@ def create_app() -> Flask:
                 status_code=400,
             )
 
+        try:
+            access_token, _user = get_authenticated_request_context()
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
         if request.method == "POST":
-            payload = save_website_manager_summary(str(property_id), req_json)
+            payload = save_website_manager_summary(str(property_id), req_json, access_token=access_token)
         else:
-            payload = get_website_manager_summary(str(property_id))
+            payload = get_website_manager_summary(str(property_id), access_token=access_token)
         status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 
@@ -404,10 +496,52 @@ def create_app() -> Flask:
                 status_code=400,
             )
 
+        try:
+            access_token, _user = get_authenticated_request_context()
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
         if request.method == "POST":
-            payload = save_reporting_layout_summary(str(property_id), req_json)
+            payload = save_reporting_layout_summary(str(property_id), req_json, access_token=access_token)
         else:
-            payload = get_reporting_layout_summary(str(property_id))
+            payload = get_reporting_layout_summary(str(property_id), access_token=access_token)
+        status_code = 200 if payload.get("status") != "error" else 503
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/access/users", methods=["GET", "POST", "OPTIONS"])
+    def staged_admin_access_users():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        req_json = request.get_json(silent=True) or {}
+        if request.method == "POST":
+            payload = invite_user_with_access_summary(req_json)
+        else:
+            payload = list_access_admin_summary()
+        status_code = 200 if payload.get("status") != "error" else 503
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/access/users/<user_id>", methods=["POST", "OPTIONS"])
+    def staged_admin_access_user_update(user_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        req_json = request.get_json(silent=True) or {}
+        payload = update_user_access_summary(user_id, req_json)
         status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 

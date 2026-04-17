@@ -42,6 +42,15 @@ npm install
 npm run dev
 ```
 
+The authenticated frontend now expects these public browser variables:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+Property visibility and tab access now come from Supabase authz tables rather than the old all-properties frontend catalog. After the base schema is loaded, also apply:
+
+- [supabase/auth_access_model.sql](/Users/steele/Desktop/Data%20Analysis/supabase/auth_access_model.sql)
+
 Build for production:
 
 ```bash

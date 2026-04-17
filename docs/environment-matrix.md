@@ -11,6 +11,8 @@ These belong in:
 
 These are public-by-design because Vite exposes `VITE_*` values to the browser:
 
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`
 - `VITE_FIREBASE_PROJECT_ID`
@@ -69,6 +71,7 @@ Do not place these in Vercel:
 - `MARKETING_GL_ACCOUNT_FROM`
 - `MARKETING_GL_ACCOUNT_TO`
 - `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
 ## Root migration-tool variables
@@ -80,6 +83,7 @@ These belong in a root `.env` for local migration runs or secure CI/CD contexts:
 - `FIREBASE_SERVICE_ACCOUNT_KEY_PATH`
 - `GOOGLE_APPLICATION_CREDENTIALS`
 - `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_BATCH_SIZE`
 
@@ -88,11 +92,13 @@ These belong in a root `.env` for local migration runs or secure CI/CD contexts:
 These are obtained from Supabase and then distributed appropriately:
 
 - `SUPABASE_URL`
-  Backend-only today
+  Public in the browser as `VITE_SUPABASE_URL`, and private in backend contexts as `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+  Public key exposed as `VITE_SUPABASE_ANON_KEY` in the frontend and also supplied privately to Render for JWT verification and user-scoped PostgREST requests
 - `SUPABASE_SERVICE_ROLE_KEY`
   Backend-only, never public
 
-If you later adopt client-side Supabase usage, add a separate public anon key at that time. Do not introduce it prematurely.
+The frontend now uses client-side Supabase auth and property-access reads with the anon key. Keep using the service-role key only in backend environments.
 
 ## Transition guidance
 

@@ -6,7 +6,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 
 from render_supabase_sync_state import _fetch_json
-from render_supabase_validation import SupabaseValidationConfigError
+from render_supabase_validation import SupabaseValidationConfigError, _supabase_anon_headers
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -88,7 +88,9 @@ def get_property_reporting_overview_payload(
     property_id: str,
     start_date_value: str | None = None,
     end_date_value: str | None = None,
+    access_token: str | None = None,
 ) -> dict[str, Any]:
+    headers = _supabase_anon_headers(access_token)
     start_date = _parse_iso_date(start_date_value)
     end_date = _parse_iso_date(end_date_value)
     if not start_date or not end_date:
@@ -107,6 +109,7 @@ def get_property_reporting_overview_payload(
             ("activity_date", f"lte.{end_date.isoformat()}"),
             ("order", "activity_date.asc"),
         ],
+        headers=headers,
     )
     parent_ids = [row["id"] for row in parent_rows if row.get("id")]
     latest_parent_id = parent_ids[-1] if parent_ids else None
@@ -121,6 +124,7 @@ def get_property_reporting_overview_payload(
             ("activity_date", f"lte.{end_date.isoformat()}"),
             ("order", "activity_date.asc"),
         ],
+        headers=headers,
     )
     events_rows = _fetch_json(
         "property_events",
@@ -131,6 +135,7 @@ def get_property_reporting_overview_payload(
             ("activity_date", f"lte.{end_date.isoformat()}"),
             ("order", "activity_date.asc"),
         ],
+        headers=headers,
     )
     invoice_rows = _fetch_json(
         "property_invoices",
@@ -141,6 +146,7 @@ def get_property_reporting_overview_payload(
             ("activity_date", f"lte.{invoice_end.isoformat()}"),
             ("order", "activity_date.asc"),
         ],
+        headers=headers,
     )
     roi_rows = _fetch_json(
         "property_roi_daily",
@@ -151,6 +157,7 @@ def get_property_reporting_overview_payload(
             ("activity_date", f"lte.{end_date.isoformat()}"),
             ("order", "activity_date.asc"),
         ],
+        headers=headers,
     )
     availability_rows = (
         _fetch_json(
@@ -160,6 +167,7 @@ def get_property_reporting_overview_payload(
                 ("property_snapshot_id", f"eq.{latest_parent_id}"),
                 ("order", "activity_date.asc"),
             ],
+            headers=headers,
         )
         if latest_parent_id
         else []
@@ -172,6 +180,7 @@ def get_property_reporting_overview_payload(
             ("property_id", f"eq.{property_id}"),
             ("limit", "1"),
         ],
+        headers=headers,
     )
     pricing_rows = _fetch_json(
         "property_availability_snapshots",
@@ -180,6 +189,7 @@ def get_property_reporting_overview_payload(
             ("property_id", f"eq.{property_id}"),
             ("limit", "1"),
         ],
+        headers=headers,
     )
 
     return {
@@ -222,9 +232,10 @@ def get_property_reporting_overview_summary(
     property_id: str,
     start_date_value: str | None = None,
     end_date_value: str | None = None,
+    access_token: str | None = None,
 ) -> dict[str, Any]:
     try:
-        payload = get_property_reporting_overview_payload(property_id, start_date_value, end_date_value)
+        payload = get_property_reporting_overview_payload(property_id, start_date_value, end_date_value, access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         return {
             "status": "error",

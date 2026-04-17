@@ -3,7 +3,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 
 from render_supabase_sync_state import _fetch_json
-from render_supabase_validation import SupabaseValidationConfigError
+from render_supabase_validation import SupabaseValidationConfigError, _supabase_anon_headers
 
 
 def _index_sync_state_rows(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -71,8 +71,8 @@ def _summarize_state(job_name: str, state: dict[str, Any] | None) -> dict[str, A
     }
 
 
-def get_supabase_roi_pipeline_status_payload() -> dict[str, Any]:
-    rows = _fetch_json("sync_state", [("select", "*")])
+def get_supabase_roi_pipeline_status_payload(access_token: str | None = None) -> dict[str, Any]:
+    rows = _fetch_json("sync_state", [("select", "*")], headers=_supabase_anon_headers(access_token))
     indexed = _index_sync_state_rows(rows)
 
     daily_state = indexed.get("roi_daily_refresh") or indexed.get("roi_daily_pipeline")
@@ -86,9 +86,9 @@ def get_supabase_roi_pipeline_status_payload() -> dict[str, Any]:
     }
 
 
-def get_supabase_roi_pipeline_status_summary() -> dict[str, Any]:
+def get_supabase_roi_pipeline_status_summary(access_token: str | None = None) -> dict[str, Any]:
     try:
-        payload = get_supabase_roi_pipeline_status_payload()
+        payload = get_supabase_roi_pipeline_status_payload(access_token=access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         return {
             "status": "error",

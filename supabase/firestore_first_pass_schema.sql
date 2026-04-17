@@ -35,6 +35,7 @@ create table if not exists public.properties (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_properties_updated_at on public.properties;
 create trigger set_properties_updated_at
 before update on public.properties
 for each row
@@ -56,6 +57,7 @@ create table if not exists public.property_daily_snapshots (
 create index if not exists idx_property_daily_snapshots_property_date
   on public.property_daily_snapshots (property_id, activity_date desc);
 
+drop trigger if exists set_property_daily_snapshots_updated_at on public.property_daily_snapshots;
 create trigger set_property_daily_snapshots_updated_at
 before update on public.property_daily_snapshots
 for each row
@@ -91,6 +93,7 @@ create index if not exists idx_property_leads_application_id
 create index if not exists idx_property_leads_lead_id
   on public.property_leads (lead_id);
 
+drop trigger if exists set_property_leads_updated_at on public.property_leads;
 create trigger set_property_leads_updated_at
 before update on public.property_leads
 for each row
@@ -120,6 +123,7 @@ create index if not exists idx_property_events_property_date
 create index if not exists idx_property_events_type_id
   on public.property_events (type_id);
 
+drop trigger if exists set_property_events_updated_at on public.property_events;
 create trigger set_property_events_updated_at
 before update on public.property_events
 for each row
@@ -153,6 +157,7 @@ create index if not exists idx_property_invoices_property_date
 create index if not exists idx_property_invoices_gl_account_number
   on public.property_invoices (gl_account_number);
 
+drop trigger if exists set_property_invoices_updated_at on public.property_invoices;
 create trigger set_property_invoices_updated_at
 before update on public.property_invoices
 for each row
@@ -178,6 +183,7 @@ create table if not exists public.property_availability (
 create index if not exists idx_property_availability_property_date
   on public.property_availability (property_id, activity_date desc);
 
+drop trigger if exists set_property_availability_updated_at on public.property_availability;
 create trigger set_property_availability_updated_at
 before update on public.property_availability
 for each row
@@ -198,6 +204,7 @@ create table if not exists public.property_specials_current (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_property_specials_current_updated_at on public.property_specials_current;
 create trigger set_property_specials_current_updated_at
 before update on public.property_specials_current
 for each row
@@ -222,6 +229,7 @@ create table if not exists public.property_availability_snapshots (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_property_availability_snapshots_updated_at on public.property_availability_snapshots;
 create trigger set_property_availability_snapshots_updated_at
 before update on public.property_availability_snapshots
 for each row
@@ -257,6 +265,7 @@ create index if not exists idx_property_leases_property_event_date
 create index if not exists idx_property_leases_attribution_status
   on public.property_leases (attribution_status);
 
+drop trigger if exists set_property_leases_updated_at on public.property_leases;
 create trigger set_property_leases_updated_at
 before update on public.property_leases
 for each row
@@ -287,6 +296,7 @@ create table if not exists public.property_roi_daily (
 create index if not exists idx_property_roi_daily_property_date
   on public.property_roi_daily (property_id, activity_date desc);
 
+drop trigger if exists set_property_roi_daily_updated_at on public.property_roi_daily;
 create trigger set_property_roi_daily_updated_at
 before update on public.property_roi_daily
 for each row
@@ -303,6 +313,7 @@ create table if not exists public.property_analytics_snapshots (
   primary key (property_id, snapshot_type)
 );
 
+drop trigger if exists set_property_analytics_snapshots_updated_at on public.property_analytics_snapshots;
 create trigger set_property_analytics_snapshots_updated_at
 before update on public.property_analytics_snapshots
 for each row
@@ -322,6 +333,7 @@ create table if not exists public.property_website_manager_current (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_property_website_manager_current_updated_at on public.property_website_manager_current;
 create trigger set_property_website_manager_current_updated_at
 before update on public.property_website_manager_current
 for each row
@@ -337,6 +349,7 @@ create table if not exists public.property_reporting_layout_current (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_property_reporting_layout_current_updated_at on public.property_reporting_layout_current;
 create trigger set_property_reporting_layout_current_updated_at
 before update on public.property_reporting_layout_current
 for each row
@@ -380,6 +393,7 @@ create table if not exists public.sync_state (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_sync_state_updated_at on public.sync_state;
 create trigger set_sync_state_updated_at
 before update on public.sync_state
 for each row
@@ -406,6 +420,7 @@ create table if not exists public.sync_retries (
 create index if not exists idx_sync_retries_active_queue
   on public.sync_retries (abandoned, attempts, last_queued_at desc);
 
+drop trigger if exists set_sync_retries_updated_at on public.sync_retries;
 create trigger set_sync_retries_updated_at
 before update on public.sync_retries
 for each row
@@ -421,6 +436,7 @@ create table if not exists public.lease_details (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_lease_details_updated_at on public.lease_details;
 create trigger set_lease_details_updated_at
 before update on public.lease_details
 for each row
@@ -440,6 +456,7 @@ create table if not exists public.site_audits (
   updated_at timestamptz not null default now()
 );
 
+drop trigger if exists set_site_audits_updated_at on public.site_audits;
 create trigger set_site_audits_updated_at
 before update on public.site_audits
 for each row
@@ -462,6 +479,7 @@ create table if not exists public.marketing_opportunities (
 create index if not exists idx_marketing_opportunities_source
   on public.marketing_opportunities (source, scraped_at desc);
 
+drop trigger if exists set_marketing_opportunities_updated_at on public.marketing_opportunities;
 create trigger set_marketing_opportunities_updated_at
 before update on public.marketing_opportunities
 for each row

@@ -42,6 +42,19 @@ def _supabase_headers() -> dict[str, str]:
     }
 
 
+def _supabase_anon_headers(access_token: str | None = None) -> dict[str, str]:
+    anon_key = _require_env("SUPABASE_ANON_KEY")
+    headers = {
+        "apikey": anon_key,
+        "Prefer": "count=exact",
+    }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    else:
+        headers["Authorization"] = f"Bearer {anon_key}"
+    return headers
+
+
 def _table_url(table_name: str) -> str:
     base_url = _require_env("SUPABASE_URL").rstrip("/")
     return f"{base_url}/rest/v1/{quote(table_name)}?select=*"

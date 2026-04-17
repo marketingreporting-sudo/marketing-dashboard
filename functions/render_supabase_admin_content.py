@@ -4,10 +4,13 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from render_supabase_sync_state import _table_query_url
-from render_supabase_validation import SupabaseValidationConfigError, _supabase_headers
+from render_supabase_validation import (
+    SupabaseValidationConfigError,
+    _supabase_anon_headers,
+)
 
 
-def _fetch_singleton_row(table_name: str, property_id: str) -> dict[str, Any] | None:
+def _fetch_singleton_row(table_name: str, property_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
     request = Request(
         _table_query_url(
             table_name,
@@ -17,7 +20,7 @@ def _fetch_singleton_row(table_name: str, property_id: str) -> dict[str, Any] | 
                 ("limit", "1"),
             ],
         ),
-        headers=_supabase_headers(),
+        headers=_supabase_anon_headers(access_token),
         method="GET",
     )
     with urlopen(request, timeout=30) as response:
@@ -25,9 +28,9 @@ def _fetch_singleton_row(table_name: str, property_id: str) -> dict[str, Any] | 
     return rows[0] if rows else None
 
 
-def _upsert_singleton_row(table_name: str, row: dict[str, Any]) -> dict[str, Any]:
+def _upsert_singleton_row(table_name: str, row: dict[str, Any], *, access_token: str | None = None) -> dict[str, Any]:
     headers = {
-        **_supabase_headers(),
+        **_supabase_anon_headers(access_token),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=representation",
     }
@@ -84,9 +87,9 @@ def _shape_reporting_layout_row(row: dict[str, Any] | None, property_id: str) ->
     }
 
 
-def get_website_manager_summary(property_id: str) -> dict[str, Any]:
+def get_website_manager_summary(property_id: str, access_token: str | None = None) -> dict[str, Any]:
     try:
-        row = _fetch_singleton_row("property_website_manager_current", property_id)
+        row = _fetch_singleton_row("property_website_manager_current", property_id, access_token=access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         return {
             "status": "error",
@@ -102,7 +105,7 @@ def get_website_manager_summary(property_id: str) -> dict[str, Any]:
     }
 
 
-def save_website_manager_summary(property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def save_website_manager_summary(property_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
     editable = str(payload.get("platform") or "unknown") == "wordpress_custom"
     row = {
         "property_id": property_id,
@@ -117,7 +120,7 @@ def save_website_manager_summary(property_id: str, payload: dict[str, Any]) -> d
     }
 
     try:
-        saved_row = _upsert_singleton_row("property_website_manager_current", row)
+        saved_row = _upsert_singleton_row("property_website_manager_current", row, access_token=access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         return {
             "status": "error",
@@ -133,9 +136,9 @@ def save_website_manager_summary(property_id: str, payload: dict[str, Any]) -> d
     }
 
 
-def get_reporting_layout_summary(property_id: str) -> dict[str, Any]:
+def get_reporting_layout_summary(property_id: str, access_token: str | None = None) -> dict[str, Any]:
     try:
-        row = _fetch_singleton_row("property_reporting_layout_current", property_id)
+        row = _fetch_singleton_row("property_reporting_layout_current", property_id, access_token=access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         return {
             "status": "error",
@@ -151,7 +154,7 @@ def get_reporting_layout_summary(property_id: str) -> dict[str, Any]:
     }
 
 
-def save_reporting_layout_summary(property_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def save_reporting_layout_summary(property_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
     row = {
         "property_id": property_id,
         "property_name": payload.get("propertyName") or "",
@@ -161,7 +164,7 @@ def save_reporting_layout_summary(property_id: str, payload: dict[str, Any]) -> 
     }
 
     try:
-        saved_row = _upsert_singleton_row("property_reporting_layout_current", row)
+        saved_row = _upsert_singleton_row("property_reporting_layout_current", row, access_token=access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         return {
             "status": "error",

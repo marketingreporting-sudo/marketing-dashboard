@@ -35,6 +35,11 @@ export const REPORTING_LAYOUT_URL = resolveApiUrl(
   '/api/admin/reporting-layout'
 );
 
+export const ADMIN_ACCESS_USERS_URL = resolveApiUrl(
+  import.meta.env.VITE_ADMIN_ACCESS_USERS_URL || '',
+  '/api/admin/access/users'
+);
+
 export const GA4_DASHBOARD_URL = resolveApiUrl(
   import.meta.env.VITE_GA4_DASHBOARD_URL || '',
   '/api/analytics/ga4',
