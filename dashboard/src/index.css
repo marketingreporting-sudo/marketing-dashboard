@@ -3979,7 +3979,7 @@ th {
 
 /* Chart + table component polish */
 .analytics-chart {
-  height: 196px !important;
+  height: var(--measured-chart-height, 196px) !important;
   min-width: 0 !important;
   min-height: 0 !important;
   padding: 0.55rem 0.6rem 0.35rem !important;
@@ -3988,7 +3988,11 @@ th {
 }
 
 .analytics-chart--compact {
-  height: 196px !important;
+  height: var(--measured-chart-height, 196px) !important;
+}
+
+.analytics-chart--tall {
+  height: var(--measured-chart-height, 196px) !important;
 }
 
 .analytics-panel--light .analytics-chart,

@@ -193,7 +193,7 @@ const MeasuredChart = ({ className, fixedHeight = null, children }) => {
     <div
       ref={containerRef}
       className={className}
-      style={fixedHeight == null ? undefined : { height: `${fixedHeight}px` }}
+      style={fixedHeight == null ? undefined : { '--measured-chart-height': `${fixedHeight}px` }}
     >
       {size.width > 0 && size.height > 0 ? children(size) : null}
     </div>
