@@ -56,6 +56,23 @@ before update on public.property_memberships
 for each row
 execute function public.set_updated_at();
 
+create table if not exists public.access_audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_user_id uuid references auth.users(id) on delete set null,
+  actor_email text,
+  action text not null check (action in ('invite_user', 'update_user_access')),
+  target_user_id uuid references auth.users(id) on delete set null,
+  target_email text,
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_access_audit_logs_created_at
+  on public.access_audit_logs (created_at desc);
+
+create index if not exists idx_access_audit_logs_target_user
+  on public.access_audit_logs (target_user_id, created_at desc);
+
 insert into public.app_roles (name, scope, description)
 values
   ('admin', 'global', 'Full platform access across all properties and admin workflows.'),
@@ -202,6 +219,7 @@ alter table public.app_roles enable row level security;
 alter table public.role_permissions enable row level security;
 alter table public.profiles enable row level security;
 alter table public.property_memberships enable row level security;
+alter table public.access_audit_logs enable row level security;
 alter table public.properties enable row level security;
 alter table public.property_reporting_layout_current enable row level security;
 alter table public.property_website_manager_current enable row level security;
@@ -264,6 +282,13 @@ for all
 to authenticated
 using (public.user_has_platform_permission('users.manage'))
 with check (public.user_has_platform_permission('users.manage'));
+
+drop policy if exists "admins can read access audit logs" on public.access_audit_logs;
+create policy "admins can read access audit logs"
+on public.access_audit_logs
+for select
+to authenticated
+using (public.user_has_platform_permission('users.manage'));
 
 drop policy if exists "users can read accessible properties" on public.properties;
 create policy "users can read accessible properties"

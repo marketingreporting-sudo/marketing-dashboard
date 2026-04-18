@@ -125,12 +125,103 @@ def _fetch_auth_users() -> list[dict[str, Any]]:
     return users if isinstance(users, list) else []
 
 
+def _fetch_access_audit_logs(limit: int = 25) -> list[dict[str, Any]]:
+    rows = _db_request(
+        "access_audit_logs",
+        query_params=[
+            ("select", "id,actor_user_id,actor_email,action,target_user_id,target_email,details,created_at"),
+            ("order", "created_at.desc"),
+            ("limit", str(limit)),
+        ],
+    )
+    return rows if isinstance(rows, list) else []
+
+
+def _fetch_single_profile(user_id: str) -> dict[str, Any]:
+    rows = _db_request(
+        "profiles",
+        query_params=[
+            ("select", "id,email,full_name,global_role,is_active,created_at,updated_at"),
+            ("id", f"eq.{user_id}"),
+            ("limit", "1"),
+        ],
+    )
+    if isinstance(rows, list) and rows:
+        return rows[0]
+    return {}
+
+
+def _fetch_single_memberships(user_id: str) -> list[dict[str, Any]]:
+    rows = _db_request(
+        "property_memberships",
+        query_params=[
+            ("select", "id,user_id,property_id,role,is_active,created_at,updated_at"),
+            ("user_id", f"eq.{user_id}"),
+            ("order", "property_id.asc"),
+        ],
+    )
+    return rows if isinstance(rows, list) else []
+
+
+def _fetch_single_auth_user(user_id: str) -> dict[str, Any]:
+    payload = _auth_admin_request(f"/admin/users/{user_id}")
+    user = payload.get("user")
+    return user if isinstance(user, dict) else {}
+
+
+def _build_user_access_snapshot(user_id: str) -> dict[str, Any]:
+    profile = _fetch_single_profile(user_id)
+    memberships = _fetch_single_memberships(user_id)
+    auth_user = _fetch_single_auth_user(user_id)
+
+    return {
+        "userId": user_id,
+        "email": auth_user.get("email") or profile.get("email") or "",
+        "fullName": profile.get("full_name") or "",
+        "globalRole": profile.get("global_role"),
+        "isActive": bool(profile.get("is_active", True)),
+        "memberships": [
+            {
+                "propertyId": str(membership.get("property_id") or ""),
+                "role": membership.get("role"),
+                "isActive": bool(membership.get("is_active")),
+            }
+            for membership in memberships
+        ],
+    }
+
+
+def _log_access_audit_event(
+    *,
+    actor_user_id: str | None,
+    actor_email: str | None,
+    action: str,
+    target_user_id: str | None,
+    target_email: str | None,
+    details: dict[str, Any],
+) -> None:
+    _db_request(
+        "access_audit_logs",
+        method="POST",
+        payload={
+            "actor_user_id": actor_user_id or None,
+            "actor_email": (actor_email or "").strip() or None,
+            "action": action,
+            "target_user_id": target_user_id or None,
+            "target_email": (target_email or "").strip() or None,
+            "details": details,
+        },
+        prefer="return=minimal",
+    )
+
+
 def list_access_admin_payload() -> dict[str, Any]:
     roles = _fetch_roles()
     properties = _fetch_properties()
     profiles = _fetch_profiles()
     memberships = _fetch_memberships()
     auth_users = _fetch_auth_users()
+    audit_logs = _fetch_access_audit_logs()
 
     properties_by_id = {str(row.get("id")): row for row in properties if row.get("id")}
     profiles_by_id = {str(row.get("id")): row for row in profiles if row.get("id")}
@@ -173,6 +264,7 @@ def list_access_admin_payload() -> dict[str, Any]:
         "users": users,
         "roles": roles,
         "properties": properties,
+        "auditLogs": audit_logs,
     }
 
 
@@ -215,7 +307,11 @@ def update_user_access_payload(
     property_role: str | None = None,
     property_ids: list[str] | None = None,
     is_active: bool = True,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+    log_event: bool = True,
 ) -> dict[str, Any]:
+    before_state = _build_user_access_snapshot(user_id)
     patch = {
         "full_name": (full_name or "").strip(),
         "global_role": global_role or None,
@@ -235,6 +331,23 @@ def update_user_access_payload(
         property_ids=property_ids or [],
     )
 
+    after_state = _build_user_access_snapshot(user_id)
+    if log_event:
+        _log_access_audit_event(
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+            action="update_user_access",
+            target_user_id=user_id,
+            target_email=after_state.get("email") or before_state.get("email") or "",
+            details={
+                "before": before_state,
+                "after": after_state,
+                "requestedGlobalRole": global_role or None,
+                "requestedPropertyRole": property_role or None,
+                "requestedPropertyIds": property_ids or [],
+            },
+        )
+
     return {
         "status": "ok",
         "userId": user_id,
@@ -253,6 +366,8 @@ def invite_user_with_access_payload(
     global_role: str | None = None,
     property_role: str | None = None,
     property_ids: list[str] | None = None,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
 ) -> dict[str, Any]:
     invite_payload = {
         "type": "invite",
@@ -279,6 +394,24 @@ def invite_user_with_access_payload(
         property_role=property_role,
         property_ids=property_ids or [],
         is_active=True,
+        actor_user_id=actor_user_id,
+        actor_email=actor_email,
+        log_event=False,
+    )
+
+    _log_access_audit_event(
+        actor_user_id=actor_user_id,
+        actor_email=actor_email,
+        action="invite_user",
+        target_user_id=user_id,
+        target_email=email.strip(),
+        details={
+            "fullName": (full_name or "").strip(),
+            "globalRole": global_role or None,
+            "propertyRole": property_role or None,
+            "propertyIds": property_ids or [],
+            "redirectTo": redirect_to or None,
+        },
     )
 
     return {
@@ -300,7 +433,13 @@ def list_access_admin_summary() -> dict[str, Any]:
         return {"status": "error", "error": str(error)}
 
 
-def update_user_access_summary(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+def update_user_access_summary(
+    user_id: str,
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
     try:
         return update_user_access_payload(
             user_id,
@@ -309,12 +448,19 @@ def update_user_access_summary(user_id: str, payload: dict[str, Any]) -> dict[st
             property_role=payload.get("propertyRole"),
             property_ids=payload.get("propertyIds") if isinstance(payload.get("propertyIds"), list) else [],
             is_active=bool(payload.get("isActive", True)),
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
         )
     except (HTTPError, URLError, SupabaseValidationConfigError, RuntimeError) as error:
         return {"status": "error", "error": str(error)}
 
 
-def invite_user_with_access_summary(payload: dict[str, Any]) -> dict[str, Any]:
+def invite_user_with_access_summary(
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
     try:
         return invite_user_with_access_payload(
             email=str(payload.get("email") or ""),
@@ -323,6 +469,8 @@ def invite_user_with_access_summary(payload: dict[str, Any]) -> dict[str, Any]:
             global_role=payload.get("globalRole"),
             property_role=payload.get("propertyRole"),
             property_ids=payload.get("propertyIds") if isinstance(payload.get("propertyIds"), list) else [],
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
         )
     except (HTTPError, URLError, SupabaseValidationConfigError, RuntimeError) as error:
         return {"status": "error", "error": str(error)}

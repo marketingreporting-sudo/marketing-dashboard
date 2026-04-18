@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { supabase } from '../lib/supabase';
 
@@ -7,10 +7,12 @@ const SignInPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, isConfigured } = useAuth();
+  const [mode, setMode] = useState('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const nextPath = useMemo(() => {
     const fallback = '/';
@@ -28,6 +30,7 @@ const SignInPage = () => {
 
     setSubmitting(true);
     setErrorMessage('');
+    setSuccessMessage('');
 
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
@@ -41,6 +44,28 @@ const SignInPage = () => {
     }
 
     navigate(nextPath, { replace: true });
+  };
+
+  const handlePasswordReset = async (event) => {
+    event.preventDefault();
+    if (!supabase) return;
+
+    setSubmitting(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/set-password`,
+    });
+
+    setSubmitting(false);
+
+    if (error) {
+      setErrorMessage(error.message || 'Unable to send a password reset email.');
+      return;
+    }
+
+    setSuccessMessage('Password reset email sent. Open the latest email to choose a new password.');
   };
 
   return (
@@ -62,40 +87,83 @@ const SignInPage = () => {
             </span>
           </div>
         ) : (
-          <form className="auth-form" onSubmit={handleSubmit}>
-            <label className="auth-form__field">
-              <span>Email</span>
-              <input
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-            </label>
+          <>
+            <div className="auth-mode-toggle" role="tablist" aria-label="Authentication options">
+              <button
+                type="button"
+                className={`auth-mode-toggle__button ${mode === 'sign-in' ? 'active' : ''}`}
+                onClick={() => {
+                  setMode('sign-in');
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                }}
+              >
+                Sign in
+              </button>
+              <button
+                type="button"
+                className={`auth-mode-toggle__button ${mode === 'reset' ? 'active' : ''}`}
+                onClick={() => {
+                  setMode('reset');
+                  setErrorMessage('');
+                  setSuccessMessage('');
+                }}
+              >
+                Reset password
+              </button>
+            </div>
 
-            <label className="auth-form__field">
-              <span>Password</span>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
-            </label>
+            <form className="auth-form" onSubmit={mode === 'sign-in' ? handleSubmit : handlePasswordReset}>
+              <label className="auth-form__field">
+                <span>Email</span>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  required
+                />
+              </label>
 
-            {errorMessage && <div className="auth-alert auth-alert--error">{errorMessage}</div>}
+              {mode === 'sign-in' && (
+                <label className="auth-form__field">
+                  <span>Password</span>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    required
+                  />
+                </label>
+              )}
 
-            <button type="submit" className="auth-form__submit" disabled={submitting}>
-              {submitting ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
+              {errorMessage && <div className="auth-alert auth-alert--error">{errorMessage}</div>}
+              {successMessage && <div className="auth-alert auth-alert--success">{successMessage}</div>}
+
+              <button type="submit" className="auth-form__submit" disabled={submitting}>
+                {submitting
+                  ? mode === 'sign-in'
+                    ? 'Signing in…'
+                    : 'Sending reset…'
+                  : mode === 'sign-in'
+                    ? 'Sign in'
+                    : 'Send reset email'}
+              </button>
+            </form>
+
+            <div className="auth-helper-copy">
+              {mode === 'sign-in'
+                ? 'Invited users should use the email link once, set a password, and then return here for future sign-ins.'
+                : 'We will send a secure link that opens the set-password screen for this account.'}
+            </div>
+          </>
         )}
 
         <div className="auth-card__footer">
           <span>Need access?</span>
           <span>Use an invited account or ask an administrator to provision one for you.</span>
+          <Link to="/set-password">Already have an invite link? Finish setup here.</Link>
         </div>
       </div>
     </div>

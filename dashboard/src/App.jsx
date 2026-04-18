@@ -970,6 +970,7 @@ const DashboardApp = ({
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminRoles, setAdminRoles] = useState([]);
   const [adminProperties, setAdminProperties] = useState([]);
+  const [adminAuditLogs, setAdminAuditLogs] = useState([]);
   const [adminSelectedUserId, setAdminSelectedUserId] = useState(null);
   const [adminUserDraft, setAdminUserDraft] = useState(null);
   const [adminInviteDraft, setAdminInviteDraft] = useState({
@@ -1075,6 +1076,7 @@ const DashboardApp = ({
       const users = Array.isArray(payload.users) ? payload.users : [];
       const roles = Array.isArray(payload.roles) ? payload.roles : [];
       const properties = Array.isArray(payload.properties) ? payload.properties : [];
+      const auditLogs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
       const nextSelectedUserId = users.some((user) => user.id === adminSelectedUserId)
         ? adminSelectedUserId
         : users[0]?.id || null;
@@ -1082,6 +1084,7 @@ const DashboardApp = ({
       setAdminUsers(users);
       setAdminRoles(roles);
       setAdminProperties(properties);
+      setAdminAuditLogs(auditLogs);
       setAdminSelectedUserId(nextSelectedUserId);
       setAdminUserDraft(hydrateAdminDraftFromUser(users.find((user) => user.id === nextSelectedUserId) || null));
     } catch (error) {
@@ -4680,7 +4683,7 @@ const DashboardApp = ({
           globalRole: adminInviteDraft.globalRole || null,
           propertyRole: adminInviteDraft.propertyRole || null,
           propertyIds: adminInviteDraft.propertyIds,
-          redirectTo: `${window.location.origin}/sign-in`,
+          redirectTo: `${window.location.origin}/set-password`,
         }),
       });
       const payload = await response.json();
@@ -4906,6 +4909,59 @@ const DashboardApp = ({
             <div className="admin-access-empty">Choose a user to edit roles and property memberships.</div>
           )}
         </div>
+      </div>
+
+      <div className="admin-access-panel">
+        <div className="admin-access-section-head">
+          <div className="admin-access-panel__eyebrow">Audit</div>
+          <h3 className="admin-access-panel__title">Recent access activity</h3>
+        </div>
+
+        {adminAuditLogs.length ? (
+          <div className="admin-access-audit-list">
+            {adminAuditLogs.map((log) => {
+              const createdAt = log.created_at ? new Date(log.created_at) : null;
+              const actionLabel = log.action === 'invite_user' ? 'Invite created' : 'Access updated';
+              const requestedRole = log.details?.requestedPropertyRole || log.details?.propertyRole || log.details?.requestedGlobalRole || log.details?.globalRole;
+              const propertyCount = Array.isArray(log.details?.requestedPropertyIds)
+                ? log.details.requestedPropertyIds.length
+                : Array.isArray(log.details?.propertyIds)
+                  ? log.details.propertyIds.length
+                  : Array.isArray(log.details?.after?.memberships)
+                    ? log.details.after.memberships.length
+                    : 0;
+
+              return (
+                <div key={log.id} className="admin-access-audit-card">
+                  <div className="admin-access-audit-card__top">
+                    <strong>{actionLabel}</strong>
+                    <span>{createdAt ? createdAt.toLocaleString() : 'Unknown time'}</span>
+                  </div>
+                  <div className="admin-access-audit-card__body">
+                    <div>
+                      <span>Actor</span>
+                      <strong>{log.actor_email || 'Unknown admin'}</strong>
+                    </div>
+                    <div>
+                      <span>Target</span>
+                      <strong>{log.target_email || 'Unknown user'}</strong>
+                    </div>
+                    <div>
+                      <span>Role</span>
+                      <strong>{requestedRole || 'None assigned'}</strong>
+                    </div>
+                    <div>
+                      <span>Properties</span>
+                      <strong>{propertyCount}</strong>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="admin-access-empty">No access changes have been logged yet.</div>
+        )}
       </div>
     </div>
   );

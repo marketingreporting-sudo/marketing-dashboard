@@ -7,6 +7,7 @@ import { useAuth } from './auth/useAuth';
 import { AccessProvider } from './access/AccessProvider';
 import { useAccess } from './access/useAccess';
 import SignInPage from './pages/SignInPage';
+import SetPasswordPage from './pages/SetPasswordPage';
 import { supabase } from './lib/supabase';
 
 const AccessLoadingScreen = () => (
@@ -87,6 +88,7 @@ const RootApp = () => (
     <BrowserRouter>
       <Routes>
         <Route path="/sign-in" element={<SignInPage />} />
+        <Route path="/set-password" element={<SetPasswordPage />} />
         <Route
           path="/privacy-policy"
           element={
