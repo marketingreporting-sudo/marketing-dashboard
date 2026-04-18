@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PROPERTY_ID, PROPERTY_CATALOG_BY_ID } from '../propertyCatalog';
 import { useAuth } from '../auth/useAuth';
 import { supabase } from '../lib/supabase';
@@ -62,26 +62,22 @@ export const AccessProvider = ({ children }) => {
   const [properties, setProperties] = useState([]);
   const [propertyAccessById, setPropertyAccessById] = useState({});
   const [error, setError] = useState('');
+  const loadAccess = useCallback(async (cancelledRef) => {
+      if (!isAuthenticated || !user || !supabase || !isConfigured) {
+        return;
+      }
 
-  useEffect(() => {
-    if (!isAuthenticated || !user || !supabase || !isConfigured) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadAccess = async () => {
       setLoading(true);
       setError('');
 
       const profileResponse = await supabase
         .from('profiles')
-        .select('id, email, full_name, global_role, is_active')
+        .select('id, email, full_name, avatar_path, avatar_url, global_role, is_active')
         .eq('id', user.id)
         .maybeSingle();
 
       if (profileResponse.error) {
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setError(profileResponse.error.message || 'Unable to load the user profile.');
           setLoading(false);
         }
@@ -97,7 +93,7 @@ export const AccessProvider = ({ children }) => {
         .eq('is_active', true);
 
       if (membershipsResponse.error) {
-        if (!cancelled) {
+        if (!cancelledRef.current) {
           setError(membershipsResponse.error.message || 'Unable to load property memberships.');
           setLoading(false);
         }
@@ -123,7 +119,7 @@ export const AccessProvider = ({ children }) => {
           .in('role', roles);
 
         if (permissionsResponse.error) {
-          if (!cancelled) {
+          if (!cancelledRef.current) {
             setError(permissionsResponse.error.message || 'Unable to load role permissions.');
             setLoading(false);
           }
@@ -147,7 +143,7 @@ export const AccessProvider = ({ children }) => {
           .order('name', { ascending: true });
 
         if (propertiesResponse.error) {
-          if (!cancelled) {
+          if (!cancelledRef.current) {
             setError(propertiesResponse.error.message || 'Unable to load property catalog.');
             setLoading(false);
           }
@@ -163,7 +159,7 @@ export const AccessProvider = ({ children }) => {
           .order('name', { ascending: true });
 
         if (propertiesResponse.error) {
-          if (!cancelled) {
+          if (!cancelledRef.current) {
             setError(propertiesResponse.error.message || 'Unable to load assigned properties.');
             setLoading(false);
           }
@@ -184,7 +180,7 @@ export const AccessProvider = ({ children }) => {
         ).values()
       ).sort((left, right) => left.name.localeCompare(right.name));
 
-      if (cancelled) return;
+      if (cancelledRef.current) return;
 
       setProfile(profileRecord);
       setMemberships(membershipRows);
@@ -198,14 +194,22 @@ export const AccessProvider = ({ children }) => {
         })
       );
       setLoading(false);
-    };
+    }, [isAuthenticated, isConfigured, user]);
 
-    loadAccess();
+  useEffect(() => {
+    if (!isAuthenticated || !user || !supabase || !isConfigured) {
+      return;
+    }
+
+    const cancelledRef = { current: false };
+    queueMicrotask(() => {
+      void loadAccess(cancelledRef);
+    });
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
-  }, [isAuthenticated, isConfigured, user]);
+  }, [isAuthenticated, isConfigured, user, loadAccess]);
 
   const defaultPropertyId = useMemo(() => {
     if (properties.some((property) => property.propertyId === DEFAULT_PROPERTY_ID)) {
@@ -224,8 +228,9 @@ export const AccessProvider = ({ children }) => {
       propertyAccessById: isAuthenticated ? propertyAccessById : {},
       defaultPropertyId,
       hasAnyPropertyAccess: isAuthenticated ? properties.length > 0 : false,
+      refreshAccess: () => loadAccess({ current: false }),
     }),
-    [defaultPropertyId, error, isAuthenticated, loading, memberships, profile, properties, propertyAccessById]
+    [defaultPropertyId, error, isAuthenticated, loading, memberships, profile, properties, propertyAccessById, loadAccess]
   );
 
   return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;

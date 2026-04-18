@@ -12,6 +12,7 @@ import {
   WEBSITE_MANAGER_URL
 } from './apiConfig';
 import { authFetch } from './lib/authFetch';
+import { supabase } from './lib/supabase';
 import { OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
 import {
   DEFAULT_TAB_ORDER,
@@ -19,6 +20,7 @@ import {
   TAB_PERMISSIONS,
   WEBSITE_MANAGER_EDIT_PERMISSION
 } from './access/accessModel';
+import { useAccess } from './access/useAccess';
 import {
   WEBSITE_MANAGER_DEFAULT_RECORD,
   WEBSITE_MANAGER_FIELD_GROUPS,
@@ -37,13 +39,18 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Calendar,
+  Camera,
   Users,
   Home,
   TrendingUp,
   DollarSign,
   FileCheck,
   MessageSquareText,
-  Globe
+  Globe,
+  Mail,
+  KeyRound,
+  UserRound,
+  X
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -178,6 +185,29 @@ const CHART_AXIS_LIGHT_SOFT = 'rgba(16, 33, 38, 0.3)';
 const CHART_MARGIN_STANDARD = { top: 8, right: 12, left: 0, bottom: 20 };
 const CHART_MARGIN_TALL = { top: 8, right: 12, left: 0, bottom: 24 };
 const CHART_MARGIN_VERTICAL = { top: 8, right: 12, left: 8, bottom: 10 };
+
+const PROFILE_AVATAR_BUCKET = 'profile-avatars';
+const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+const PROFILE_AVATAR_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const getInitials = (value) => {
+  const parts = String(value || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'R';
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() || '').join('');
+};
+
+const getFileExtension = (filename, mimeType) => {
+  const lastDot = String(filename || '').lastIndexOf('.');
+  if (lastDot >= 0) {
+    return String(filename).slice(lastDot + 1).toLowerCase();
+  }
+  if (mimeType === 'image/png') return 'png';
+  if (mimeType === 'image/webp') return 'webp';
+  return 'jpg';
+};
 
 const MeasuredChart = ({ className, fixedHeight = null, children }) => {
   const containerRef = useRef(null);
@@ -895,6 +925,7 @@ const DashboardApp = ({
   propertyAccessById = {},
   defaultPropertyId = null,
 }) => {
+  const { profile, refreshAccess } = useAccess();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dateRange, setDateRange] = useState('28d');
   const [customRange, setCustomRange] = useState(() => {
@@ -980,6 +1011,20 @@ const DashboardApp = ({
     propertyRole: '',
     propertyIds: [],
   });
+  const [accountPanelOpen, setAccountPanelOpen] = useState(false);
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountError, setAccountError] = useState('');
+  const [accountNotice, setAccountNotice] = useState('');
+  const [accountDraft, setAccountDraft] = useState({
+    fullName: '',
+    email: '',
+    avatarUrl: '',
+    avatarPath: '',
+  });
+  const [accountPasswordDraft, setAccountPasswordDraft] = useState({
+    password: '',
+    confirmPassword: '',
+  });
   const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
   const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
   const analyticsEndpointsConfigured = Boolean(
@@ -1001,6 +1046,9 @@ const DashboardApp = ({
     () => new Set(propertyAccessById[selectedPropertyId]?.permissions || []),
     [propertyAccessById, selectedPropertyId]
   );
+  const displayName = profile?.full_name || currentUser?.user_metadata?.full_name || currentUser?.email || 'Account';
+  const accountAvatarUrl = profile?.avatar_url || accountDraft.avatarUrl || '';
+  const accountInitials = useMemo(() => getInitials(displayName), [displayName]);
   const visibleNavItems = useMemo(
     () => NAV_ITEMS.filter((item) => currentPropertyPermissionSet.has(item.permission)),
     [currentPropertyPermissionSet]
@@ -1016,6 +1064,15 @@ const DashboardApp = ({
     () => adminRoles.filter((role) => role.scope === 'property'),
     [adminRoles]
   );
+
+  useEffect(() => {
+    setAccountDraft({
+      fullName: profile?.full_name || currentUser?.user_metadata?.full_name || '',
+      email: currentUser?.email || profile?.email || '',
+      avatarUrl: profile?.avatar_url || '',
+      avatarPath: profile?.avatar_path || '',
+    });
+  }, [currentUser, profile]);
 
   useEffect(() => {
     if (availableProperties.length === 0) {
@@ -4707,6 +4764,323 @@ const DashboardApp = ({
     }
   };
 
+  const updateAccountDraft = (field, value) => {
+    setAccountDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateAccountPasswordDraft = (field, value) => {
+    setAccountPasswordDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const persistProfileRecord = async ({ fullName, avatarPath, avatarUrl }) => {
+    if (!supabase || !currentUser?.id) return;
+
+    const payload = {
+      full_name: String(fullName || '').trim(),
+      avatar_path: avatarPath || null,
+      avatar_url: avatarUrl || null,
+    };
+
+    const { error } = await supabase
+      .from('profiles')
+      .update(payload)
+      .eq('id', currentUser.id);
+
+    if (error) {
+      throw new Error(error.message || 'Unable to save profile details.');
+    }
+  };
+
+  const handleAccountProfileSave = async () => {
+    if (!supabase || !currentUser?.id) return;
+
+    setAccountSaving(true);
+    setAccountError('');
+    setAccountNotice('');
+
+    try {
+      const trimmedName = accountDraft.fullName.trim();
+      const trimmedEmail = accountDraft.email.trim();
+
+      await persistProfileRecord({
+        fullName: trimmedName,
+        avatarPath: accountDraft.avatarPath,
+        avatarUrl: accountDraft.avatarUrl,
+      });
+
+      const metadataNeedsUpdate = (currentUser?.user_metadata?.full_name || '') !== trimmedName;
+      const emailNeedsUpdate = trimmedEmail && trimmedEmail !== (currentUser?.email || '');
+
+      if (metadataNeedsUpdate || emailNeedsUpdate) {
+        const updatePayload = {};
+        if (metadataNeedsUpdate) {
+          updatePayload.data = { ...(currentUser?.user_metadata || {}), full_name: trimmedName };
+        }
+        if (emailNeedsUpdate) {
+          updatePayload.email = trimmedEmail;
+        }
+
+        const { error } = await supabase.auth.updateUser(updatePayload);
+        if (error) {
+          throw new Error(error.message || 'Unable to update account settings.');
+        }
+      }
+
+      await refreshAccess();
+      setAccountNotice(emailNeedsUpdate
+        ? 'Profile updated. Check your email to confirm the new address if Supabase requires verification.'
+        : 'Profile updated.');
+    } catch (error) {
+      setAccountError(error.message || 'Unable to save account settings.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleAccountPasswordSave = async () => {
+    if (!supabase) return;
+
+    if (accountPasswordDraft.password.length < 8) {
+      setAccountError('Use at least 8 characters for the new password.');
+      return;
+    }
+
+    if (accountPasswordDraft.password !== accountPasswordDraft.confirmPassword) {
+      setAccountError('The new password and confirmation do not match.');
+      return;
+    }
+
+    setAccountSaving(true);
+    setAccountError('');
+    setAccountNotice('');
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: accountPasswordDraft.password,
+      });
+
+      if (error) {
+        throw new Error(error.message || 'Unable to change the password.');
+      }
+
+      setAccountPasswordDraft({ password: '', confirmPassword: '' });
+      setAccountNotice('Password updated.');
+    } catch (error) {
+      setAccountError(error.message || 'Unable to change the password.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleAccountAvatarUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !supabase || !currentUser?.id) return;
+    event.target.value = '';
+
+    if (!PROFILE_AVATAR_ALLOWED_TYPES.has(file.type)) {
+      setAccountError('Use a JPG, PNG, or WEBP image for the profile photo.');
+      return;
+    }
+
+    if (file.size > PROFILE_AVATAR_MAX_BYTES) {
+      setAccountError('Keep the profile photo under 5 MB.');
+      return;
+    }
+
+    setAccountSaving(true);
+    setAccountError('');
+    setAccountNotice('');
+
+    try {
+      const extension = getFileExtension(file.name, file.type);
+      const nextPath = `${currentUser.id}/avatar-${Date.now()}.${extension}`;
+
+      if (accountDraft.avatarPath) {
+        await supabase.storage.from(PROFILE_AVATAR_BUCKET).remove([accountDraft.avatarPath]);
+      }
+
+      const uploadResponse = await supabase.storage
+        .from(PROFILE_AVATAR_BUCKET)
+        .upload(nextPath, file, { upsert: true });
+
+      if (uploadResponse.error) {
+        throw new Error(uploadResponse.error.message || 'Unable to upload the profile photo.');
+      }
+
+      const { data } = supabase.storage.from(PROFILE_AVATAR_BUCKET).getPublicUrl(nextPath);
+      await persistProfileRecord({
+        fullName: accountDraft.fullName,
+        avatarPath: nextPath,
+        avatarUrl: data?.publicUrl || '',
+      });
+
+      await refreshAccess();
+      setAccountDraft((current) => ({
+        ...current,
+        avatarPath: nextPath,
+        avatarUrl: data?.publicUrl || '',
+      }));
+      setAccountNotice('Profile photo updated.');
+    } catch (error) {
+      setAccountError(error.message || 'Unable to upload the profile photo.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleAccountAvatarRemove = async () => {
+    if (!supabase || !currentUser?.id || !accountDraft.avatarPath) return;
+
+    setAccountSaving(true);
+    setAccountError('');
+    setAccountNotice('');
+
+    try {
+      await supabase.storage.from(PROFILE_AVATAR_BUCKET).remove([accountDraft.avatarPath]);
+      await persistProfileRecord({
+        fullName: accountDraft.fullName,
+        avatarPath: null,
+        avatarUrl: null,
+      });
+      await refreshAccess();
+      setAccountDraft((current) => ({
+        ...current,
+        avatarPath: '',
+        avatarUrl: '',
+      }));
+      setAccountNotice('Profile photo removed.');
+    } catch (error) {
+      setAccountError(error.message || 'Unable to remove the profile photo.');
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const renderAccountPanel = () => (
+    <div className={`account-panel ${accountPanelOpen ? 'is-open' : ''}`} aria-hidden={!accountPanelOpen}>
+      <div className="account-panel__backdrop" onClick={() => setAccountPanelOpen(false)} />
+      <div className="account-panel__sheet">
+        <div className="account-panel__header">
+          <div>
+            <div className="account-panel__eyebrow">Account settings</div>
+            <h2 className="account-panel__title">Manage your profile</h2>
+          </div>
+          <button
+            type="button"
+            className="account-panel__close"
+            onClick={() => setAccountPanelOpen(false)}
+            aria-label="Close account settings"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="account-panel__avatar-row">
+          <div className="account-avatar account-avatar--large">
+            {accountAvatarUrl ? (
+              <img src={accountAvatarUrl} alt={displayName} className="account-avatar__image" />
+            ) : (
+              <span>{accountInitials}</span>
+            )}
+          </div>
+          <div className="account-panel__avatar-actions">
+            <label className="account-panel__secondary-button">
+              <Camera size={16} />
+              <span>{accountDraft.avatarUrl ? 'Replace photo' : 'Upload photo'}</span>
+              <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handleAccountAvatarUpload} hidden />
+            </label>
+            {accountDraft.avatarUrl && (
+              <button type="button" className="account-panel__ghost-button" onClick={handleAccountAvatarRemove} disabled={accountSaving}>
+                Remove photo
+              </button>
+            )}
+          </div>
+        </div>
+
+        {(accountError || accountNotice) && (
+          <div className={`auth-alert ${accountError ? 'auth-alert--error' : 'auth-alert--success'}`}>
+            {accountError || accountNotice}
+          </div>
+        )}
+
+        <div className="account-panel__section">
+          <div className="account-panel__section-head">
+            <UserRound size={16} />
+            <span>Profile details</span>
+          </div>
+          <div className="account-panel__form-grid">
+            <label className="auth-form__field">
+              <span>Full name</span>
+              <input
+                type="text"
+                value={accountDraft.fullName}
+                onChange={(event) => updateAccountDraft('fullName', event.target.value)}
+              />
+            </label>
+            <label className="auth-form__field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={accountDraft.email}
+                onChange={(event) => updateAccountDraft('email', event.target.value)}
+              />
+            </label>
+          </div>
+          <button type="button" className="account-panel__primary-button" onClick={handleAccountProfileSave} disabled={accountSaving}>
+            {accountSaving ? 'Saving…' : 'Save profile'}
+          </button>
+        </div>
+
+        <div className="account-panel__section">
+          <div className="account-panel__section-head">
+            <KeyRound size={16} />
+            <span>Password</span>
+          </div>
+          <div className="account-panel__form-grid">
+            <label className="auth-form__field">
+              <span>New password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={accountPasswordDraft.password}
+                onChange={(event) => updateAccountPasswordDraft('password', event.target.value)}
+              />
+            </label>
+            <label className="auth-form__field">
+              <span>Confirm password</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={accountPasswordDraft.confirmPassword}
+                onChange={(event) => updateAccountPasswordDraft('confirmPassword', event.target.value)}
+              />
+            </label>
+          </div>
+          <button type="button" className="account-panel__primary-button" onClick={handleAccountPasswordSave} disabled={accountSaving}>
+            {accountSaving ? 'Updating…' : 'Update password'}
+          </button>
+        </div>
+
+        <div className="account-panel__section account-panel__section--meta">
+          <div className="account-panel__section-head">
+            <Mail size={16} />
+            <span>Account summary</span>
+          </div>
+          <div className="account-panel__meta-list">
+            <div>
+              <span>Signed in as</span>
+              <strong>{currentUser?.email || 'Unknown'}</strong>
+            </div>
+            <div>
+              <span>Role</span>
+              <strong>{profile?.global_role || 'Property-scoped access'}</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderAdmin = () => (
     <div className="admin-access-view">
       <div className="admin-access-hero">
@@ -4968,6 +5342,7 @@ const DashboardApp = ({
 
   return (
     <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
+      {renderAccountPanel()}
       {showLoader && (
         <div className="loading-overlay" aria-live="polite" aria-busy="true">
           <div className="loading-overlay__animation">
@@ -5043,12 +5418,28 @@ const DashboardApp = ({
           <div className="header-status">
             <div className="header-status__identity">
               <span className="header-status__meta">v2.0 - Live Entrata Data</span>
+              <span className="header-status__name">{displayName}</span>
               {currentUser?.email && (
                 <span className="header-status__email">{currentUser.email}</span>
               )}
             </div>
             <div className="header-status__actions">
-              <div className="header-status__avatar" aria-hidden="true"></div>
+              <button
+                type="button"
+                className="header-status__avatar header-status__avatar-button"
+                aria-label="Open account settings"
+                onClick={() => {
+                  setAccountError('');
+                  setAccountNotice('');
+                  setAccountPanelOpen(true);
+                }}
+              >
+                {accountAvatarUrl ? (
+                  <img src={accountAvatarUrl} alt={displayName} className="account-avatar__image" />
+                ) : (
+                  <span>{accountInitials}</span>
+                )}
+              </button>
               {typeof onSignOut === 'function' && (
                 <button
                   type="button"

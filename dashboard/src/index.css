@@ -2517,6 +2517,12 @@ body {
   color: rgba(215, 210, 207, 0.86);
 }
 
+.header-status__name {
+  font-size: 0.96rem;
+  color: var(--primary-white);
+  font-weight: 600;
+}
+
 .header-status__actions {
   display: flex;
   align-items: center;
@@ -2527,6 +2533,12 @@ body {
   width: 34px;
   height: 34px;
   border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--primary-white);
+  font-size: 0.78rem;
+  font-weight: 600;
   background:
     radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.35), transparent 28%),
     linear-gradient(135deg, var(--secondary-blue) 0%, var(--primary-red) 100%);
@@ -2534,10 +2546,192 @@ body {
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
 }
 
+.header-status__avatar-button {
+  padding: 0;
+  cursor: pointer;
+}
+
+.account-avatar__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .header-status__signout {
   padding: 0.68rem 1rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
+  color: var(--primary-white);
+}
+
+.account-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  pointer-events: none;
+}
+
+.account-panel.is-open {
+  pointer-events: auto;
+}
+
+.account-panel__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(7, 18, 22, 0.46);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.account-panel.is-open .account-panel__backdrop {
+  opacity: 1;
+}
+
+.account-panel__sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(100%, 480px);
+  height: 100%;
+  display: grid;
+  align-content: start;
+  gap: 1.15rem;
+  padding: 1.35rem;
+  background:
+    radial-gradient(circle at top left, rgba(229, 104, 112, 0.14), transparent 26%),
+    linear-gradient(180deg, rgba(10, 20, 24, 0.99), rgba(16, 33, 38, 0.98));
+  border-left: 1px solid rgba(215, 210, 207, 0.14);
+  box-shadow: -24px 0 54px rgba(0, 0, 0, 0.24);
+  transform: translateX(100%);
+  transition: transform 0.24s ease;
+  overflow-y: auto;
+}
+
+.account-panel.is-open .account-panel__sheet {
+  transform: translateX(0);
+}
+
+.account-panel__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: start;
+}
+
+.account-panel__eyebrow {
+  color: var(--primary-red);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+}
+
+.account-panel__title {
+  margin-top: 0.45rem;
+  color: var(--primary-white);
+  font-size: 1.8rem;
+  font-weight: 200;
+}
+
+.account-panel__close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(215, 210, 207, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--primary-white);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.account-panel__avatar-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.account-avatar--large {
+  width: 84px;
+  height: 84px;
+  font-size: 1.25rem;
+}
+
+.account-panel__avatar-actions {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.account-panel__secondary-button,
+.account-panel__ghost-button,
+.account-panel__primary-button {
+  min-height: 42px;
+  border: 1px solid rgba(215, 210, 207, 0.14);
+  color: var(--primary-white);
+  cursor: pointer;
+}
+
+.account-panel__secondary-button,
+.account-panel__ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem 0.95rem;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.account-panel__primary-button {
+  padding: 0.82rem 1rem;
+  background: linear-gradient(135deg, rgba(229, 104, 112, 0.24), rgba(238, 132, 19, 0.2));
+}
+
+.account-panel__section {
+  display: grid;
+  gap: 0.95rem;
+  padding: 1rem;
+  border: 1px solid rgba(215, 210, 207, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.account-panel__section-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--primary-white);
+  font-size: 0.88rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.account-panel__form-grid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.account-panel .auth-form__field span {
+  color: var(--primary-tan);
+}
+
+.account-panel .auth-form__field input {
+  background: rgba(7, 18, 22, 0.78);
+  color: var(--primary-white);
+  border-color: rgba(215, 210, 207, 0.14);
+}
+
+.account-panel__meta-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.account-panel__meta-list span {
+  display: block;
+  color: var(--primary-tan);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.7rem;
+}
+
+.account-panel__meta-list strong {
+  display: block;
+  margin-top: 0.25rem;
   color: var(--primary-white);
 }
 

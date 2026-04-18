@@ -21,17 +21,35 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
   full_name text,
+  avatar_path text,
+  avatar_url text,
   global_role text references public.app_roles(name) on delete set null,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
+alter table public.profiles add column if not exists avatar_path text;
+alter table public.profiles add column if not exists avatar_url text;
+
 drop trigger if exists set_profiles_updated_at on public.profiles;
 create trigger set_profiles_updated_at
 before update on public.profiles
 for each row
 execute function public.set_updated_at();
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'profile-avatars',
+  'profile-avatars',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
 
 create table if not exists public.property_memberships (
   id uuid primary key default gen_random_uuid(),
@@ -134,12 +152,38 @@ begin
 end;
 $$;
 
+create or replace function public.handle_updated_user_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.profiles
+  set email = new.email,
+      full_name = case
+        when coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', '') <> ''
+          then coalesce(new.raw_user_meta_data ->> 'full_name', new.raw_user_meta_data ->> 'name', '')
+        else public.profiles.full_name
+      end
+  where id = new.id;
+
+  return new;
+end;
+$$;
+
 drop trigger if exists on_auth_user_created on auth.users;
+drop trigger if exists on_auth_user_updated on auth.users;
 
 create trigger on_auth_user_created
 after insert on auth.users
 for each row
 execute function public.handle_new_user_profile();
+
+create trigger on_auth_user_updated
+after update on auth.users
+for each row
+execute function public.handle_updated_user_profile();
 
 create or replace function public.current_user_global_role()
 returns text
@@ -264,6 +308,47 @@ for update
 to authenticated
 using (id = auth.uid())
 with check (id = auth.uid());
+
+drop policy if exists "authenticated users can read profile avatars" on storage.objects;
+create policy "authenticated users can read profile avatars"
+on storage.objects
+for select
+to authenticated
+using (bucket_id = 'profile-avatars');
+
+drop policy if exists "users can upload own profile avatars" on storage.objects;
+create policy "users can upload own profile avatars"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'profile-avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
+
+drop policy if exists "users can update own profile avatars" on storage.objects;
+create policy "users can update own profile avatars"
+on storage.objects
+for update
+to authenticated
+using (
+  bucket_id = 'profile-avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+)
+with check (
+  bucket_id = 'profile-avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
+
+drop policy if exists "users can delete own profile avatars" on storage.objects;
+create policy "users can delete own profile avatars"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'profile-avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
 
 drop policy if exists "users can read own memberships" on public.property_memberships;
 create policy "users can read own memberships"
