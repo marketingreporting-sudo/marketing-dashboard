@@ -110,6 +110,15 @@ This includes:
 - `src` attributes
 - `action` attributes
 
+For builder URL fields that strip curly braces, the plugin also supports these URL-only forms:
+
+```text
+rwm:primary_cta_url
+/rwm:primary_cta_url
+```
+
+That is especially helpful for Salient button URL inputs that rewrite `{{rwm:...}}` tokens.
+
 Examples:
 
 ```html

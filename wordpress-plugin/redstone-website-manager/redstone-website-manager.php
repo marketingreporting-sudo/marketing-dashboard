@@ -3,7 +3,7 @@
  * Plugin Name: Redstone Website Manager
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -575,7 +575,7 @@ if (!class_exists('Redstone_Website_Manager')) {
          * @return string
          */
         public function replace_tokens_in_html($html) {
-            if (!is_string($html) || strpos($html, '{{' . self::TOKEN_PREFIX) === false) {
+            if (!is_string($html) || strpos($html, self::TOKEN_PREFIX) === false) {
                 return $html;
             }
 
@@ -583,6 +583,24 @@ if (!class_exists('Redstone_Website_Manager')) {
 
             $html = preg_replace_callback(
                 '/\b(href|src|action)=([\'"])\{\{\s*' . preg_quote(self::TOKEN_PREFIX, '/') . '([a-z0-9_]+)\s*\}\}\2/i',
+                function ($matches) use ($content) {
+                    $attribute = strtolower($matches[1]);
+                    $quote = $matches[2];
+                    $key = $matches[3];
+                    $value = isset($content[$key]) ? $content[$key] : '';
+
+                    return sprintf(
+                        '%1$s=%2$s%3$s%2$s',
+                        $attribute,
+                        $quote,
+                        esc_url($value)
+                    );
+                },
+                $html
+            );
+
+            $html = preg_replace_callback(
+                '/\b(href|src|action)=([\'"])(?:\/)?' . preg_quote(self::TOKEN_PREFIX, '/') . '([a-z0-9_]+)\2/i',
                 function ($matches) use ($content) {
                     $attribute = strtolower($matches[1]);
                     $quote = $matches[2];
