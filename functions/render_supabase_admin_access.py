@@ -125,6 +125,17 @@ def _fetch_auth_users() -> list[dict[str, Any]]:
     return users if isinstance(users, list) else []
 
 
+def _find_auth_user_by_email(email: str) -> dict[str, Any]:
+    target = str(email or "").strip().lower()
+    if not target:
+        return {}
+
+    for user in _fetch_auth_users():
+        if str(user.get("email") or "").strip().lower() == target:
+            return user
+    return {}
+
+
 def _fetch_access_audit_logs(limit: int = 25) -> list[dict[str, Any]]:
     rows = _db_request(
         "access_audit_logs",
@@ -383,7 +394,15 @@ def invite_user_with_access_payload(
         payload=invite_payload,
     )
     user = generated.get("user") if isinstance(generated.get("user"), dict) else {}
-    user_id = str(user.get("id") or "")
+    properties = generated.get("properties") if isinstance(generated.get("properties"), dict) else {}
+    fallback_user = _find_auth_user_by_email(email)
+    user_id = str(
+        generated.get("id")
+        or user.get("id")
+        or properties.get("id")
+        or fallback_user.get("id")
+        or ""
+    )
     if not user_id:
         raise RuntimeError("Supabase did not return a user id for the generated invite.")
 
@@ -418,8 +437,8 @@ def invite_user_with_access_payload(
         "status": "ok",
         "invite": {
             "email": email.strip(),
-            "actionLink": generated.get("action_link"),
-            "hashedToken": generated.get("hashed_token"),
+            "actionLink": generated.get("action_link") or properties.get("action_link"),
+            "hashedToken": generated.get("hashed_token") or properties.get("hashed_token"),
             "userId": user_id,
         },
         "access": access_payload,
