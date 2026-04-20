@@ -6,6 +6,7 @@ Small WordPress plugin for storing editable property marketing content in one pl
 - your theme/template files
 - a protected REST endpoint for future dashboard sync
 - frontend token replacement using controlled placeholders like `{{rwm:hero_headline}}`
+- signed remote updates from the Redstone dashboard
 
 ## Included fields
 
@@ -14,12 +15,23 @@ Small WordPress plugin for storing editable property marketing content in one pl
 - `hero_subtitle`
 - `primary_cta_label`
 - `primary_cta_url`
-- `top_banner_text`
-- `top_banner_button_label`
-- `top_banner_button_url`
-- `floorplans_banner_text`
-- `floorplans_banner_button_label`
-- `floorplans_banner_button_url`
+- `secondary_cta_label`
+- `secondary_cta_url`
+- `banner_eyebrow`
+- `banner_headline`
+- `banner_body`
+- `floorplans_headline`
+- `floorplans_body`
+- `availability_note`
+- `pricing_summary`
+- `availability_summary`
+- `specials_summary`
+- `availability_url`
+- `starting_price`
+- `price_range`
+- `specials_count`
+- `floorplan_count`
+- `available_unit_count`
 
 ## Install
 
@@ -27,6 +39,7 @@ Small WordPress plugin for storing editable property marketing content in one pl
 2. Activate `Redstone Website Manager`.
 3. Open `Settings > Redstone Website Manager`.
 4. Enter values manually for testing.
+5. In the same settings page, configure the site key and shared secret used for signed remote publishes.
 
 ## Theme usage
 
@@ -37,6 +50,13 @@ $headline = redstone_website_manager_get('hero_headline');
 $subtitle = redstone_website_manager_get('hero_subtitle');
 $cta_label = redstone_website_manager_get('primary_cta_label');
 $cta_url = redstone_website_manager_get('primary_cta_url');
+```
+
+Echo directly in templates:
+
+```php
+redstone_website_manager_echo('pricing_summary');
+redstone_website_manager_echo('availability_url', 'url');
 ```
 
 Check if a field exists:
@@ -118,7 +138,10 @@ curl https://thestationatmillrace.com/wp-json/redstone-site-manager/v1/content
 
 ### POST / PUT / PATCH
 
-Protected write. Requires an authenticated user with `manage_options`, which works well with a WordPress Application Password.
+Protected write. Supports either:
+
+- an authenticated WordPress admin user with `manage_options`, or
+- a signed Redstone dashboard request using the configured site key + shared secret
 
 Example:
 
@@ -135,19 +158,6 @@ curl -X POST https://thestationatmillrace.com/wp-json/redstone-site-manager/v1/c
   }'
 ```
 
-## Suggested pilot mapping for The Station at Mill Race
-
-- Homepage headline: `hero_headline`
-- Homepage subtitle: `hero_subtitle`
-- Homepage main button text: `primary_cta_label`
-- Homepage main button link: `primary_cta_url`
-- Top promo banner text: `top_banner_text`
-- Top promo banner button text: `top_banner_button_label`
-- Top promo banner button link: `top_banner_button_url`
-- Floor plans banner text: `floorplans_banner_text`
-- Floor plans banner button text: `floorplans_banner_button_label`
-- Floor plans banner button link: `floorplans_banner_button_url`
-
 ## Salient child theme notes
 
 This plugin is fine for a Salient child theme, and now supports two implementation paths:
@@ -159,6 +169,9 @@ This plugin is fine for a Salient child theme, and now supports two implementati
 {{rwm:hero_headline}}
 {{rwm:primary_cta_label}}
 {{rwm:primary_cta_url}}
+{{rwm:pricing_summary}}
+{{rwm:availability_summary}}
+{{rwm:specials_summary}}
 ```
 
 3. In child theme templates or hooks, you can still pull values directly with:
@@ -190,5 +203,9 @@ The token format is the preferred builder approach for this pilot.
 
 - Relative URLs entered in admin are normalized to full site URLs on save.
 - Data is stored in a single option: `redstone_website_manager_content`
+- Site-level remote auth values are stored in:
+  - `redstone_website_manager_site_key`
+  - `redstone_website_manager_shared_secret`
 - Last REST update time is stored in: `redstone_website_manager_content_updated_at`
 - Frontend token replacement runs through output buffering on normal frontend page loads.
+- On successful REST updates, the plugin flushes WordPress object cache and common page-cache integrations when available.

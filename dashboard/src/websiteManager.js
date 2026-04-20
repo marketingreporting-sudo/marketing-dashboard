@@ -119,7 +119,27 @@ export const WEBSITE_MANAGER_DEFAULT_RECORD = {
   websiteUrl: '',
   wordpressSiteKey: '',
   notes: '',
-  content: WEBSITE_MANAGER_DEFAULT_CONTENT
+  content: WEBSITE_MANAGER_DEFAULT_CONTENT,
+  derivedContent: {
+    specialsSummary: '',
+    specialsCount: 0,
+    pricingSummary: '',
+    availabilitySummary: '',
+    availabilityUrl: '',
+    startingPrice: '',
+    priceRange: '',
+    floorplanCount: 0,
+    availableUnitCount: 0,
+    specialsLastSyncedAt: null,
+    pricingLastSyncedAt: null,
+  },
+  wordpressSync: {
+    publishEnabled: false,
+    targetUrl: '',
+    siteKeyConfigured: false,
+    websiteUrlConfigured: false,
+    latestEntrataSyncAt: null,
+  }
 };
 
 export const WEBSITE_MANAGER_TOKEN_DEFINITIONS = [
@@ -141,7 +161,15 @@ export const normalizeWebsiteManagerRecord = (value) => {
     content: {
       ...WEBSITE_MANAGER_DEFAULT_CONTENT,
       ...safeContent
-    }
+    },
+    derivedContent: {
+      ...WEBSITE_MANAGER_DEFAULT_RECORD.derivedContent,
+      ...(safeValue.derivedContent && typeof safeValue.derivedContent === 'object' ? safeValue.derivedContent : {})
+    },
+    wordpressSync: {
+      ...WEBSITE_MANAGER_DEFAULT_RECORD.wordpressSync,
+      ...(safeValue.wordpressSync && typeof safeValue.wordpressSync === 'object' ? safeValue.wordpressSync : {})
+    },
   };
 };
 

@@ -152,7 +152,7 @@ HTTP_ENDPOINT_SPECS = (
         route="/api/admin/website-manager",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="staging_supabase_website_manager_only",
-        purpose="Read and save staging-only website manager content from Supabase.",
+        purpose="Read, save, and publish staged website manager content from Supabase.",
     ),
     HttpEndpointSpec(
         route="/api/admin/reporting-layout",
@@ -207,17 +207,24 @@ CRON_JOB_SPECS = (
     ),
     CronJobSpec(
         name="sync_daily_entrata_specials",
-        schedule="10 1 * * * America/Denver",
+        schedule="10 */4 * * * America/Denver",
         firebase_handler="sync_daily_entrata_specials_scheduled",
-        purpose="Daily specials sync.",
+        purpose="Entrata specials sync every four hours.",
         render_command="python render_cron.py sync_daily_entrata_specials",
     ),
     CronJobSpec(
         name="sync_daily_entrata_units_availability_pricing",
-        schedule="20 1 * * * America/Denver",
+        schedule="20 */4 * * * America/Denver",
         firebase_handler="sync_daily_entrata_units_availability_pricing_scheduled",
-        purpose="Daily availability pricing sync.",
+        purpose="Entrata availability pricing sync every four hours.",
         render_command="python render_cron.py sync_daily_entrata_units_availability_pricing",
+    ),
+    CronJobSpec(
+        name="sync_wordpress_website_manager",
+        schedule="35 */4 * * * America/Denver",
+        firebase_handler="render_only",
+        purpose="Publish cached website manager + Entrata snapshot content to WordPress every four hours.",
+        render_command="python render_cron.py sync_wordpress_website_manager",
     ),
     CronJobSpec(
         name="sync_daily_entrata_lease_attribution",

@@ -19,6 +19,9 @@ if (!class_exists('Redstone_Website_Manager')) {
         const MENU_SLUG = 'redstone-website-manager';
         const REST_NAMESPACE = 'redstone-site-manager/v1';
         const TOKEN_PREFIX = 'rwm:';
+        const SITE_KEY_OPTION = 'redstone_website_manager_site_key';
+        const SHARED_SECRET_OPTION = 'redstone_website_manager_shared_secret';
+        const SIGNATURE_WINDOW_SECONDS = 900;
 
         /**
          * @var array<string, array<string, string>>
@@ -59,26 +62,36 @@ if (!class_exists('Redstone_Website_Manager')) {
                         'type' => 'url',
                         'help' => 'Relative or absolute URL.',
                     ),
+                    'secondary_cta_label' => array(
+                        'label' => 'Secondary CTA Label',
+                        'type' => 'text',
+                        'help' => 'Example: View Availability',
+                    ),
+                    'secondary_cta_url' => array(
+                        'label' => 'Secondary CTA URL',
+                        'type' => 'url',
+                        'help' => 'Relative or absolute URL.',
+                    ),
                 ),
             ),
             'top_banner' => array(
                 'title' => 'Top Banner',
                 'description' => 'Promo banner content that can appear near the top of the homepage.',
                 'fields' => array(
-                    'top_banner_text' => array(
-                        'label' => 'Banner Text',
-                        'type' => 'textarea',
-                        'help' => 'Short promo message or offer.',
-                    ),
-                    'top_banner_button_label' => array(
-                        'label' => 'Banner Button Label',
+                    'banner_eyebrow' => array(
+                        'label' => 'Banner Eyebrow',
                         'type' => 'text',
-                        'help' => 'Example: Apply Now',
+                        'help' => 'Short supporting label above the main banner headline.',
                     ),
-                    'top_banner_button_url' => array(
-                        'label' => 'Banner Button URL',
-                        'type' => 'url',
-                        'help' => 'Relative or absolute URL.',
+                    'banner_headline' => array(
+                        'label' => 'Banner Headline',
+                        'type' => 'textarea',
+                        'help' => 'Headline-sized promo message or offer.',
+                    ),
+                    'banner_body' => array(
+                        'label' => 'Banner Body',
+                        'type' => 'textarea',
+                        'help' => 'Short supporting copy for the banner.',
                     ),
                 ),
             ),
@@ -86,20 +99,71 @@ if (!class_exists('Redstone_Website_Manager')) {
                 'title' => 'Floor Plans Banner',
                 'description' => 'Messaging block for the floor plans page.',
                 'fields' => array(
-                    'floorplans_banner_text' => array(
-                        'label' => 'Banner Text',
+                    'floorplans_headline' => array(
+                        'label' => 'Section Headline',
                         'type' => 'textarea',
-                        'help' => 'Floor plans page hero or banner copy.',
+                        'help' => 'Floor plans page headline.',
                     ),
-                    'floorplans_banner_button_label' => array(
-                        'label' => 'Banner Button Label',
-                        'type' => 'text',
-                        'help' => 'Example: View Availability',
+                    'floorplans_body' => array(
+                        'label' => 'Section Body',
+                        'type' => 'textarea',
+                        'help' => 'Supporting copy for the floor plans section.',
                     ),
-                    'floorplans_banner_button_url' => array(
-                        'label' => 'Banner Button URL',
+                ),
+            ),
+            'availability' => array(
+                'title' => 'Availability',
+                'description' => 'Manual note plus auto-filled live availability fields from Redstone.',
+                'fields' => array(
+                    'availability_note' => array(
+                        'label' => 'Availability Note',
+                        'type' => 'textarea',
+                        'help' => 'Fine print or disclaimer shown near live pricing/availability.',
+                    ),
+                    'pricing_summary' => array(
+                        'label' => 'Pricing Summary',
+                        'type' => 'textarea',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'availability_summary' => array(
+                        'label' => 'Availability Summary',
+                        'type' => 'textarea',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'specials_summary' => array(
+                        'label' => 'Specials Summary',
+                        'type' => 'textarea',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'availability_url' => array(
+                        'label' => 'Availability URL',
                         'type' => 'url',
-                        'help' => 'Relative or absolute URL.',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'starting_price' => array(
+                        'label' => 'Starting Price',
+                        'type' => 'text',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'price_range' => array(
+                        'label' => 'Price Range',
+                        'type' => 'text',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'specials_count' => array(
+                        'label' => 'Specials Count',
+                        'type' => 'text',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'floorplan_count' => array(
+                        'label' => 'Floorplan Count',
+                        'type' => 'text',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
+                    ),
+                    'available_unit_count' => array(
+                        'label' => 'Available Unit Count',
+                        'type' => 'text',
+                        'help' => 'Auto-filled by the Redstone dashboard.',
                     ),
                 ),
             ),
@@ -133,6 +197,26 @@ if (!class_exists('Redstone_Website_Manager')) {
                     'show_in_rest' => false,
                 )
             );
+            register_setting(
+                self::MENU_SLUG,
+                self::SITE_KEY_OPTION,
+                array(
+                    'type' => 'string',
+                    'sanitize_callback' => 'sanitize_text_field',
+                    'default' => '',
+                    'show_in_rest' => false,
+                )
+            );
+            register_setting(
+                self::MENU_SLUG,
+                self::SHARED_SECRET_OPTION,
+                array(
+                    'type' => 'string',
+                    'sanitize_callback' => array($this, 'sanitize_secret'),
+                    'default' => '',
+                    'show_in_rest' => false,
+                )
+            );
         }
 
         public function register_rest_routes() {
@@ -148,14 +232,14 @@ if (!class_exists('Redstone_Website_Manager')) {
                     array(
                         'methods' => WP_REST_Server::EDITABLE,
                         'callback' => array($this, 'handle_rest_update'),
-                        'permission_callback' => array($this, 'rest_can_manage'),
+                        'permission_callback' => '__return_true',
                     ),
                 )
             );
         }
 
-        public function rest_can_manage() {
-            return current_user_can('manage_options');
+        public function sanitize_secret($value) {
+            return trim(is_scalar($value) ? (string) $value : '');
         }
 
         public function handle_rest_get(WP_REST_Request $request) {
@@ -169,6 +253,14 @@ if (!class_exists('Redstone_Website_Manager')) {
         }
 
         public function handle_rest_update(WP_REST_Request $request) {
+            if (!$this->request_can_manage($request)) {
+                return new WP_Error(
+                    'redstone_forbidden',
+                    'This request is not authorized to update website content.',
+                    array('status' => 403)
+                );
+            }
+
             $payload = $request->get_json_params();
             if (!is_array($payload)) {
                 return new WP_Error(
@@ -181,6 +273,7 @@ if (!class_exists('Redstone_Website_Manager')) {
             $normalized = $this->sanitize_payload($payload);
             update_option(self::OPTION_KEY, $normalized, false);
             update_option(self::OPTION_KEY . '_updated_at', current_time('mysql'), false);
+            $this->flush_common_caches();
 
             return rest_ensure_response(
                 array(
@@ -189,6 +282,74 @@ if (!class_exists('Redstone_Website_Manager')) {
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
+        }
+
+        private function request_can_manage(WP_REST_Request $request) {
+            if (current_user_can('manage_options')) {
+                return true;
+            }
+
+            return $this->verify_service_signature($request);
+        }
+
+        private function verify_service_signature(WP_REST_Request $request) {
+            $configured_site_key = $this->get_configured_site_key();
+            $shared_secret = $this->get_shared_secret();
+            $provided_site_key = trim((string) $request->get_header('x-redstone-site-key'));
+            $timestamp = trim((string) $request->get_header('x-redstone-timestamp'));
+            $signature = trim((string) $request->get_header('x-redstone-signature'));
+
+            if ($configured_site_key === '' || $shared_secret === '' || $provided_site_key === '' || $timestamp === '' || $signature === '') {
+                return false;
+            }
+
+            if (!hash_equals($configured_site_key, $provided_site_key)) {
+                return false;
+            }
+
+            if (!ctype_digit($timestamp)) {
+                return false;
+            }
+
+            $timestamp_int = (int) $timestamp;
+            if (abs(time() - $timestamp_int) > self::SIGNATURE_WINDOW_SECONDS) {
+                return false;
+            }
+
+            $body = (string) $request->get_body();
+            $expected = hash_hmac('sha256', $timestamp . "\n" . $provided_site_key . "\n" . $body, $shared_secret);
+
+            return hash_equals($expected, $signature);
+        }
+
+        private function get_configured_site_key() {
+            return trim((string) get_option(self::SITE_KEY_OPTION, ''));
+        }
+
+        private function get_shared_secret() {
+            return trim((string) get_option(self::SHARED_SECRET_OPTION, ''));
+        }
+
+        private function flush_common_caches() {
+            if (function_exists('wp_cache_flush')) {
+                wp_cache_flush();
+            }
+            if (function_exists('rocket_clean_domain')) {
+                rocket_clean_domain();
+            }
+            if (function_exists('w3tc_flush_all')) {
+                w3tc_flush_all();
+            }
+            if (function_exists('wpfc_clear_all_cache')) {
+                wpfc_clear_all_cache(true);
+            }
+            if (function_exists('litespeed_purge_all')) {
+                litespeed_purge_all();
+            }
+            if (function_exists('sg_cachepress_purge_everything')) {
+                sg_cachepress_purge_everything();
+            }
+            do_action('redstone_website_manager_cache_flushed');
         }
 
         /**
@@ -303,6 +464,43 @@ if (!class_exists('Redstone_Website_Manager')) {
 
                 <form method="post" action="options.php">
                     <?php settings_fields(self::MENU_SLUG); ?>
+
+                    <h2>Remote Sync Authentication</h2>
+                    <table class="form-table" role="presentation">
+                        <tbody>
+                            <tr>
+                                <th scope="row">
+                                    <label for="<?php echo esc_attr(self::SITE_KEY_OPTION); ?>">Site Key</label>
+                                </th>
+                                <td>
+                                    <input
+                                        class="regular-text"
+                                        type="text"
+                                        id="<?php echo esc_attr(self::SITE_KEY_OPTION); ?>"
+                                        name="<?php echo esc_attr(self::SITE_KEY_OPTION); ?>"
+                                        value="<?php echo esc_attr($this->get_configured_site_key()); ?>"
+                                    />
+                                    <p class="description">Must match the WordPress site key saved in the Redstone dashboard.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="<?php echo esc_attr(self::SHARED_SECRET_OPTION); ?>">Shared Secret</label>
+                                </th>
+                                <td>
+                                    <input
+                                        class="regular-text"
+                                        type="password"
+                                        id="<?php echo esc_attr(self::SHARED_SECRET_OPTION); ?>"
+                                        name="<?php echo esc_attr(self::SHARED_SECRET_OPTION); ?>"
+                                        value="<?php echo esc_attr($this->get_shared_secret()); ?>"
+                                        autocomplete="new-password"
+                                    />
+                                    <p class="description">Configure the same secret in Render via <code>WORDPRESS_SITE_SECRETS_JSON</code>.</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
 
                     <table class="form-table" role="presentation">
                         <tbody>
@@ -463,6 +661,27 @@ if (!function_exists('redstone_website_manager_get_url')) {
     function redstone_website_manager_get_url($key, $default = '') {
         $value = redstone_website_manager_get($key, $default);
         return $value !== '' ? esc_url($value) : '';
+    }
+}
+
+if (!function_exists('redstone_website_manager_echo')) {
+    /**
+     * @param string $key
+     * @param string $mode
+     * @param string $default
+     * @return void
+     */
+    function redstone_website_manager_echo($key, $mode = 'text', $default = '') {
+        $value = redstone_website_manager_get($key, $default);
+        if ($mode === 'url') {
+            echo esc_url($value);
+            return;
+        }
+        if ($mode === 'raw') {
+            echo wp_kses_post($value);
+            return;
+        }
+        echo esc_html($value);
     }
 }
 

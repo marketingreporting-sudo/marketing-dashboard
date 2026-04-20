@@ -22,6 +22,7 @@ from render_runtime import (
 from render_supabase_admin_content import (
     get_reporting_layout_summary,
     get_website_manager_summary,
+    publish_website_manager_summary,
     save_reporting_layout_summary,
     save_website_manager_summary,
 )
@@ -468,12 +469,23 @@ def create_app() -> Flask:
             )
 
         try:
-            access_token, _user = get_authenticated_request_context()
+            if request.method == "POST":
+                access_token, _user = require_property_permission(str(property_id), "website_manager.edit")
+            else:
+                access_token, _user = require_property_permission(str(property_id), "website_manager.view")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
         except RenderAuthError as error:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
 
         if request.method == "POST":
             payload = save_website_manager_summary(str(property_id), req_json, access_token=access_token)
+            if payload.get("status") != "error" and bool(req_json.get("publish")):
+                publish_result = publish_website_manager_summary(str(property_id), access_token=access_token)
+                payload["publishResult"] = publish_result
+                if publish_result.get("status") == "error":
+                    payload["status"] = "error"
+                    payload["error"] = publish_result.get("error")
         else:
             payload = get_website_manager_summary(str(property_id), access_token=access_token)
         status_code = 200 if payload.get("status") != "error" else 503

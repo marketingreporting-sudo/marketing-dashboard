@@ -11,6 +11,7 @@ from urllib.request import Request, urlopen
 import main as legacy
 from render_supabase_sync_state import _fetch_json, _table_query_url
 from render_supabase_validation import SupabaseValidationConfigError, _supabase_headers
+from render_supabase_admin_content import publish_all_wordpress_website_manager_sites
 
 
 def _json_default(value: Any):
@@ -1504,6 +1505,8 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
         result = process_daily_refresh_batch()
     elif job_name == "run_entrata_retry_queue":
         result = process_retry_queue_batch()
+    elif job_name == "sync_wordpress_website_manager":
+        result = publish_all_wordpress_website_manager_sites()
     elif job_name == "weekly_site_audit":
         import site_audit
 

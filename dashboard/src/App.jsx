@@ -952,6 +952,7 @@ const DashboardApp = ({
   const [metaAdsAttributionMode, setMetaAdsAttributionMode] = useState('account_default');
   const [websiteManagerLoading, setWebsiteManagerLoading] = useState(true);
   const [websiteManagerSaving, setWebsiteManagerSaving] = useState(false);
+  const [websiteManagerAction, setWebsiteManagerAction] = useState('save');
   const [websiteManagerError, setWebsiteManagerError] = useState(null);
   const [websiteManagerNotice, setWebsiteManagerNotice] = useState(null);
   const [websiteManagerDoc, setWebsiteManagerDoc] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
@@ -2117,7 +2118,10 @@ const DashboardApp = ({
       { label: 'Primary CTA', value: websiteManagerDraft.content.heroPrimaryCtaLabel },
       { label: 'Banner headline', value: websiteManagerDraft.content.bannerHeadline },
       { label: 'Floor plans headline', value: websiteManagerDraft.content.floorplansHeadline },
-      { label: 'Availability note', value: websiteManagerDraft.content.availabilityNote }
+      { label: 'Availability note', value: websiteManagerDraft.content.availabilityNote },
+      { label: 'Live pricing', value: websiteManagerDraft.derivedContent.pricingSummary },
+      { label: 'Live specials', value: websiteManagerDraft.derivedContent.specialsSummary },
+      { label: 'Live availability', value: websiteManagerDraft.derivedContent.availabilitySummary }
     ]
       .filter((item) => String(item.value || '').trim())
       .map((item) => ({
@@ -2129,6 +2133,11 @@ const DashboardApp = ({
     () => JSON.stringify(websiteManagerDraft) !== JSON.stringify(websiteManagerDoc),
     [websiteManagerDraft, websiteManagerDoc]
   );
+  const websiteManagerPublishReady = useMemo(() => (
+    websiteManagerEditable &&
+    canEditWebsiteManager &&
+    Boolean(websiteManagerDraft.websiteUrl && websiteManagerDraft.wordpressSiteKey)
+  ), [websiteManagerDraft.websiteUrl, websiteManagerDraft.wordpressSiteKey, websiteManagerEditable, canEditWebsiteManager]);
   const reportingLayoutDirty = useMemo(
     () => JSON.stringify(reportingLayoutDraft) !== JSON.stringify(reportingLayoutDoc),
     [reportingLayoutDraft, reportingLayoutDoc]
@@ -2168,7 +2177,7 @@ const DashboardApp = ({
     setWebsiteManagerError(null);
   };
 
-  const saveWebsiteManagerDraft = async () => {
+  const persistWebsiteManagerDraft = async ({ publish = false } = {}) => {
     if (!selectedPropertyId) {
       setWebsiteManagerError('No property is currently available for this account.');
       return;
@@ -2179,6 +2188,7 @@ const DashboardApp = ({
     }
 
     setWebsiteManagerSaving(true);
+    setWebsiteManagerAction(publish ? 'publish' : 'save');
     setWebsiteManagerError(null);
     setWebsiteManagerNotice(null);
 
@@ -2196,6 +2206,7 @@ const DashboardApp = ({
           propertyName: selectedProperty?.name || '',
           ...normalizedDraft,
           editable: isWebsiteManagerEditable(normalizedDraft.platform),
+          publish,
         }),
       });
       const payload = await response.json();
@@ -2205,12 +2216,17 @@ const DashboardApp = ({
       const savedRecord = normalizeWebsiteManagerRecord(payload.record);
       setWebsiteManagerDoc(savedRecord);
       setWebsiteManagerDraft(savedRecord);
-      setWebsiteManagerNotice('Website manager content saved for this property.');
+      if (publish) {
+        setWebsiteManagerNotice('Website content was saved and pushed to the linked WordPress site.');
+      } else {
+        setWebsiteManagerNotice('Website manager content saved for this property.');
+      }
     } catch (error) {
       console.error('Website manager save failed', error);
       setWebsiteManagerError(error.message || 'Unable to save website manager content.');
     } finally {
       setWebsiteManagerSaving(false);
+      setWebsiteManagerAction('save');
     }
   };
 
@@ -4421,6 +4437,13 @@ const DashboardApp = ({
           <div className="website-manager-card__meta">Fields with non-empty content ready for review or deployment.</div>
         </div>
         <div className="website-manager-card">
+          <div className="website-manager-card__label">Entrata live sync</div>
+          <div className="website-manager-card__value">
+            {getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}
+          </div>
+          <div className="website-manager-card__meta">Pricing and specials snapshots refresh on a four-hour cadence.</div>
+        </div>
+        <div className="website-manager-card">
           <div className="website-manager-card__label">WordPress key</div>
           <div className="website-manager-card__value">
             {websiteManagerDraft.wordpressSiteKey || 'Not set'}
@@ -4564,10 +4587,18 @@ const DashboardApp = ({
             <button
               type="button"
               className="website-manager-button website-manager-button--primary"
-              onClick={saveWebsiteManagerDraft}
+              onClick={() => persistWebsiteManagerDraft({ publish: false })}
               disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
             >
-              {websiteManagerSaving ? 'Saving…' : 'Save Website Config'}
+              {websiteManagerSaving && websiteManagerAction === 'save' ? 'Saving…' : 'Save Draft'}
+            </button>
+            <button
+              type="button"
+              className="website-manager-button website-manager-button--primary"
+              onClick={() => persistWebsiteManagerDraft({ publish: true })}
+              disabled={websiteManagerSaving || !websiteManagerPublishReady}
+            >
+              {websiteManagerSaving && websiteManagerAction === 'publish' ? 'Updating…' : 'Update Website'}
             </button>
           </div>
         </div>
@@ -4615,6 +4646,32 @@ const DashboardApp = ({
 
           <div className="website-manager-section-head">
             <div>
+              <div className="website-manager-panel__eyebrow">Live Entrata fields</div>
+              <h3 className="website-manager-panel__title">Auto-filled pricing, specials, and availability</h3>
+            </div>
+          </div>
+
+          <div className="website-manager-preview-list">
+            <div className="website-manager-preview">
+              <div className="website-manager-preview__label">Pricing summary</div>
+              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.pricingSummary || 'No pricing snapshot available yet.'}</div>
+            </div>
+            <div className="website-manager-preview">
+              <div className="website-manager-preview__label">Availability summary</div>
+              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.availabilitySummary || 'No availability snapshot available yet.'}</div>
+            </div>
+            <div className="website-manager-preview">
+              <div className="website-manager-preview__label">Specials summary</div>
+              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.specialsSummary || 'No current specials snapshot available yet.'}</div>
+            </div>
+            <div className="website-manager-preview">
+              <div className="website-manager-preview__label">Availability URL</div>
+              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.availabilityUrl || 'Not provided by Entrata.'}</div>
+            </div>
+          </div>
+
+          <div className="website-manager-section-head">
+            <div>
               <div className="website-manager-panel__eyebrow">Suggested next backend step</div>
               <h3 className="website-manager-panel__title">How this tab should connect to WordPress</h3>
             </div>
@@ -4624,9 +4681,10 @@ const DashboardApp = ({
             <div className="website-manager-checklist__item">
               Persist per-property content in <code>{`properties/${selectedPropertyId}/website_manager/current`}</code>.
             </div>
-            <div className="website-manager-checklist__item">Map each content key to a WordPress option, ACF field, or custom table row.</div>
-            <div className="website-manager-checklist__item">Run a privileged sync endpoint only for properties marked `wordpress_custom`.</div>
-            <div className="website-manager-checklist__item">Keep Entrata properties read-only so managers can still see platform status without breaking anything.</div>
+            <div className="website-manager-checklist__item">Manual copy and Entrata-derived fields are bundled into one signed WordPress publish payload.</div>
+            <div className="website-manager-checklist__item">The WordPress plugin echoes current option values and flushes caches after updates.</div>
+            <div className="website-manager-checklist__item">A backend cron republishes WordPress properties every four hours after Entrata snapshots refresh.</div>
+            <div className="website-manager-checklist__item">Entrata properties still remain read-only until the platform is switched to `wordpress_custom`.</div>
           </div>
         </div>
       </div>
