@@ -3,7 +3,7 @@
  * Plugin Name: Redstone Website Manager
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.2.1
+ * Version: 1.3.0
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -365,6 +365,19 @@ if (!class_exists('Redstone_Website_Manager')) {
                     $raw = isset($input[$key]) ? $input[$key] : '';
                     $sanitized[$key] = $this->sanitize_field_value($field['type'], $raw);
                 }
+            }
+
+            foreach ($input as $key => $raw) {
+                if (!is_string($key) || !preg_match('/^[a-z0-9_]+$/i', $key)) {
+                    continue;
+                }
+
+                if (isset($sanitized[$key])) {
+                    continue;
+                }
+
+                $field_type = preg_match('/_link$/', $key) ? 'url' : 'textarea';
+                $sanitized[$key] = $this->sanitize_field_value($field_type, $raw);
             }
 
             return $sanitized;

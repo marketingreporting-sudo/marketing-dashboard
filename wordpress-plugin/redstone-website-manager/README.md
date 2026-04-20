@@ -129,6 +129,8 @@ Textarea-style content fields also allow safe inline HTML such as:
 
 That means you can store formatted copy in the dashboard for fields like subtitles, banner body copy, and availability notes.
 
+The REST sync endpoint also accepts additional safe field keys beyond the built-in admin settings screen, which lets the Redstone dashboard publish property-specific field sets for each website.
+
 Examples:
 
 ```html

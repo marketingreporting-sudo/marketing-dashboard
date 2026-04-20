@@ -73,6 +73,45 @@ class WebsiteManagerSyncTests(unittest.TestCase):
         self.assertEqual(payload["pricing_summary"], "Now leasing from $1,499")
         self.assertEqual(payload["available_unit_count"], 4)
 
+    def test_build_wordpress_payload_keeps_dynamic_schema_keys(self):
+        record = {
+            "propertyName": "Schema Property",
+            "websiteUrl": "https://example.com",
+            "content": {
+                "headline": "Fresh headline",
+                "studio_button_link": "/floorplans/studio",
+            },
+            "derivedContent": {},
+        }
+
+        payload = website_content._build_wordpress_payload(record)
+
+        self.assertEqual(payload["headline"], "Fresh headline")
+        self.assertEqual(payload["studio_button_link"], "/floorplans/studio")
+
+    def test_extract_schema_from_content_uses_saved_schema_and_hides_meta_key(self):
+        stored_content = {
+            "headline": "Live downtown.",
+            "__schema": {
+                "groups": [
+                    {
+                        "id": "homepage",
+                        "label": "Homepage",
+                        "fields": [
+                            {"key": "headline", "label": "Headline", "type": "richtext"},
+                            {"key": "cta_button_link", "label": "CTA URL", "type": "url"},
+                        ],
+                    }
+                ]
+            },
+        }
+
+        content, schema = website_content._extract_schema_from_content(stored_content, {"property_name": "Test"})
+
+        self.assertEqual(content["headline"], "Live downtown.")
+        self.assertNotIn("__schema", content)
+        self.assertEqual(schema["groups"][0]["fields"][1]["key"], "cta_button_link")
+
 
 if __name__ == "__main__":
     unittest.main()

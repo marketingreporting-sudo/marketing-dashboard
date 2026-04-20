@@ -9,6 +9,7 @@ import {
   REPORTING_LAYOUT_URL,
   REPUTATION_DASHBOARD_URL,
   ROI_PIPELINE_STATUS_URL,
+  WEBSITE_MANAGER_SCHEMA_URL,
   WEBSITE_MANAGER_URL
 } from './apiConfig';
 import { authFetch } from './lib/authFetch';
@@ -23,11 +24,14 @@ import {
 import { useAccess } from './access/useAccess';
 import {
   WEBSITE_MANAGER_DEFAULT_RECORD,
-  WEBSITE_MANAGER_FIELD_GROUPS,
+  WEBSITE_MANAGER_DEFAULT_SCHEMA,
   WEBSITE_MANAGER_TOKEN_DEFINITIONS,
+  getWebsiteManagerFieldGroups,
+  getWebsiteManagerFieldTokenDefinitions,
   getWebsitePlatformMeta,
   isWebsiteManagerEditable,
   normalizeWebsiteManagerRecord,
+  normalizeWebsiteManagerSchema,
   resolveMustacheTokens
 } from './websiteManager';
 import loaderMark from './assets/redstone_logo_loader.svg';
@@ -957,6 +961,12 @@ const DashboardApp = ({
   const [websiteManagerNotice, setWebsiteManagerNotice] = useState(null);
   const [websiteManagerDoc, setWebsiteManagerDoc] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
   const [websiteManagerDraft, setWebsiteManagerDraft] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
+  const [websiteSchemaLoading, setWebsiteSchemaLoading] = useState(false);
+  const [websiteSchemaSaving, setWebsiteSchemaSaving] = useState(false);
+  const [websiteSchemaError, setWebsiteSchemaError] = useState(null);
+  const [websiteSchemaNotice, setWebsiteSchemaNotice] = useState(null);
+  const [websiteSchemaDoc, setWebsiteSchemaDoc] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
+  const [websiteSchemaDraft, setWebsiteSchemaDraft] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
   const [reportingLayoutLoading, setReportingLayoutLoading] = useState(true);
   const [reportingLayoutSaving, setReportingLayoutSaving] = useState(false);
   const [reportingLayoutError, setReportingLayoutError] = useState(null);
@@ -1027,6 +1037,7 @@ const DashboardApp = ({
     confirmPassword: '',
   });
   const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
+  const websiteManagerSchemaUsesStagedAdapter = Boolean(WEBSITE_MANAGER_SCHEMA_URL);
   const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
   const analyticsEndpointsConfigured = Boolean(
     GA4_DASHBOARD_URL && GOOGLE_ADS_DASHBOARD_URL && META_ADS_DASHBOARD_URL && REPUTATION_DASHBOARD_URL
@@ -1347,6 +1358,61 @@ const DashboardApp = ({
       cancelled = true;
     };
   }, [selectedPropertyId, websiteManagerUsesStagedAdapter]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWebsiteSchema = async () => {
+      if (!selectedPropertyId || !canManageUsers) {
+        const fallback = normalizeWebsiteManagerSchema(null);
+        setWebsiteSchemaDoc(fallback);
+        setWebsiteSchemaDraft(fallback);
+        setWebsiteSchemaLoading(false);
+        return;
+      }
+
+      if (!websiteManagerSchemaUsesStagedAdapter) {
+        const fallback = normalizeWebsiteManagerSchema(null);
+        setWebsiteSchemaDoc(fallback);
+        setWebsiteSchemaDraft(fallback);
+        setWebsiteSchemaError('Website schema endpoint is not configured.');
+        setWebsiteSchemaLoading(false);
+        return;
+      }
+
+      setWebsiteSchemaLoading(true);
+      setWebsiteSchemaError(null);
+      setWebsiteSchemaNotice(null);
+
+      try {
+        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const response = await authFetch(`${WEBSITE_MANAGER_SCHEMA_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Website schema fetch failed: ${response.status}`);
+        }
+        if (cancelled) return;
+        const normalized = normalizeWebsiteManagerSchema(payload?.record?.schema);
+        setWebsiteSchemaDoc(normalized);
+        setWebsiteSchemaDraft(normalized);
+      } catch (error) {
+        if (cancelled) return;
+        setWebsiteSchemaError(error.message || 'Unable to load the website field schema.');
+        const fallback = normalizeWebsiteManagerSchema(null);
+        setWebsiteSchemaDoc(fallback);
+        setWebsiteSchemaDraft(fallback);
+      } finally {
+        if (!cancelled) {
+          setWebsiteSchemaLoading(false);
+        }
+      }
+    };
+
+    loadWebsiteSchema();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPropertyId, canManageUsers, websiteManagerSchemaUsesStagedAdapter]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2111,24 +2177,31 @@ const DashboardApp = ({
     state: selectedProperty?.state || '',
     property_id: selectedPropertyId
   }), [selectedProperty, selectedPropertyId]);
+  const websiteManagerSchemaGroups = useMemo(
+    () => getWebsiteManagerFieldGroups(websiteManagerDraft.schema),
+    [websiteManagerDraft.schema]
+  );
+  const websiteManagerContentTokens = useMemo(
+    () => getWebsiteManagerFieldTokenDefinitions(websiteManagerDraft.schema),
+    [websiteManagerDraft.schema]
+  );
   const websiteManagerPreviewItems = useMemo(() => (
     [
-      { label: 'Homepage headline', value: websiteManagerDraft.content.heroHeadline },
-      { label: 'Homepage subheadline', value: websiteManagerDraft.content.heroSubheadline },
-      { label: 'Primary CTA', value: websiteManagerDraft.content.heroPrimaryCtaLabel },
-      { label: 'Banner headline', value: websiteManagerDraft.content.bannerHeadline },
-      { label: 'Floor plans headline', value: websiteManagerDraft.content.floorplansHeadline },
-      { label: 'Availability note', value: websiteManagerDraft.content.availabilityNote },
+      ...websiteManagerContentTokens.map((field) => ({
+        label: field.label,
+        value: websiteManagerDraft.content[field.token],
+      })),
       { label: 'Live pricing', value: websiteManagerDraft.derivedContent.pricingSummary },
       { label: 'Live specials', value: websiteManagerDraft.derivedContent.specialsSummary },
       { label: 'Live availability', value: websiteManagerDraft.derivedContent.availabilitySummary }
     ]
       .filter((item) => String(item.value || '').trim())
+      .slice(0, 9)
       .map((item) => ({
         ...item,
         resolved: resolveMustacheTokens(item.value, websiteManagerTokenValues)
       }))
-  ), [websiteManagerDraft.content, websiteManagerTokenValues]);
+  ), [websiteManagerContentTokens, websiteManagerDraft.content, websiteManagerDraft.derivedContent, websiteManagerTokenValues]);
   const websiteManagerDirty = useMemo(
     () => JSON.stringify(websiteManagerDraft) !== JSON.stringify(websiteManagerDoc),
     [websiteManagerDraft, websiteManagerDoc]
@@ -2169,6 +2242,157 @@ const DashboardApp = ({
         [field]: value
       }
     }));
+  };
+
+  const updateWebsiteSchemaGroupLabel = (groupId, value) => {
+    setWebsiteSchemaNotice(null);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaDraft((current) => ({
+      ...current,
+      groups: current.groups.map((group) => (
+        group.id === groupId ? { ...group, label: value } : group
+      )),
+    }));
+  };
+
+  const updateWebsiteSchemaField = (groupId, fieldKey, property, value) => {
+    setWebsiteSchemaNotice(null);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaDraft((current) => ({
+      ...current,
+      groups: current.groups.map((group) => {
+        if (group.id !== groupId) return group;
+        return {
+          ...group,
+          fields: group.fields.map((field) => (
+            field.key === fieldKey ? { ...field, [property]: value } : field
+          )),
+        };
+      }),
+    }));
+  };
+
+  const addWebsiteSchemaGroup = () => {
+    setWebsiteSchemaNotice(null);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaDraft((current) => ({
+      ...current,
+      groups: [
+        ...current.groups,
+        {
+          id: `group_${Date.now()}`,
+          label: 'New Group',
+          fields: [
+            {
+              key: `new_field_${current.groups.length + 1}`,
+              label: 'New Field',
+              type: 'text',
+              placeholder: '',
+            },
+          ],
+        },
+      ],
+    }));
+  };
+
+  const removeWebsiteSchemaGroup = (groupId) => {
+    setWebsiteSchemaNotice(null);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaDraft((current) => ({
+      ...current,
+      groups: current.groups.filter((group) => group.id !== groupId),
+    }));
+  };
+
+  const addWebsiteSchemaField = (groupId) => {
+    setWebsiteSchemaNotice(null);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaDraft((current) => ({
+      ...current,
+      groups: current.groups.map((group) => {
+        if (group.id !== groupId) return group;
+        return {
+          ...group,
+          fields: [
+            ...group.fields,
+            {
+              key: `new_field_${group.fields.length + 1}`,
+              label: 'New Field',
+              type: 'text',
+              placeholder: '',
+            },
+          ],
+        };
+      }),
+    }));
+  };
+
+  const removeWebsiteSchemaField = (groupId, fieldKey) => {
+    setWebsiteSchemaNotice(null);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaDraft((current) => ({
+      ...current,
+      groups: current.groups.map((group) => {
+        if (group.id !== groupId) return group;
+        return {
+          ...group,
+          fields: group.fields.filter((field) => field.key !== fieldKey),
+        };
+      }).filter((group) => group.fields.length > 0),
+    }));
+  };
+
+  const resetWebsiteSchemaDraft = () => {
+    setWebsiteSchemaDraft(websiteSchemaDoc);
+    setWebsiteSchemaNotice('Unsaved schema edits were discarded.');
+    setWebsiteSchemaError(null);
+  };
+
+  const websiteSchemaDirty = JSON.stringify(websiteSchemaDraft) !== JSON.stringify(websiteSchemaDoc);
+
+  const saveWebsiteSchemaDraft = async () => {
+    if (!selectedPropertyId) {
+      setWebsiteSchemaError('No property is currently available for this account.');
+      return;
+    }
+    if (!canManageUsers) {
+      setWebsiteSchemaError('Only admins can edit website field schemas.');
+      return;
+    }
+
+    setWebsiteSchemaSaving(true);
+    setWebsiteSchemaError(null);
+    setWebsiteSchemaNotice(null);
+
+    try {
+      if (!websiteManagerSchemaUsesStagedAdapter) {
+        throw new Error('Website schema endpoint is not configured.');
+      }
+      const normalizedSchema = normalizeWebsiteManagerSchema(websiteSchemaDraft);
+      const response = await authFetch(WEBSITE_MANAGER_SCHEMA_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
+          propertyName: selectedProperty?.name || '',
+          schema: normalizedSchema,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Website schema save failed: ${response.status}`);
+      }
+      const savedSchema = normalizeWebsiteManagerSchema(payload?.record?.schema);
+      setWebsiteSchemaDoc(savedSchema);
+      setWebsiteSchemaDraft(savedSchema);
+      setWebsiteSchemaNotice('Website field schema saved.');
+      setWebsiteManagerDoc((current) => ({ ...current, schema: savedSchema }));
+      setWebsiteManagerDraft((current) => normalizeWebsiteManagerRecord({ ...current, schema: savedSchema }));
+    } catch (error) {
+      setWebsiteSchemaError(error.message || 'Unable to save the website schema.');
+    } finally {
+      setWebsiteSchemaSaving(false);
+    }
   };
 
   const resetWebsiteManagerDraft = () => {
@@ -4543,19 +4767,19 @@ const DashboardApp = ({
           </div>
 
           <div className="website-manager-groups">
-            {WEBSITE_MANAGER_FIELD_GROUPS.map((group) => (
-              <div key={group.title} className="website-manager-group">
-                <div className="website-manager-group__title">{group.title}</div>
+            {websiteManagerSchemaGroups.map((group) => (
+              <div key={group.id} className="website-manager-group">
+                <div className="website-manager-group__title">{group.label}</div>
                 <div className="website-manager-form-grid">
                   {group.fields.map((field) => (
-                    <label key={field.key} className={`website-manager-field ${field.input === 'textarea' ? 'website-manager-field--wide' : ''}`}>
+                    <label key={field.key} className={`website-manager-field ${field.type === 'richtext' ? 'website-manager-field--wide' : ''}`}>
                       <span className="website-manager-field__label">{field.label}</span>
-                      {field.input === 'textarea' ? (
+                      {field.type === 'richtext' ? (
                         <textarea
                           value={websiteManagerDraft.content[field.key]}
                           onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
                           className="website-manager-field__input website-manager-field__input--textarea"
-                          placeholder={field.placeholder}
+                          placeholder={field.placeholder || ''}
                           disabled={!websiteManagerEditable || !canEditWebsiteManager}
                         />
                       ) : (
@@ -4564,7 +4788,7 @@ const DashboardApp = ({
                           value={websiteManagerDraft.content[field.key]}
                           onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
                           className="website-manager-field__input"
-                          placeholder={field.placeholder}
+                          placeholder={field.placeholder || ''}
                           disabled={!websiteManagerEditable || !canEditWebsiteManager}
                         />
                       )}
@@ -4617,6 +4841,16 @@ const DashboardApp = ({
                 <div className="website-manager-token__name">{`{{${token.token}}}`}</div>
                 <div className="website-manager-token__detail">
                   {token.label}: <strong>{websiteManagerTokenValues[token.token] || 'Not available'}</strong>
+                </div>
+              </div>
+            ))}
+            {websiteManagerContentTokens.slice(0, 18).map((field) => (
+              <div key={field.token} className="website-manager-token">
+                <div className="website-manager-token__name">
+                  {field.type === 'url' ? `rwm:${field.token}` : `{{rwm:${field.token}}}`}
+                </div>
+                <div className="website-manager-token__detail">
+                  {field.groupLabel}: <strong>{field.label}</strong>
                 </div>
               </div>
             ))}
@@ -5177,6 +5411,12 @@ const DashboardApp = ({
         </div>
       )}
 
+      {(websiteSchemaError || websiteSchemaNotice) && (
+        <div className={`admin-access-banner ${websiteSchemaError ? 'admin-access-banner--error' : 'admin-access-banner--success'}`}>
+          {websiteSchemaError || websiteSchemaNotice}
+        </div>
+      )}
+
       <div className="admin-access-layout">
         <div className="admin-access-panel">
           <div className="admin-access-section-head">
@@ -5341,6 +5581,102 @@ const DashboardApp = ({
             <div className="admin-access-empty">Choose a user to edit roles and property memberships.</div>
           )}
         </div>
+      </div>
+
+      <div className="admin-access-panel">
+        <div className="admin-access-section-head">
+          <div className="admin-access-panel__eyebrow">Website Schema</div>
+          <h3 className="admin-access-panel__title">Edit website fields for {selectedPropertyLabel}</h3>
+        </div>
+
+        <div className="website-manager-card__meta" style={{ marginBottom: '1rem' }}>
+          This schema controls which editable website fields appear for the currently selected property. Admins can change it here without uploading another CSV.
+        </div>
+
+        {websiteSchemaLoading ? (
+          <div className="admin-access-empty">Loading website schema…</div>
+        ) : (
+          <>
+            {websiteSchemaDraft.groups.map((group) => (
+              <div key={group.id} className="website-manager-group" style={{ marginBottom: '1rem' }}>
+                <div className="website-manager-form-grid">
+                  <label className="admin-access-field">
+                    <span>Group label</span>
+                    <input
+                      type="text"
+                      value={group.label}
+                      onChange={(event) => updateWebsiteSchemaGroupLabel(group.id, event.target.value)}
+                    />
+                  </label>
+                </div>
+
+                <div className="admin-access-user-list" style={{ marginTop: '0.75rem' }}>
+                  {group.fields.map((field) => (
+                    <div key={field.key} className="admin-access-user-card active" style={{ cursor: 'default' }}>
+                      <div className="admin-access-form-grid">
+                        <label className="admin-access-field">
+                          <span>Field key</span>
+                          <input
+                            type="text"
+                            value={field.key}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'key', event.target.value)}
+                          />
+                        </label>
+                        <label className="admin-access-field">
+                          <span>Field label</span>
+                          <input
+                            type="text"
+                            value={field.label}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'label', event.target.value)}
+                          />
+                        </label>
+                        <label className="admin-access-field">
+                          <span>Field type</span>
+                          <select
+                            value={field.type}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'type', event.target.value)}
+                          >
+                            <option value="text">Text</option>
+                            <option value="richtext">Rich text</option>
+                            <option value="url">URL</option>
+                          </select>
+                        </label>
+                        <label className="admin-access-field">
+                          <span>Placeholder</span>
+                          <input
+                            type="text"
+                            value={field.placeholder || ''}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'placeholder', event.target.value)}
+                          />
+                        </label>
+                      </div>
+                      <div className="admin-access-actions">
+                        <button type="button" onClick={() => removeWebsiteSchemaField(group.id, field.key)}>
+                          Remove field
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="admin-access-actions" style={{ marginTop: '0.75rem' }}>
+                  <button type="button" onClick={() => addWebsiteSchemaField(group.id)}>Add field</button>
+                  <button type="button" onClick={() => removeWebsiteSchemaGroup(group.id)}>Remove group</button>
+                </div>
+              </div>
+            ))}
+
+            <div className="admin-access-actions">
+              <button type="button" onClick={addWebsiteSchemaGroup}>Add group</button>
+              <button type="button" onClick={resetWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving}>
+                Reset schema
+              </button>
+              <button type="button" onClick={saveWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving}>
+                {websiteSchemaSaving ? 'Saving…' : 'Save schema'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="admin-access-panel">

@@ -30,6 +30,11 @@ export const WEBSITE_MANAGER_URL = resolveApiUrl(
   '/api/admin/website-manager'
 );
 
+export const WEBSITE_MANAGER_SCHEMA_URL = resolveApiUrl(
+  import.meta.env.VITE_WEBSITE_MANAGER_SCHEMA_URL || '',
+  '/api/admin/website-manager/schema'
+);
+
 export const REPORTING_LAYOUT_URL = resolveApiUrl(
   import.meta.env.VITE_REPORTING_LAYOUT_URL || '',
   '/api/admin/reporting-layout'

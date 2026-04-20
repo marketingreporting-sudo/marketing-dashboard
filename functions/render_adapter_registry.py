@@ -155,6 +155,12 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Read, save, and publish staged website manager content from Supabase.",
     ),
     HttpEndpointSpec(
+        route="/api/admin/website-manager/schema",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="staging_supabase_website_manager_schema_only",
+        purpose="Read and save admin-managed website manager field schemas.",
+    ),
+    HttpEndpointSpec(
         route="/api/admin/reporting-layout",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="staging_supabase_reporting_layout_only",

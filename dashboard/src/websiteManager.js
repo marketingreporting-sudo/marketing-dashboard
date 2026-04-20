@@ -110,16 +110,67 @@ export const WEBSITE_MANAGER_FIELD_GROUPS = Array.from(
   }, new Map()).entries()
 ).map(([title, fields]) => ({ title, fields }));
 
-export const WEBSITE_MANAGER_DEFAULT_CONTENT = Object.fromEntries(
-  WEBSITE_MANAGER_FIELDS.map((field) => [field.key, ''])
+export const WEBSITE_MANAGER_DEFAULT_SCHEMA = {
+  groups: WEBSITE_MANAGER_FIELD_GROUPS.map((group, index) => ({
+    id: `legacy_${index + 1}`,
+    label: group.title,
+    fields: group.fields.map((field) => ({
+      key: field.key,
+      label: field.label,
+      type: field.key.toLowerCase().includes('url') ? 'url' : (field.input === 'textarea' ? 'richtext' : 'text'),
+      placeholder: field.placeholder || '',
+    })),
+  })),
+};
+
+export const buildWebsiteManagerDefaultContent = (schema = WEBSITE_MANAGER_DEFAULT_SCHEMA) => Object.fromEntries(
+  (Array.isArray(schema?.groups) ? schema.groups : []).flatMap((group) => (
+    Array.isArray(group?.fields) ? group.fields.map((field) => [field.key, '']) : []
+  ))
 );
+
+export const normalizeWebsiteManagerSchema = (value) => {
+  const safeValue = value && typeof value === 'object' ? value : {};
+  const sourceGroups = Array.isArray(safeValue.groups) && safeValue.groups.length > 0
+    ? safeValue.groups
+    : WEBSITE_MANAGER_DEFAULT_SCHEMA.groups;
+  const seenFieldKeys = new Set();
+  const groups = sourceGroups
+    .map((group, groupIndex) => {
+      const safeGroup = group && typeof group === 'object' ? group : {};
+      const fields = (Array.isArray(safeGroup.fields) ? safeGroup.fields : [])
+        .map((field) => {
+          const safeField = field && typeof field === 'object' ? field : {};
+          const key = String(safeField.key || '').trim();
+          if (!key || seenFieldKeys.has(key)) return null;
+          seenFieldKeys.add(key);
+          const type = ['text', 'url', 'richtext'].includes(safeField.type) ? safeField.type : 'text';
+          return {
+            key,
+            label: String(safeField.label || key).trim(),
+            type,
+            placeholder: String(safeField.placeholder || '').trim(),
+          };
+        })
+        .filter(Boolean);
+      if (fields.length === 0) return null;
+      return {
+        id: String(safeGroup.id || `group_${groupIndex + 1}`),
+        label: String(safeGroup.label || `Group ${groupIndex + 1}`),
+        fields,
+      };
+    })
+    .filter(Boolean);
+  return groups.length > 0 ? { groups } : WEBSITE_MANAGER_DEFAULT_SCHEMA;
+};
 
 export const WEBSITE_MANAGER_DEFAULT_RECORD = {
   platform: 'unknown',
   websiteUrl: '',
   wordpressSiteKey: '',
   notes: '',
-  content: WEBSITE_MANAGER_DEFAULT_CONTENT,
+  schema: WEBSITE_MANAGER_DEFAULT_SCHEMA,
+  content: buildWebsiteManagerDefaultContent(WEBSITE_MANAGER_DEFAULT_SCHEMA),
   derivedContent: {
     specialsSummary: '',
     specialsCount: 0,
@@ -151,6 +202,8 @@ export const WEBSITE_MANAGER_TOKEN_DEFINITIONS = [
 
 export const normalizeWebsiteManagerRecord = (value) => {
   const safeValue = value && typeof value === 'object' ? value : {};
+  const normalizedSchema = normalizeWebsiteManagerSchema(safeValue.schema);
+  const defaultContent = buildWebsiteManagerDefaultContent(normalizedSchema);
   const safeContent = safeValue.content && typeof safeValue.content === 'object' ? safeValue.content : {};
 
   return {
@@ -158,8 +211,9 @@ export const normalizeWebsiteManagerRecord = (value) => {
     websiteUrl: safeValue.websiteUrl || '',
     wordpressSiteKey: safeValue.wordpressSiteKey || '',
     notes: safeValue.notes || '',
+    schema: normalizedSchema,
     content: {
-      ...WEBSITE_MANAGER_DEFAULT_CONTENT,
+      ...defaultContent,
       ...safeContent
     },
     derivedContent: {
@@ -172,6 +226,19 @@ export const normalizeWebsiteManagerRecord = (value) => {
     },
   };
 };
+
+export const getWebsiteManagerFieldGroups = (schema) => normalizeWebsiteManagerSchema(schema).groups;
+
+export const getWebsiteManagerFieldTokenDefinitions = (schema) => (
+  getWebsiteManagerFieldGroups(schema).flatMap((group) => (
+    group.fields.map((field) => ({
+      token: field.key,
+      label: field.label,
+      type: field.type,
+      groupLabel: group.label,
+    }))
+  ))
+);
 
 export const getWebsitePlatformMeta = (platform) => {
   return WEBSITE_PLATFORM_OPTIONS.find((option) => option.value === platform) || WEBSITE_PLATFORM_OPTIONS[0];

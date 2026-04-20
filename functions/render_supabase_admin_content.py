@@ -3,8 +3,9 @@ import os
 import hmac
 import hashlib
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -58,10 +59,162 @@ WORDPRESS_DERIVED_FIELD_MAP = {
 }
 
 WORDPRESS_PUBLISH_USER_AGENT = "RedstoneWebsiteManager/1.1 (+https://github.com/marketingreporting-sudo/marketing-dashboard)"
+WEBSITE_MANAGER_SCHEMA_META_KEY = "__schema"
+
+WEBSITE_MANAGER_DEFAULT_SCHEMA = {
+    "groups": [
+        {
+            "id": "homepage",
+            "label": "Homepage",
+            "fields": [
+                {"key": "headline", "label": "Headline", "type": "richtext"},
+                {"key": "subtitle", "label": "Subtitle", "type": "richtext"},
+                {"key": "cta_button", "label": "Primary CTA Label", "type": "text"},
+                {"key": "cta_button_link", "label": "Primary CTA URL", "type": "url"},
+                {"key": "top_banner", "label": "Top Banner", "type": "richtext"},
+                {"key": "top_banner_link", "label": "Top Banner URL", "type": "url"},
+            ],
+        }
+    ]
+}
 
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _normalize_slug(value: Any) -> str:
+    return "".join(ch.lower() for ch in _normalize_text(value) if ch.isalnum())
+
+
+def _humanize_identifier(value: Any) -> str:
+    text = _normalize_text(value).replace("-", " ").replace("_", " ")
+    words = [word for word in text.split() if word]
+    return " ".join(word.upper() if word.lower() == "ada" else word.capitalize() for word in words) or "Untitled"
+
+
+def _load_website_manager_seed_schemas() -> dict[str, Any]:
+    seed_path = Path(__file__).with_name("website_manager_seed_schemas.json")
+    if not seed_path.exists():
+        return {}
+    try:
+        payload = json.loads(seed_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+WEBSITE_MANAGER_SEED_SCHEMAS = _load_website_manager_seed_schemas()
+
+
+def _normalize_schema_field(field: Any) -> dict[str, str] | None:
+    if not isinstance(field, dict):
+        return None
+    key = _normalize_text(field.get("key"))
+    if not key:
+        return None
+    field_type = _normalize_text(field.get("type")).lower() or "text"
+    if field_type not in {"text", "url", "richtext"}:
+        field_type = "text"
+    return {
+        "key": key,
+        "label": _normalize_text(field.get("label")) or _humanize_identifier(key),
+        "type": field_type,
+        "placeholder": _normalize_text(field.get("placeholder")),
+    }
+
+
+def _normalize_schema(schema: Any) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        schema = {}
+    groups_value = schema.get("groups")
+    if not isinstance(groups_value, list):
+        groups_value = WEBSITE_MANAGER_DEFAULT_SCHEMA["groups"]
+
+    groups: list[dict[str, Any]] = []
+    seen_field_keys: set[str] = set()
+    for index, group in enumerate(groups_value):
+        if not isinstance(group, dict):
+            continue
+        group_id = _normalize_text(group.get("id")) or f"group_{index + 1}"
+        label = _normalize_text(group.get("label")) or _humanize_identifier(group_id)
+        field_items = []
+        for field in group.get("fields", []):
+            normalized_field = _normalize_schema_field(field)
+            if not normalized_field:
+                continue
+            if normalized_field["key"] in seen_field_keys:
+                continue
+            seen_field_keys.add(normalized_field["key"])
+            field_items.append(normalized_field)
+        if field_items:
+            groups.append({"id": group_id, "label": label, "fields": field_items})
+
+    if not groups:
+        return _normalize_schema(WEBSITE_MANAGER_DEFAULT_SCHEMA)
+    return {"groups": groups}
+
+
+def _schema_content_defaults(schema: dict[str, Any]) -> dict[str, str]:
+    defaults: dict[str, str] = {}
+    for group in schema.get("groups", []):
+        for field in group.get("fields", []):
+            defaults[str(field.get("key"))] = ""
+    return defaults
+
+
+def _match_seed_schema(row: dict[str, Any]) -> dict[str, Any] | None:
+    site_key = _normalize_text(row.get("wordpress_site_key"))
+    if site_key and site_key in WEBSITE_MANAGER_SEED_SCHEMAS:
+        return WEBSITE_MANAGER_SEED_SCHEMAS[site_key]
+
+    website_url = _normalize_text(row.get("website_url"))
+    hostname = _normalize_slug(urlparse(website_url if "://" in website_url else f"https://{website_url}").netloc)
+    property_name = _normalize_slug(row.get("property_name"))
+
+    for candidate in WEBSITE_MANAGER_SEED_SCHEMAS.values():
+        if not isinstance(candidate, dict):
+            continue
+        candidate_host = _normalize_slug(
+            urlparse(
+                _normalize_text(candidate.get("websiteUrl"))
+                if "://" in _normalize_text(candidate.get("websiteUrl"))
+                else f"https://{_normalize_text(candidate.get('websiteUrl'))}"
+            ).netloc
+        )
+        if hostname and candidate_host == hostname:
+            return candidate
+        if property_name and _normalize_slug(candidate.get("propertyName")) == property_name:
+            return candidate
+    return None
+
+
+def _extract_schema_from_content(content: Any, row: dict[str, Any]) -> tuple[dict[str, str], dict[str, Any]]:
+    safe_content = content if isinstance(content, dict) else {}
+    schema = safe_content.get(WEBSITE_MANAGER_SCHEMA_META_KEY)
+    if not isinstance(schema, dict):
+        matched_seed = _match_seed_schema(row)
+        schema = matched_seed if isinstance(matched_seed, dict) else WEBSITE_MANAGER_DEFAULT_SCHEMA
+    normalized_schema = _normalize_schema(schema)
+    content_values = {
+        key: _normalize_text(value)
+        for key, value in safe_content.items()
+        if key != WEBSITE_MANAGER_SCHEMA_META_KEY
+    }
+    defaults = _schema_content_defaults(normalized_schema)
+    defaults.update(content_values)
+    return defaults, normalized_schema
+
+
+def _compose_stored_content(content: Any, schema: dict[str, Any]) -> dict[str, Any]:
+    safe_content = content if isinstance(content, dict) else {}
+    merged = {
+        key: _normalize_text(value)
+        for key, value in safe_content.items()
+        if key != WEBSITE_MANAGER_SCHEMA_META_KEY
+    }
+    merged[WEBSITE_MANAGER_SCHEMA_META_KEY] = _normalize_schema(schema)
+    return merged
 
 
 def _parse_number(value: Any) -> float | None:
@@ -350,8 +503,22 @@ def _fetch_rows(
     return rows if isinstance(rows, list) else []
 
 
+def _fetch_property_row(property_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+    rows = _fetch_rows(
+        "properties",
+        [
+            ("select", "id,name"),
+            ("id", f"eq.{property_id}"),
+            ("limit", "1"),
+        ],
+        access_token=access_token,
+    )
+    return rows[0] if rows else None
+
+
 def _shape_website_manager_row(row: dict[str, Any] | None, property_id: str) -> dict[str, Any]:
     safe_row = row or {}
+    content_values, schema = _extract_schema_from_content(safe_row.get("content"), safe_row)
     derived_content = _build_derived_content(
         safe_row.get("_specials_row") if isinstance(safe_row.get("_specials_row"), dict) else None,
         safe_row.get("_pricing_row") if isinstance(safe_row.get("_pricing_row"), dict) else None,
@@ -364,7 +531,8 @@ def _shape_website_manager_row(row: dict[str, Any] | None, property_id: str) -> 
         "wordpressSiteKey": safe_row.get("wordpress_site_key") or "",
         "notes": safe_row.get("notes") or "",
         "editable": bool(safe_row.get("editable") or False),
-        "content": safe_row.get("content") if isinstance(safe_row.get("content"), dict) else {},
+        "content": content_values,
+        "schema": schema,
         "derivedContent": derived_content,
         "wordpressSync": _build_wordpress_sync_status(safe_row, derived_content),
         "updatedAt": safe_row.get("updated_at"),
@@ -391,6 +559,7 @@ def _shape_reporting_layout_row(row: dict[str, Any] | None, property_id: str) ->
 def get_website_manager_summary(property_id: str, access_token: str | None = None) -> dict[str, Any]:
     try:
         row = _fetch_singleton_row("property_website_manager_current", property_id, access_token=access_token)
+        property_row = _fetch_property_row(property_id, access_token=access_token)
         specials_row = _fetch_singleton_row("property_specials_current", property_id, access_token=access_token)
         pricing_row = _fetch_singleton_row("property_availability_snapshots", property_id, access_token=access_token)
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
@@ -406,6 +575,7 @@ def get_website_manager_summary(property_id: str, access_token: str | None = Non
         "staging_only": True,
         "record": _shape_website_manager_row(
             {
+                **({"property_name": property_row.get("name")} if isinstance(property_row, dict) and property_row.get("name") else {}),
                 **(row or {}),
                 "_specials_row": specials_row,
                 "_pricing_row": pricing_row,
@@ -417,15 +587,32 @@ def get_website_manager_summary(property_id: str, access_token: str | None = Non
 
 def save_website_manager_summary(property_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
     editable = str(payload.get("platform") or "unknown") == "wordpress_custom"
+    try:
+        existing_row = _fetch_singleton_row("property_website_manager_current", property_id, access_token=access_token) or {}
+        property_row = _fetch_property_row(property_id, access_token=access_token)
+    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+        return {
+            "status": "error",
+            "error": str(error),
+            "staging_only": True,
+        }
+
+    existing_content, existing_schema = _extract_schema_from_content(existing_row.get("content"), {**existing_row, **({"property_name": property_row.get("name")} if property_row else {})})
     row = {
         "property_id": property_id,
-        "property_name": payload.get("propertyName") or "",
+        "property_name": payload.get("propertyName") or (property_row.get("name") if isinstance(property_row, dict) else "") or "",
         "platform": payload.get("platform") or "unknown",
         "website_url": payload.get("websiteUrl") or "",
         "wordpress_site_key": payload.get("wordpressSiteKey") or "",
         "notes": payload.get("notes") or "",
         "editable": editable,
-        "content": payload.get("content") if isinstance(payload.get("content"), dict) else {},
+        "content": _compose_stored_content(
+            {
+                **existing_content,
+                **(payload.get("content") if isinstance(payload.get("content"), dict) else {}),
+            },
+            payload.get("schema") if isinstance(payload.get("schema"), dict) else existing_schema,
+        ),
         "firestore_path": payload.get("firestorePath") or f"properties/{property_id}/website_manager/current",
     }
 
@@ -446,12 +633,93 @@ def save_website_manager_summary(property_id: str, payload: dict[str, Any], acce
         "staging_only": True,
         "record": _shape_website_manager_row(
             {
+                **({"property_name": property_row.get("name")} if isinstance(property_row, dict) and property_row.get("name") else {}),
                 **saved_row,
                 "_specials_row": specials_row,
                 "_pricing_row": pricing_row,
             },
             property_id,
         ),
+    }
+
+
+def get_website_manager_schema_summary(property_id: str, access_token: str | None = None) -> dict[str, Any]:
+    summary = get_website_manager_summary(property_id, access_token=access_token)
+    if summary.get("status") == "error":
+        return summary
+    record = summary.get("record") if isinstance(summary.get("record"), dict) else {}
+    return {
+        "status": "ok",
+        "source": "supabase",
+        "staging_only": True,
+        "record": {
+            "propertyId": property_id,
+            "propertyName": record.get("propertyName") or "",
+            "websiteUrl": record.get("websiteUrl") or "",
+            "wordpressSiteKey": record.get("wordpressSiteKey") or "",
+            "schema": record.get("schema") if isinstance(record.get("schema"), dict) else _normalize_schema(WEBSITE_MANAGER_DEFAULT_SCHEMA),
+        },
+    }
+
+
+def save_website_manager_schema_summary(property_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
+    try:
+        existing_row = _fetch_singleton_row("property_website_manager_current", property_id, access_token=access_token) or {}
+        property_row = _fetch_property_row(property_id, access_token=access_token)
+    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+        return {
+            "status": "error",
+            "error": str(error),
+            "staging_only": True,
+        }
+
+    existing_content, _existing_schema = _extract_schema_from_content(
+        existing_row.get("content"),
+        {
+            **existing_row,
+            **({"property_name": property_row.get("name")} if isinstance(property_row, dict) and property_row.get("name") else {}),
+        },
+    )
+    next_schema = _normalize_schema(payload.get("schema"))
+    row = {
+        "property_id": property_id,
+        "property_name": payload.get("propertyName") or (property_row.get("name") if isinstance(property_row, dict) else "") or existing_row.get("property_name") or "",
+        "platform": existing_row.get("platform") or "unknown",
+        "website_url": existing_row.get("website_url") or "",
+        "wordpress_site_key": existing_row.get("wordpress_site_key") or "",
+        "notes": existing_row.get("notes") or "",
+        "editable": bool(existing_row.get("editable") or False),
+        "content": _compose_stored_content(existing_content, next_schema),
+        "firestore_path": existing_row.get("firestore_path") or f"properties/{property_id}/website_manager/current",
+    }
+
+    try:
+        saved_row = _upsert_singleton_row("property_website_manager_current", row, access_token=access_token)
+    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+        return {
+            "status": "error",
+            "error": str(error),
+            "staging_only": True,
+        }
+
+    record = _shape_website_manager_row(
+        {
+            **({"property_name": property_row.get("name")} if isinstance(property_row, dict) and property_row.get("name") else {}),
+            **saved_row,
+        },
+        property_id,
+    )
+    return {
+        "status": "ok",
+        "source": "supabase",
+        "staging_only": True,
+        "record": {
+            "propertyId": property_id,
+            "propertyName": record.get("propertyName") or "",
+            "websiteUrl": record.get("websiteUrl") or "",
+            "wordpressSiteKey": record.get("wordpressSiteKey") or "",
+            "schema": record.get("schema"),
+        },
     }
 
 
@@ -486,8 +754,11 @@ def _build_wordpress_payload(record: dict[str, Any]) -> dict[str, Any]:
         "property_name": record.get("propertyName") or "",
         "website_url": record.get("websiteUrl") or "",
     }
-    for source_key, target_key in WORDPRESS_FIELD_MAP.items():
-        payload[target_key] = _normalize_text(content.get(source_key))
+    for source_key, raw_value in content.items():
+        if source_key == WEBSITE_MANAGER_SCHEMA_META_KEY:
+            continue
+        target_key = WORDPRESS_FIELD_MAP.get(source_key, source_key)
+        payload[target_key] = _normalize_text(raw_value)
     for source_key, target_key in WORDPRESS_DERIVED_FIELD_MAP.items():
         value = derived.get(source_key)
         payload[target_key] = "" if value is None else value

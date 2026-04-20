@@ -1,0 +1,3818 @@
+{
+  "343_apartments": {
+    "propertyName": "343 Apartments",
+    "websiteUrl": "liveat343slc.com",
+    "siteKey": "343_apartments",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a1",
+        "label": "A1",
+        "fields": [
+          {
+            "key": "a1_banner",
+            "label": "A1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a1_button",
+            "label": "A1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a1_button_link",
+            "label": "A1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a2",
+        "label": "A2",
+        "fields": [
+          {
+            "key": "a2_banner",
+            "label": "A2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a2_button",
+            "label": "A2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a2_button_link",
+            "label": "A2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a3",
+        "label": "A3",
+        "fields": [
+          {
+            "key": "a3_banner",
+            "label": "A3 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a3_button",
+            "label": "A3 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a3_button_link",
+            "label": "A3 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a4",
+        "label": "A4",
+        "fields": [
+          {
+            "key": "a4_banner",
+            "label": "A4 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a4_button",
+            "label": "A4 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a4_button_link",
+            "label": "A4 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a5",
+        "label": "A5",
+        "fields": [
+          {
+            "key": "a5_banner",
+            "label": "A5 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a5_button",
+            "label": "A5 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a5_button_link",
+            "label": "A5 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a6",
+        "label": "A6",
+        "fields": [
+          {
+            "key": "a6_banner",
+            "label": "A6 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a6_button",
+            "label": "A6 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a6_button_link",
+            "label": "A6 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a7",
+        "label": "A7",
+        "fields": [
+          {
+            "key": "a7_banner",
+            "label": "A7 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a7_button",
+            "label": "A7 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a7_button_link",
+            "label": "A7 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "a7_ada",
+        "label": "A7 ADA",
+        "fields": [
+          {
+            "key": "a7_ada_banner",
+            "label": "A7 ADA Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "a7_ada_button",
+            "label": "A7 ADA Button Label",
+            "type": "text"
+          },
+          {
+            "key": "a7_ada_button_link",
+            "label": "A7 ADA URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "b",
+        "label": "B",
+        "fields": [
+          {
+            "key": "b_banner",
+            "label": "B Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "b_button",
+            "label": "B Button Label",
+            "type": "text"
+          },
+          {
+            "key": "b_button_link",
+            "label": "B URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "s1",
+        "label": "S1",
+        "fields": [
+          {
+            "key": "s1_banner",
+            "label": "S1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "s1_button",
+            "label": "S1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "s1_button_link",
+            "label": "S1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "s2",
+        "label": "S2",
+        "fields": [
+          {
+            "key": "s2_banner",
+            "label": "S2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "s2_button",
+            "label": "S2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "s2_button_link",
+            "label": "S2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "s3_ada",
+        "label": "S3 ADA",
+        "fields": [
+          {
+            "key": "s3_ada_banner",
+            "label": "S3 ADA Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "s3_ada_button",
+            "label": "S3 ADA Button Label",
+            "type": "text"
+          },
+          {
+            "key": "s3_ada_button_link",
+            "label": "S3 ADA URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "boca_breakwater": {
+    "propertyName": "Boca Breakwater",
+    "websiteUrl": "bocabreakwater.com",
+    "siteKey": "boca_breakwater",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed",
+        "label": "One Bed",
+        "fields": [
+          {
+            "key": "one_bed_banner",
+            "label": "One Bed Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_button",
+            "label": "One Bed Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_button_link",
+            "label": "One Bed URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "studio_a",
+        "label": "Studio A",
+        "fields": [
+          {
+            "key": "studio_a_banner",
+            "label": "Studio A Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "studio_a_button",
+            "label": "Studio A Button Label",
+            "type": "text"
+          },
+          {
+            "key": "studio_a_button_link",
+            "label": "Studio A URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "studio_b",
+        "label": "Studio B",
+        "fields": [
+          {
+            "key": "studio_b_banner",
+            "label": "Studio B Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "studio_b_button",
+            "label": "Studio B Button Label",
+            "type": "text"
+          },
+          {
+            "key": "studio_b_button_link",
+            "label": "Studio B URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_loft",
+        "label": "Two Bed Loft",
+        "fields": [
+          {
+            "key": "two_bed_loft_banner",
+            "label": "Two Bed Loft Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_loft_button",
+            "label": "Two Bed Loft Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_loft_button_link",
+            "label": "Two Bed Loft URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "bountiful_court": {
+    "propertyName": "Bountiful Court",
+    "websiteUrl": "bountifulcourt.com",
+    "siteKey": "bountiful_court",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "five_bed_three_two",
+        "label": "Five Bed Three Two",
+        "fields": [
+          {
+            "key": "five_bed_three_two_banner",
+            "label": "Five Bed Three Two Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "five_bed_three_two_button",
+            "label": "Five Bed Three Two Button Label",
+            "type": "text"
+          },
+          {
+            "key": "five_bed_three_two_button_link",
+            "label": "Five Bed Three Two URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "four_bed_two_two",
+        "label": "Four Bed Two Two",
+        "fields": [
+          {
+            "key": "four_bed_two_two_banner",
+            "label": "Four Bed Two Two Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "four_bed_two_two_button",
+            "label": "Four Bed Two Two Button Label",
+            "type": "text"
+          },
+          {
+            "key": "four_bed_two_two_button_link",
+            "label": "Four Bed Two Two URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "six_bed_two_two",
+        "label": "Six Bed Two Two",
+        "fields": [
+          {
+            "key": "six_bed_two_two_banner",
+            "label": "Six Bed Two Two Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "six_bed_two_two_button",
+            "label": "Six Bed Two Two Button Label",
+            "type": "text"
+          },
+          {
+            "key": "six_bed_two_two_button_link",
+            "label": "Six Bed Two Two URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "upgraded_four_bed_two_two",
+        "label": "Upgraded Four Bed Two Two",
+        "fields": [
+          {
+            "key": "upgraded_four_bed_two_two_banner",
+            "label": "Upgraded Four Bed Two Two Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "upgraded_four_bed_two_two_button",
+            "label": "Upgraded Four Bed Two Two Button Label",
+            "type": "text"
+          },
+          {
+            "key": "upgraded_four_bed_two_two_button_link",
+            "label": "Upgraded Four Bed Two Two URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "upgraded_six_bed_two_two",
+        "label": "Upgraded Six Bed Two Two",
+        "fields": [
+          {
+            "key": "upgraded_six_bed_two_two_banner",
+            "label": "Upgraded Six Bed Two Two Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "upgraded_six_bed_two_two_button",
+            "label": "Upgraded Six Bed Two Two Button Label",
+            "type": "text"
+          },
+          {
+            "key": "upgraded_six_bed_two_two_button_link",
+            "label": "Upgraded Six Bed Two Two URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "camden_apartments": {
+    "propertyName": "Camden Apartments",
+    "websiteUrl": "camdenrexburg.com",
+    "siteKey": "camden_apartments",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "1x1_womens_shared",
+        "label": "1X1 Womens Shared",
+        "fields": [
+          {
+            "key": "1x1_womens_shared_banner",
+            "label": "1X1 Womens Shared Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "1x1_womens_shared_button",
+            "label": "1X1 Womens Shared Button Label",
+            "type": "text"
+          },
+          {
+            "key": "1x1_womens_shared_button_link",
+            "label": "1X1 Womens Shared URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "2x1_womens",
+        "label": "2X1 Womens",
+        "fields": [
+          {
+            "key": "2x1_womens_banner",
+            "label": "2X1 Womens Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "2x1_womens_button",
+            "label": "2X1 Womens Button Label",
+            "type": "text"
+          },
+          {
+            "key": "2x1_womens_button_link",
+            "label": "2X1 Womens URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "6x2_mens",
+        "label": "6X2 Mens",
+        "fields": [
+          {
+            "key": "6x2_mens_banner",
+            "label": "6X2 Mens Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "6x2_mens_button",
+            "label": "6X2 Mens Button Label",
+            "type": "text"
+          },
+          {
+            "key": "6x2_mens_button_link",
+            "label": "6X2 Mens URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "6x2_womens",
+        "label": "6X2 Womens",
+        "fields": [
+          {
+            "key": "6x2_womens_banner",
+            "label": "6X2 Womens Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "6x2_womens_button",
+            "label": "6X2 Womens Button Label",
+            "type": "text"
+          },
+          {
+            "key": "6x2_womens_button_link",
+            "label": "6X2 Womens URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "campus_courtyard": {
+    "propertyName": "Campus Courtyard Apartments",
+    "websiteUrl": "rexburgmarriedhousing.com",
+    "siteKey": "campus_courtyard",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed_1_bath",
+        "label": "One Bed 1 Bath",
+        "fields": [
+          {
+            "key": "one_bed_1_bath_banner",
+            "label": "One Bed 1 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_1_bath_button",
+            "label": "One Bed 1 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_1_bath_button_link",
+            "label": "One Bed 1 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed_1_bath_deluxe",
+        "label": "One Bed 1 Bath Deluxe",
+        "fields": [
+          {
+            "key": "one_bed_1_bath_deluxe_banner",
+            "label": "One Bed 1 Bath Deluxe Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_1_bath_deluxe_button",
+            "label": "One Bed 1 Bath Deluxe Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_1_bath_deluxe_button_link",
+            "label": "One Bed 1 Bath Deluxe URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_1_bath",
+        "label": "Two Bed 1 Bath",
+        "fields": [
+          {
+            "key": "two_bed_1_bath_banner",
+            "label": "Two Bed 1 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_1_bath_button",
+            "label": "Two Bed 1 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_1_bath_button_link",
+            "label": "Two Bed 1 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_1_bath_deluxe",
+        "label": "Two Bed 1 Bath Deluxe",
+        "fields": [
+          {
+            "key": "two_bed_1_bath_deluxe_banner",
+            "label": "Two Bed 1 Bath Deluxe Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_1_bath_deluxe_button",
+            "label": "Two Bed 1 Bath Deluxe Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_1_bath_deluxe_button_link",
+            "label": "Two Bed 1 Bath Deluxe URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "cedar_flats": {
+    "propertyName": "Cedar Flats",
+    "websiteUrl": "livecedarflats.com",
+    "siteKey": "cedar_flats",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "three_bed_2_bath",
+        "label": "Three Bed 2 Bath",
+        "fields": [
+          {
+            "key": "three_bed_2_bath_banner",
+            "label": "Three Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "three_bed_2_bath_button",
+            "label": "Three Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "three_bed_2_bath_button_link",
+            "label": "Three Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "colonial_house": {
+    "propertyName": "Colonial House",
+    "websiteUrl": "the-colonial-house.com",
+    "siteKey": "colonial_house",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x2_men",
+        "label": "3X2 Men",
+        "fields": [
+          {
+            "key": "3x2_men_banner",
+            "label": "3X2 Men Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x2_men_button",
+            "label": "3X2 Men Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x2_men_button_link",
+            "label": "3X2 Men URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x2_women",
+        "label": "3X2 Women",
+        "fields": [
+          {
+            "key": "3x2_women_banner",
+            "label": "3X2 Women Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x2_women_button",
+            "label": "3X2 Women Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x2_women_button_link",
+            "label": "3X2 Women URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "iconic_village": {
+    "propertyName": "Iconic Village Apartments",
+    "websiteUrl": "iconicboise.com",
+    "siteKey": "iconic_village",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "1x1_large",
+        "label": "1X1 Large",
+        "fields": [
+          {
+            "key": "1x1_large_banner",
+            "label": "1X1 Large Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "1x1_large_button",
+            "label": "1X1 Large Button Label",
+            "type": "text"
+          },
+          {
+            "key": "1x1_large_button_link",
+            "label": "1X1 Large URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "1x1_medium",
+        "label": "1X1 Medium",
+        "fields": [
+          {
+            "key": "1x1_medium_banner",
+            "label": "1X1 Medium Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "1x1_medium_button",
+            "label": "1X1 Medium Button Label",
+            "type": "text"
+          },
+          {
+            "key": "1x1_medium_button_link",
+            "label": "1X1 Medium URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "1x1_small",
+        "label": "1X1 Small",
+        "fields": [
+          {
+            "key": "1x1_small_banner",
+            "label": "1X1 Small Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "1x1_small_button",
+            "label": "1X1 Small Button Label",
+            "type": "text"
+          },
+          {
+            "key": "1x1_small_button_link",
+            "label": "1X1 Small URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x1",
+        "label": "3X1",
+        "fields": [
+          {
+            "key": "3x1_banner",
+            "label": "3X1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x1_button",
+            "label": "3X1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x1_button_link",
+            "label": "3X1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x2",
+        "label": "3X2",
+        "fields": [
+          {
+            "key": "3x2_banner",
+            "label": "3X2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x2_button",
+            "label": "3X2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x2_button_link",
+            "label": "3X2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x2th",
+        "label": "3X2TH",
+        "fields": [
+          {
+            "key": "3x2th_banner",
+            "label": "3X2TH Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x2th_button",
+            "label": "3X2TH Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x2th_button_link",
+            "label": "3X2TH URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "studio",
+        "label": "Studio",
+        "fields": [
+          {
+            "key": "studio_banner",
+            "label": "Studio Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "studio_button",
+            "label": "Studio Button Label",
+            "type": "text"
+          },
+          {
+            "key": "studio_button_link",
+            "label": "Studio URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "monticello": {
+    "propertyName": "Monticello",
+    "websiteUrl": "monticelloprovo.com",
+    "siteKey": "monticello",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "4_plex_lower",
+        "label": "4 Plex Lower",
+        "fields": [
+          {
+            "key": "4_plex_lower_banner",
+            "label": "4 Plex Lower Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "4_plex_lower_button",
+            "label": "4 Plex Lower Button Label",
+            "type": "text"
+          },
+          {
+            "key": "4_plex_lower_button_link",
+            "label": "4 Plex Lower URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "4_plex_upper",
+        "label": "4 Plex Upper",
+        "fields": [
+          {
+            "key": "4_plex_upper_banner",
+            "label": "4 Plex Upper Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "4_plex_upper_button",
+            "label": "4 Plex Upper Button Label",
+            "type": "text"
+          },
+          {
+            "key": "4_plex_upper_button_link",
+            "label": "4 Plex Upper URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "red_brick_2x1",
+        "label": "Red Brick 2X1",
+        "fields": [
+          {
+            "key": "red_brick_2x1_banner",
+            "label": "Red Brick 2X1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "red_brick_2x1_button",
+            "label": "Red Brick 2X1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "red_brick_2x1_button_link",
+            "label": "Red Brick 2X1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "red_brick_3x1",
+        "label": "Red Brick 3X1",
+        "fields": [
+          {
+            "key": "red_brick_3x1_banner",
+            "label": "Red Brick 3X1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "red_brick_3x1_button",
+            "label": "Red Brick 3X1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "red_brick_3x1_button_link",
+            "label": "Red Brick 3X1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "sessions_middle",
+        "label": "Sessions Middle",
+        "fields": [
+          {
+            "key": "sessions_middle_banner",
+            "label": "Sessions Middle Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "sessions_middle_button",
+            "label": "Sessions Middle Button Label",
+            "type": "text"
+          },
+          {
+            "key": "sessions_middle_button_link",
+            "label": "Sessions Middle URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "sessions_north",
+        "label": "Sessions North",
+        "fields": [
+          {
+            "key": "sessions_north_banner",
+            "label": "Sessions North Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "sessions_north_button",
+            "label": "Sessions North Button Label",
+            "type": "text"
+          },
+          {
+            "key": "sessions_north_button_link",
+            "label": "Sessions North URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "sessions_south",
+        "label": "Sessions South",
+        "fields": [
+          {
+            "key": "sessions_south_banner",
+            "label": "Sessions South Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "sessions_south_button",
+            "label": "Sessions South Button Label",
+            "type": "text"
+          },
+          {
+            "key": "sessions_south_button_link",
+            "label": "Sessions South URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "white_brick_2x1",
+        "label": "White Brick 2X1",
+        "fields": [
+          {
+            "key": "white_brick_2x1_banner",
+            "label": "White Brick 2X1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "white_brick_2x1_button",
+            "label": "White Brick 2X1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "white_brick_2x1_button_link",
+            "label": "White Brick 2X1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "white_brick_3x2",
+        "label": "White Brick 3X2",
+        "fields": [
+          {
+            "key": "white_brick_3x2_banner",
+            "label": "White Brick 3X2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "white_brick_3x2_button",
+            "label": "White Brick 3X2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "white_brick_3x2_button_link",
+            "label": "White Brick 3X2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "y_manor_annex",
+        "label": "Y Manor Annex",
+        "fields": [
+          {
+            "key": "y_manor_annex_banner",
+            "label": "Y Manor Annex Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "y_manor_annex_button",
+            "label": "Y Manor Annex Button Label",
+            "type": "text"
+          },
+          {
+            "key": "y_manor_annex_button_link",
+            "label": "Y Manor Annex URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "y_manor_basement",
+        "label": "Y Manor Basement",
+        "fields": [
+          {
+            "key": "y_manor_basement_banner",
+            "label": "Y Manor Basement Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "y_manor_basement_button",
+            "label": "Y Manor Basement Button Label",
+            "type": "text"
+          },
+          {
+            "key": "y_manor_basement_button_link",
+            "label": "Y Manor Basement URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "y_manor_front",
+        "label": "Y Manor Front",
+        "fields": [
+          {
+            "key": "y_manor_front_banner",
+            "label": "Y Manor Front Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "y_manor_front_button",
+            "label": "Y Manor Front Button Label",
+            "type": "text"
+          },
+          {
+            "key": "y_manor_front_button_link",
+            "label": "Y Manor Front URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "silvertree": {
+    "propertyName": "Silvertree",
+    "websiteUrl": "silvertreecommunities.com",
+    "siteKey": "silvertree",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "autumn_breeze",
+        "label": "Autumn Breeze",
+        "fields": [
+          {
+            "key": "autumn_breeze_banner",
+            "label": "Autumn Breeze Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "autumn_breeze_button",
+            "label": "Autumn Breeze Button Label",
+            "type": "text"
+          },
+          {
+            "key": "autumn_breeze_button_link",
+            "label": "Autumn Breeze URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "cardinal_vista",
+        "label": "Cardinal Vista",
+        "fields": [
+          {
+            "key": "cardinal_vista_banner",
+            "label": "Cardinal Vista Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "cardinal_vista_button",
+            "label": "Cardinal Vista Button Label",
+            "type": "text"
+          },
+          {
+            "key": "cardinal_vista_button_link",
+            "label": "Cardinal Vista URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "everbrook_townhome",
+        "label": "Everbrook Townhome",
+        "fields": [
+          {
+            "key": "everbrook_townhome_banner",
+            "label": "Everbrook Townhome Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "everbrook_townhome_button",
+            "label": "Everbrook Townhome Button Label",
+            "type": "text"
+          },
+          {
+            "key": "everbrook_townhome_button_link",
+            "label": "Everbrook Townhome URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "linden_place",
+        "label": "Linden Place",
+        "fields": [
+          {
+            "key": "linden_place_banner",
+            "label": "Linden Place Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "linden_place_button",
+            "label": "Linden Place Button Label",
+            "type": "text"
+          },
+          {
+            "key": "linden_place_button_link",
+            "label": "Linden Place URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "silvertree_2_bed",
+        "label": "Silvertree 2 Bed",
+        "fields": [
+          {
+            "key": "silvertree_2_bed_banner",
+            "label": "Silvertree 2 Bed Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "silvertree_2_bed_button",
+            "label": "Silvertree 2 Bed Button Label",
+            "type": "text"
+          },
+          {
+            "key": "silvertree_2_bed_button_link",
+            "label": "Silvertree 2 Bed URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "silvertree_3_bed",
+        "label": "Silvertree 3 Bed",
+        "fields": [
+          {
+            "key": "silvertree_3_bed_banner",
+            "label": "Silvertree 3 Bed Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "silvertree_3_bed_button",
+            "label": "Silvertree 3 Bed Button Label",
+            "type": "text"
+          },
+          {
+            "key": "silvertree_3_bed_button_link",
+            "label": "Silvertree 3 Bed URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "sunreach",
+        "label": "Sunreach",
+        "fields": [
+          {
+            "key": "sunreach_banner",
+            "label": "Sunreach Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "sunreach_button",
+            "label": "Sunreach Button Label",
+            "type": "text"
+          },
+          {
+            "key": "sunreach_button_link",
+            "label": "Sunreach URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "windsong",
+        "label": "Windsong",
+        "fields": [
+          {
+            "key": "windsong_banner",
+            "label": "Windsong Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "windsong_button",
+            "label": "Windsong Button Label",
+            "type": "text"
+          },
+          {
+            "key": "windsong_button_link",
+            "label": "Windsong URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "spinner_place": {
+    "propertyName": "Spinner Place",
+    "websiteUrl": "spinnerplace.com",
+    "siteKey": "spinner_place",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "eight_bed_3_bath",
+        "label": "Eight Bed 3 Bath",
+        "fields": [
+          {
+            "key": "eight_bed_3_bath_banner",
+            "label": "Eight Bed 3 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "eight_bed_3_bath_button",
+            "label": "Eight Bed 3 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "eight_bed_3_bath_button_link",
+            "label": "Eight Bed 3 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "five_bed_2_bath",
+        "label": "Five Bed 2 Bath",
+        "fields": [
+          {
+            "key": "five_bed_2_bath_banner",
+            "label": "Five Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "five_bed_2_bath_button",
+            "label": "Five Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "five_bed_2_bath_button_link",
+            "label": "Five Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "four_bed_2_bath",
+        "label": "Four Bed 2 Bath",
+        "fields": [
+          {
+            "key": "four_bed_2_bath_banner",
+            "label": "Four Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "four_bed_2_bath_button",
+            "label": "Four Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "four_bed_2_bath_button_link",
+            "label": "Four Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "four_bed_2_bath_accessible",
+        "label": "Four Bed 2 Bath Accessible",
+        "fields": [
+          {
+            "key": "four_bed_2_bath_accessible_banner",
+            "label": "Four Bed 2 Bath Accessible Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "four_bed_2_bath_accessible_button",
+            "label": "Four Bed 2 Bath Accessible Button Label",
+            "type": "text"
+          },
+          {
+            "key": "four_bed_2_bath_accessible_button_link",
+            "label": "Four Bed 2 Bath Accessible URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "three_bed_2_bath",
+        "label": "Three Bed 2 Bath",
+        "fields": [
+          {
+            "key": "three_bed_2_bath_banner",
+            "label": "Three Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "three_bed_2_bath_button",
+            "label": "Three Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "three_bed_2_bath_button_link",
+            "label": "Three Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_1_bath",
+        "label": "Two Bed 1 Bath",
+        "fields": [
+          {
+            "key": "two_bed_1_bath_banner",
+            "label": "Two Bed 1 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_1_bath_button",
+            "label": "Two Bed 1 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_1_bath_button_link",
+            "label": "Two Bed 1 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_1_bath_accessible",
+        "label": "Two Bed 1 Bath Accessible",
+        "fields": [
+          {
+            "key": "two_bed_1_bath_accessible_banner",
+            "label": "Two Bed 1 Bath Accessible Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_1_bath_accessible_button",
+            "label": "Two Bed 1 Bath Accessible Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_1_bath_accessible_button_link",
+            "label": "Two Bed 1 Bath Accessible URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_2_bath",
+        "label": "Two Bed 2 Bath",
+        "fields": [
+          {
+            "key": "two_bed_2_bath_banner",
+            "label": "Two Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_2_bath_button",
+            "label": "Two Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_2_bath_button_link",
+            "label": "Two Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_208": {
+    "propertyName": "The 208 Apartments",
+    "websiteUrl": "the208apts.com",
+    "siteKey": "the_208",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "four_bed_2_bath",
+        "label": "Four Bed 2 Bath",
+        "fields": [
+          {
+            "key": "four_bed_2_bath_banner",
+            "label": "Four Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "four_bed_2_bath_button",
+            "label": "Four Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "four_bed_2_bath_button_link",
+            "label": "Four Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_dendry": {
+    "propertyName": "The Dendry",
+    "websiteUrl": "thedendry.com",
+    "siteKey": "the_dendry",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "aspen",
+        "label": "Aspen",
+        "fields": [
+          {
+            "key": "aspen_banner",
+            "label": "Aspen Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "aspen_button",
+            "label": "Aspen Button Label",
+            "type": "text"
+          },
+          {
+            "key": "aspen_button_link",
+            "label": "Aspen URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "bryce",
+        "label": "Bryce",
+        "fields": [
+          {
+            "key": "bryce_banner",
+            "label": "Bryce Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "bryce_button",
+            "label": "Bryce Button Label",
+            "type": "text"
+          },
+          {
+            "key": "bryce_button_link",
+            "label": "Bryce URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "cottonwood",
+        "label": "Cottonwood",
+        "fields": [
+          {
+            "key": "cottonwood_banner",
+            "label": "Cottonwood Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "cottonwood_button",
+            "label": "Cottonwood Button Label",
+            "type": "text"
+          },
+          {
+            "key": "cottonwood_button_link",
+            "label": "Cottonwood URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "drift",
+        "label": "Drift",
+        "fields": [
+          {
+            "key": "drift_banner",
+            "label": "Drift Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "drift_button",
+            "label": "Drift Button Label",
+            "type": "text"
+          },
+          {
+            "key": "drift_button_link",
+            "label": "Drift URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "ember",
+        "label": "Ember",
+        "fields": [
+          {
+            "key": "ember_banner",
+            "label": "Ember Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "ember_button",
+            "label": "Ember Button Label",
+            "type": "text"
+          },
+          {
+            "key": "ember_button_link",
+            "label": "Ember URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_factory": {
+    "propertyName": "The Factory",
+    "websiteUrl": "900factory.com",
+    "siteKey": "the_factory",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "berkeley",
+        "label": "Berkeley",
+        "fields": [
+          {
+            "key": "berkeley_banner",
+            "label": "Berkeley Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "berkeley_button",
+            "label": "Berkeley Button Label",
+            "type": "text"
+          },
+          {
+            "key": "berkeley_button_link",
+            "label": "Berkeley URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "denali_1",
+        "label": "Denali 1",
+        "fields": [
+          {
+            "key": "denali_1_banner",
+            "label": "Denali 1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "denali_1_button",
+            "label": "Denali 1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "denali_1_button_link",
+            "label": "Denali 1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "denali_2",
+        "label": "Denali 2",
+        "fields": [
+          {
+            "key": "denali_2_banner",
+            "label": "Denali 2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "denali_2_button",
+            "label": "Denali 2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "denali_2_button_link",
+            "label": "Denali 2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "devonshire",
+        "label": "Devonshire",
+        "fields": [
+          {
+            "key": "devonshire_banner",
+            "label": "Devonshire Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "devonshire_button",
+            "label": "Devonshire Button Label",
+            "type": "text"
+          },
+          {
+            "key": "devonshire_button_link",
+            "label": "Devonshire URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "malibu",
+        "label": "Malibu",
+        "fields": [
+          {
+            "key": "malibu_banner",
+            "label": "Malibu Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "malibu_button",
+            "label": "Malibu Button Label",
+            "type": "text"
+          },
+          {
+            "key": "malibu_button_link",
+            "label": "Malibu URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "manhattan",
+        "label": "Manhattan",
+        "fields": [
+          {
+            "key": "manhattan_banner",
+            "label": "Manhattan Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "manhattan_button",
+            "label": "Manhattan Button Label",
+            "type": "text"
+          },
+          {
+            "key": "manhattan_button_link",
+            "label": "Manhattan URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "newport",
+        "label": "Newport",
+        "fields": [
+          {
+            "key": "newport_banner",
+            "label": "Newport Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "newport_button",
+            "label": "Newport Button Label",
+            "type": "text"
+          },
+          {
+            "key": "newport_button_link",
+            "label": "Newport URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "oxford",
+        "label": "Oxford",
+        "fields": [
+          {
+            "key": "oxford_banner",
+            "label": "Oxford Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "oxford_button",
+            "label": "Oxford Button Label",
+            "type": "text"
+          },
+          {
+            "key": "oxford_button_link",
+            "label": "Oxford URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "princeton",
+        "label": "Princeton",
+        "fields": [
+          {
+            "key": "princeton_banner",
+            "label": "Princeton Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "princeton_button",
+            "label": "Princeton Button Label",
+            "type": "text"
+          },
+          {
+            "key": "princeton_button_link",
+            "label": "Princeton URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "solitude",
+        "label": "Solitude",
+        "fields": [
+          {
+            "key": "solitude_banner",
+            "label": "Solitude Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "solitude_button",
+            "label": "Solitude Button Label",
+            "type": "text"
+          },
+          {
+            "key": "solitude_button_link",
+            "label": "Solitude URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "tahoe",
+        "label": "Tahoe",
+        "fields": [
+          {
+            "key": "tahoe_banner",
+            "label": "Tahoe Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "tahoe_button",
+            "label": "Tahoe Button Label",
+            "type": "text"
+          },
+          {
+            "key": "tahoe_button_link",
+            "label": "Tahoe URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "yukon",
+        "label": "Yukon",
+        "fields": [
+          {
+            "key": "yukon_banner",
+            "label": "Yukon Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "yukon_button",
+            "label": "Yukon Button Label",
+            "type": "text"
+          },
+          {
+            "key": "yukon_button_link",
+            "label": "Yukon URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_freehand": {
+    "propertyName": "The Freehand",
+    "websiteUrl": "thefreehandprovo.com",
+    "siteKey": "the_freehand",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed",
+        "label": "One Bed",
+        "fields": [
+          {
+            "key": "one_bed_banner",
+            "label": "One Bed Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_button",
+            "label": "One Bed Button Label",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "one_button",
+        "label": "One Button",
+        "fields": [
+          {
+            "key": "one_button_button_link",
+            "label": "One Button URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "other",
+        "label": "Other",
+        "fields": [
+          {
+            "key": "other_banner",
+            "label": "Other Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "other_button",
+            "label": "Other Button Label",
+            "type": "text"
+          },
+          {
+            "key": "other_button_link",
+            "label": "Other URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "studio",
+        "label": "Studio",
+        "fields": [
+          {
+            "key": "studio_banner",
+            "label": "Studio Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "studio_button",
+            "label": "Studio Button Label",
+            "type": "text"
+          },
+          {
+            "key": "studio_button_link",
+            "label": "Studio URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed",
+        "label": "Two Bed",
+        "fields": [
+          {
+            "key": "two_bed_banner",
+            "label": "Two Bed Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_button",
+            "label": "Two Bed Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_button_link",
+            "label": "Two Bed URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_grandeur": {
+    "propertyName": "The Grandeur at Holladay Hills",
+    "websiteUrl": "grandeurholladayapartments.com",
+    "siteKey": "the_grandeur",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "albion_meadow",
+        "label": "Albion Meadow",
+        "fields": [
+          {
+            "key": "albion_meadow_banner",
+            "label": "Albion Meadow Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "albion_meadow_button",
+            "label": "Albion Meadow Button Label",
+            "type": "text"
+          },
+          {
+            "key": "albion_meadow_button_link",
+            "label": "Albion Meadow URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "aspen",
+        "label": "Aspen",
+        "fields": [
+          {
+            "key": "aspen_banner",
+            "label": "Aspen Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "aspen_button",
+            "label": "Aspen Button Label",
+            "type": "text"
+          },
+          {
+            "key": "aspen_button_link",
+            "label": "Aspen URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "cascade",
+        "label": "Cascade",
+        "fields": [
+          {
+            "key": "cascade_banner",
+            "label": "Cascade Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "cascade_button",
+            "label": "Cascade Button Label",
+            "type": "text"
+          },
+          {
+            "key": "cascade_button_link",
+            "label": "Cascade URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "cedar",
+        "label": "Cedar",
+        "fields": [
+          {
+            "key": "cedar_banner",
+            "label": "Cedar Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "cedar_button",
+            "label": "Cedar Button Label",
+            "type": "text"
+          },
+          {
+            "key": "cedar_button_link",
+            "label": "Cedar URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "cottonwood",
+        "label": "Cottonwood",
+        "fields": [
+          {
+            "key": "cottonwood_banner",
+            "label": "Cottonwood Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "cottonwood_button",
+            "label": "Cottonwood Button Label",
+            "type": "text"
+          },
+          {
+            "key": "cottonwood_button_link",
+            "label": "Cottonwood URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "diamond_fork",
+        "label": "Diamond Fork",
+        "fields": [
+          {
+            "key": "diamond_fork_banner",
+            "label": "Diamond Fork Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "diamond_fork_button",
+            "label": "Diamond Fork Button Label",
+            "type": "text"
+          },
+          {
+            "key": "diamond_fork_button_link",
+            "label": "Diamond Fork URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "grandview",
+        "label": "Grandview",
+        "fields": [
+          {
+            "key": "grandview_banner",
+            "label": "Grandview Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "grandview_button",
+            "label": "Grandview Button Label",
+            "type": "text"
+          },
+          {
+            "key": "grandview_button_link",
+            "label": "Grandview URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "granite",
+        "label": "Granite",
+        "fields": [
+          {
+            "key": "granite_banner",
+            "label": "Granite Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "granite_button",
+            "label": "Granite Button Label",
+            "type": "text"
+          },
+          {
+            "key": "granite_button_link",
+            "label": "Granite URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "jasper",
+        "label": "Jasper",
+        "fields": [
+          {
+            "key": "jasper_banner",
+            "label": "Jasper Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "jasper_button",
+            "label": "Jasper Button Label",
+            "type": "text"
+          },
+          {
+            "key": "jasper_button_link",
+            "label": "Jasper URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "juniper",
+        "label": "Juniper",
+        "fields": [
+          {
+            "key": "juniper_banner",
+            "label": "Juniper Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "juniper_button",
+            "label": "Juniper Button Label",
+            "type": "text"
+          },
+          {
+            "key": "juniper_button_link",
+            "label": "Juniper URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "maple",
+        "label": "Maple",
+        "fields": [
+          {
+            "key": "maple_banner",
+            "label": "Maple Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "maple_button",
+            "label": "Maple Button Label",
+            "type": "text"
+          },
+          {
+            "key": "maple_button_link",
+            "label": "Maple URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "oak",
+        "label": "Oak",
+        "fields": [
+          {
+            "key": "oak_banner",
+            "label": "Oak Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "oak_button",
+            "label": "Oak Button Label",
+            "type": "text"
+          },
+          {
+            "key": "oak_button_link",
+            "label": "Oak URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "sequoia",
+        "label": "Sequoia",
+        "fields": [
+          {
+            "key": "sequoia_banner",
+            "label": "Sequoia Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "sequoia_button",
+            "label": "Sequoia Button Label",
+            "type": "text"
+          },
+          {
+            "key": "sequoia_button_link",
+            "label": "Sequoia URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "silverlake",
+        "label": "Silverlake",
+        "fields": [
+          {
+            "key": "silverlake_banner",
+            "label": "Silverlake Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "silverlake_button",
+            "label": "Silverlake Button Label",
+            "type": "text"
+          },
+          {
+            "key": "silverlake_button_link",
+            "label": "Silverlake URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "sugarloaf",
+        "label": "Sugarloaf",
+        "fields": [
+          {
+            "key": "sugarloaf_banner",
+            "label": "Sugarloaf Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "sugarloaf_button",
+            "label": "Sugarloaf Button Label",
+            "type": "text"
+          },
+          {
+            "key": "sugarloaf_button_link",
+            "label": "Sugarloaf URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "white_pine",
+        "label": "White Pine",
+        "fields": [
+          {
+            "key": "white_pine_banner",
+            "label": "White Pine Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "white_pine_button",
+            "label": "White Pine Button Label",
+            "type": "text"
+          },
+          {
+            "key": "white_pine_button_link",
+            "label": "White Pine URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "willow",
+        "label": "Willow",
+        "fields": [
+          {
+            "key": "willow_banner",
+            "label": "Willow Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "willow_button",
+            "label": "Willow Button Label",
+            "type": "text"
+          },
+          {
+            "key": "willow_button_link",
+            "label": "Willow URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_haven": {
+    "propertyName": "The Haven",
+    "websiteUrl": "havenapts.com",
+    "siteKey": "the_haven",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "four_bed_4_bath",
+        "label": "Four Bed 4 Bath",
+        "fields": [
+          {
+            "key": "four_bed_4_bath_banner",
+            "label": "Four Bed 4 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "four_bed_4_bath_button",
+            "label": "Four Bed 4 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "four_bed_4_bath_button_link",
+            "label": "Four Bed 4 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "three_bed_3_bath",
+        "label": "Three Bed 3 Bath",
+        "fields": [
+          {
+            "key": "three_bed_3_bath_banner",
+            "label": "Three Bed 3 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "three_bed_3_bath_button",
+            "label": "Three Bed 3 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "three_bed_3_bath_button_link",
+            "label": "Three Bed 3 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_2_bath",
+        "label": "Two Bed 2 Bath",
+        "fields": [
+          {
+            "key": "two_bed_2_bath_banner",
+            "label": "Two Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_2_bath_button",
+            "label": "Two Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_2_bath_button_link",
+            "label": "Two Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_hudson": {
+    "propertyName": "The Hudson",
+    "websiteUrl": "thehudsonalbany.com",
+    "siteKey": "the_hudson",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "b1",
+        "label": "B1",
+        "fields": [
+          {
+            "key": "b1_banner",
+            "label": "B1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "b1_button",
+            "label": "B1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "b1_button_link",
+            "label": "B1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "b2",
+        "label": "B2",
+        "fields": [
+          {
+            "key": "b2_banner",
+            "label": "B2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "b2_button",
+            "label": "B2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "b2_button_link",
+            "label": "B2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "d1",
+        "label": "D1",
+        "fields": [
+          {
+            "key": "d1_banner",
+            "label": "D1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "d1_button",
+            "label": "D1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "d1_button_link",
+            "label": "D1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "s1",
+        "label": "S1",
+        "fields": [
+          {
+            "key": "s1_banner",
+            "label": "S1 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "s1_button",
+            "label": "S1 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "s1_button_link",
+            "label": "S1 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "s2",
+        "label": "S2",
+        "fields": [
+          {
+            "key": "s2_banner",
+            "label": "S2 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "s2_button",
+            "label": "S2 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "s2_button_link",
+            "label": "S2 URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "s3",
+        "label": "S3",
+        "fields": [
+          {
+            "key": "s3_banner",
+            "label": "S3 Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "s3_button",
+            "label": "S3 Button Label",
+            "type": "text"
+          },
+          {
+            "key": "s3_button_link",
+            "label": "S3 URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_landing": {
+    "propertyName": "The Landing",
+    "websiteUrl": "thelandingrexburg.com",
+    "siteKey": "the_landing",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x2_men",
+        "label": "3X2 Men",
+        "fields": [
+          {
+            "key": "3x2_men_banner",
+            "label": "3X2 Men Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x2_men_button",
+            "label": "3X2 Men Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x2_men_button_link",
+            "label": "3X2 Men URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "3x2_women",
+        "label": "3X2 Women",
+        "fields": [
+          {
+            "key": "3x2_women_banner",
+            "label": "3X2 Women Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "3x2_women_button",
+            "label": "3X2 Women Button Label",
+            "type": "text"
+          },
+          {
+            "key": "3x2_women_button_link",
+            "label": "3X2 Women URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "mens_cta",
+        "label": "Mens Cta",
+        "fields": [
+          {
+            "key": "mens_cta_button",
+            "label": "Mens Cta Button Label",
+            "type": "text"
+          },
+          {
+            "key": "mens_cta_button_link",
+            "label": "Mens Cta URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "womens_cta",
+        "label": "Womens Cta",
+        "fields": [
+          {
+            "key": "womens_cta_button",
+            "label": "Womens Cta Button Label",
+            "type": "text"
+          },
+          {
+            "key": "womens_cta_button_link",
+            "label": "Womens Cta URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_station_at_mill_race": {
+    "propertyName": "The Station at Mill Race",
+    "websiteUrl": "thestationatmillrace.com",
+    "siteKey": "the_station_at_mill_race",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed_a",
+        "label": "One Bed A",
+        "fields": [
+          {
+            "key": "one_bed_a_banner",
+            "label": "One Bed A Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_a_button",
+            "label": "One Bed A Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_a_button_link",
+            "label": "One Bed A URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed_b",
+        "label": "One Bed B",
+        "fields": [
+          {
+            "key": "one_bed_b_banner",
+            "label": "One Bed B Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_b_button",
+            "label": "One Bed B Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_b_button_link",
+            "label": "One Bed B URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "studio",
+        "label": "Studio",
+        "fields": [
+          {
+            "key": "studio_banner",
+            "label": "Studio Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "studio_button",
+            "label": "Studio Button Label",
+            "type": "text"
+          },
+          {
+            "key": "studio_button_link",
+            "label": "Studio URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed",
+        "label": "Two Bed",
+        "fields": [
+          {
+            "key": "two_bed_banner",
+            "label": "Two Bed Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_button",
+            "label": "Two Bed Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_button_link",
+            "label": "Two Bed URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "the_view_at_203": {
+    "propertyName": "The View at 203",
+    "websiteUrl": "theviewat203.com",
+    "siteKey": "the_view_at_203",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "pre_headline",
+        "label": "Pre Headline",
+        "fields": [
+          {
+            "key": "pre_headline",
+            "label": "Pre Headline",
+            "type": "richtext"
+          }
+        ]
+      }
+    ]
+  },
+  "timp_towers": {
+    "propertyName": "Timp Towers Apartments",
+    "websiteUrl": "timptowers.com",
+    "siteKey": "timp_towers",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed_1_bath",
+        "label": "One Bed 1 Bath",
+        "fields": [
+          {
+            "key": "one_bed_1_bath_banner",
+            "label": "One Bed 1 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_1_bath_button",
+            "label": "One Bed 1 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_1_bath_button_link",
+            "label": "One Bed 1 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "university_gateway": {
+    "propertyName": "University Gateway",
+    "websiteUrl": "universitygatewayapts.com",
+    "siteKey": "university_gateway",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "one_bed_1_bath",
+        "label": "One Bed 1 Bath",
+        "fields": [
+          {
+            "key": "one_bed_1_bath_banner",
+            "label": "One Bed 1 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "one_bed_1_bath_button",
+            "label": "One Bed 1 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "one_bed_1_bath_button_link",
+            "label": "One Bed 1 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_1_bath",
+        "label": "Two Bed 1 Bath",
+        "fields": [
+          {
+            "key": "two_bed_1_bath_banner",
+            "label": "Two Bed 1 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_1_bath_button",
+            "label": "Two Bed 1 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_1_bath_button_link",
+            "label": "Two Bed 1 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "vintage_at_tabernacle": {
+    "propertyName": "Vintage at Tabernacle",
+    "websiteUrl": "vintageattabernacle.com",
+    "siteKey": "vintage_at_tabernacle",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          },
+          {
+            "key": "top_banner",
+            "label": "Top Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "top_banner_link",
+            "label": "Top Banner URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "five_bed_3_bath",
+        "label": "Five Bed 3 Bath",
+        "fields": [
+          {
+            "key": "five_bed_3_bath_banner",
+            "label": "Five Bed 3 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "five_bed_3_bath_button",
+            "label": "Five Bed 3 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "five_bed_3_bath_button_link",
+            "label": "Five Bed 3 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "five_bed_3_bath_king",
+        "label": "Five Bed 3 Bath King",
+        "fields": [
+          {
+            "key": "five_bed_3_bath_king_banner",
+            "label": "Five Bed 3 Bath King Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "five_bed_3_bath_king_button",
+            "label": "Five Bed 3 Bath King Button Label",
+            "type": "text"
+          },
+          {
+            "key": "five_bed_3_bath_king_button_link",
+            "label": "Five Bed 3 Bath King URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "four_bed_2_bath",
+        "label": "Four Bed 2 Bath",
+        "fields": [
+          {
+            "key": "four_bed_2_bath_banner",
+            "label": "Four Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "four_bed_2_bath_button",
+            "label": "Four Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "four_bed_2_bath_button_link",
+            "label": "Four Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "two_bed_2_bath",
+        "label": "Two Bed 2 Bath",
+        "fields": [
+          {
+            "key": "two_bed_2_bath_banner",
+            "label": "Two Bed 2 Bath Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "two_bed_2_bath_button",
+            "label": "Two Bed 2 Bath Button Label",
+            "type": "text"
+          },
+          {
+            "key": "two_bed_2_bath_button_link",
+            "label": "Two Bed 2 Bath URL",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  },
+  "windsor_manor": {
+    "propertyName": "Windsor Manor",
+    "websiteUrl": "windsormanor.net",
+    "siteKey": "windsor_manor",
+    "groups": [
+      {
+        "id": "homepage",
+        "label": "Homepage",
+        "fields": [
+          {
+            "key": "headline",
+            "label": "Headline",
+            "type": "richtext"
+          },
+          {
+            "key": "subtitle",
+            "label": "Subtitle",
+            "type": "richtext"
+          },
+          {
+            "key": "cta_button",
+            "label": "Primary CTA Label",
+            "type": "text"
+          },
+          {
+            "key": "cta_button_link",
+            "label": "Primary CTA URL",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "floor_plan_a",
+        "label": "Floor Plan A",
+        "fields": [
+          {
+            "key": "floor_plan_a_banner",
+            "label": "Floor Plan A Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "floor_plan_a_button",
+            "label": "Floor Plan A Button Label",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "floor_plan_a_link",
+        "label": "Floor Plan A Link",
+        "fields": [
+          {
+            "key": "floor_plan_a_link",
+            "label": "Floor Plan A Link",
+            "type": "url"
+          }
+        ]
+      },
+      {
+        "id": "floor_plan_b",
+        "label": "Floor Plan B",
+        "fields": [
+          {
+            "key": "floor_plan_b_banner",
+            "label": "Floor Plan B Banner",
+            "type": "richtext"
+          },
+          {
+            "key": "floor_plan_b_button",
+            "label": "Floor Plan B Button Label",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "floor_plan_b_link",
+        "label": "Floor Plan B Link",
+        "fields": [
+          {
+            "key": "floor_plan_b_link",
+            "label": "Floor Plan B Link",
+            "type": "url"
+          }
+        ]
+      }
+    ]
+  }
+}
