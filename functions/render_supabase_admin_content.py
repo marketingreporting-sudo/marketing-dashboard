@@ -57,6 +57,8 @@ WORDPRESS_DERIVED_FIELD_MAP = {
     "availableUnitCount": "available_unit_count",
 }
 
+WORDPRESS_PUBLISH_USER_AGENT = "RedstoneWebsiteManager/1.1 (+https://github.com/marketingreporting-sudo/marketing-dashboard)"
+
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
@@ -526,6 +528,8 @@ def publish_website_manager_summary(property_id: str, access_token: str | None =
         data=body,
         headers={
             "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": WORDPRESS_PUBLISH_USER_AGENT,
             "X-Redstone-Site-Key": site_key,
             "X-Redstone-Timestamp": timestamp,
             "X-Redstone-Signature": signature,
