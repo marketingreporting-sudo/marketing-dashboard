@@ -119,6 +119,16 @@ rwm:primary_cta_url
 
 That is especially helpful for Salient button URL inputs that rewrite `{{rwm:...}}` tokens.
 
+Textarea-style content fields also allow safe inline HTML such as:
+
+```html
+<strong>Bold text</strong>
+<em>Italic text</em>
+<br>
+```
+
+That means you can store formatted copy in the dashboard for fields like subtitles, banner body copy, and availability notes.
+
 Examples:
 
 ```html
