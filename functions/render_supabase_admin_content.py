@@ -469,6 +469,13 @@ def _load_wordpress_secret(site_key: str) -> str:
     return str(secret)
 
 
+def _truncate_preview(value: str, limit: int = 180) -> str:
+    normalized = " ".join(str(value or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3] + "..."
+
+
 def _build_wordpress_payload(record: dict[str, Any]) -> dict[str, Any]:
     content = record.get("content") if isinstance(record.get("content"), dict) else {}
     derived = record.get("derivedContent") if isinstance(record.get("derivedContent"), dict) else {}
@@ -529,7 +536,20 @@ def publish_website_manager_summary(property_id: str, access_token: str | None =
     try:
         with urlopen(request, timeout=30) as response:
             response_body = response.read().decode("utf-8")
-            response_payload = json.loads(response_body) if response_body else {}
+            content_type = response.headers.get("Content-Type", "")
+            try:
+                response_payload = json.loads(response_body) if response_body else {}
+            except json.JSONDecodeError:
+                return {
+                    "status": "error",
+                    "error": (
+                        "WordPress publish endpoint returned a non-JSON response. "
+                        f"Content-Type was '{content_type or 'unknown'}'. "
+                        f"Response preview: {_truncate_preview(response_body)}"
+                    ),
+                    "targetUrl": target_url,
+                    "staging_only": True,
+                }
             return {
                 "status": "ok",
                 "staging_only": True,
