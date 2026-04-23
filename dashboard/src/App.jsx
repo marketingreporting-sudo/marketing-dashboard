@@ -115,6 +115,9 @@ const LEASE_EVENT_TYPE_IDS = new Set([13]);
 const STATUS_CHANGE_EVENT_TYPE_ID = 21;
 const REPORTING_LAYOUT_STORAGE_KEY = 'reportingLayoutAdminEnabled';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dashboardSidebarCollapsed';
+const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
+const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
+const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
 const REPORTING_PANEL_LIBRARY = [
   { id: 'executive', title: 'Executive Snapshot', eyebrow: 'Asset Manager Lens' },
   { id: 'roi', title: 'ROI Metrics', eyebrow: 'Revenue Efficiency' },
@@ -193,6 +196,60 @@ const CHART_MARGIN_VERTICAL = { top: 8, right: 12, left: 8, bottom: 10 };
 const PROFILE_AVATAR_BUCKET = 'profile-avatars';
 const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 const PROFILE_AVATAR_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const getDashboardWorkspaceStateKey = (user) => {
+  const accountId = user?.id || user?.email || 'anonymous';
+  return `${DASHBOARD_WORKSPACE_STATE_KEY_PREFIX}:${accountId}`;
+};
+
+const readDashboardWorkspaceState = (storageKey) => {
+  if (typeof window === 'undefined' || !storageKey) return {};
+
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const isDateInputValue = (value) => (
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+);
+
+const normalizeSavedDashboardState = (savedState, fallbackPropertyId) => {
+  const nextState = savedState && typeof savedState === 'object' ? savedState : {};
+  const customRange = nextState.customRange && typeof nextState.customRange === 'object'
+    ? nextState.customRange
+    : {};
+
+  return {
+    activeTab: NAV_ITEMS.some((item) => item.id === nextState.activeTab) ? nextState.activeTab : 'dashboard',
+    dateRange: DATE_RANGE_OPTIONS.has(nextState.dateRange) ? nextState.dateRange : '28d',
+    customRange: {
+      start: isDateInputValue(customRange.start) ? customRange.start : null,
+      end: isDateInputValue(customRange.end) ? customRange.end : null,
+    },
+    selectedPropertyId: nextState.selectedPropertyId ? String(nextState.selectedPropertyId) : fallbackPropertyId,
+    metaAdsAttributionMode: META_ADS_ATTRIBUTION_MODES.has(nextState.metaAdsAttributionMode)
+      ? nextState.metaAdsAttributionMode
+      : 'account_default',
+  };
+};
+
+const getDefaultCustomRange = () => {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 27);
+  start.setHours(0, 0, 0, 0);
+  end.setHours(23, 59, 59, 999);
+  return {
+    start: formatDateInputValue(start),
+    end: formatDateInputValue(end),
+  };
+};
 
 const getInitials = (value) => {
   const parts = String(value || '')
@@ -930,20 +987,24 @@ const DashboardApp = ({
   defaultPropertyId = null,
 }) => {
   const { profile, refreshAccess } = useAccess();
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const [dateRange, setDateRange] = useState('28d');
+  const workspaceStateStorageKey = useMemo(
+    () => getDashboardWorkspaceStateKey(currentUser),
+    [currentUser]
+  );
+  const savedWorkspaceState = useMemo(
+    () => normalizeSavedDashboardState(readDashboardWorkspaceState(workspaceStateStorageKey), defaultPropertyId),
+    [defaultPropertyId, workspaceStateStorageKey]
+  );
+  const [activeTab, setActiveTab] = useState(savedWorkspaceState.activeTab);
+  const [dateRange, setDateRange] = useState(savedWorkspaceState.dateRange);
   const [customRange, setCustomRange] = useState(() => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(end.getDate() - 27);
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
+    const defaultRange = getDefaultCustomRange();
     return {
-      start: formatDateInputValue(start),
-      end: formatDateInputValue(end),
+      start: savedWorkspaceState.customRange.start || defaultRange.start,
+      end: savedWorkspaceState.customRange.end || defaultRange.end,
     };
   });
-  const [selectedPropertyId, setSelectedPropertyId] = useState(defaultPropertyId);
+  const [selectedPropertyId, setSelectedPropertyId] = useState(savedWorkspaceState.selectedPropertyId);
   const [loading, setLoading] = useState(true);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
   const [roiLoading, setRoiLoading] = useState(true);
@@ -953,7 +1014,7 @@ const DashboardApp = ({
   const [googleAdsLoading, setGoogleAdsLoading] = useState(true);
   const [metaAdsLoading, setMetaAdsLoading] = useState(true);
   const [reputationLoading, setReputationLoading] = useState(true);
-  const [metaAdsAttributionMode, setMetaAdsAttributionMode] = useState('account_default');
+  const [metaAdsAttributionMode, setMetaAdsAttributionMode] = useState(savedWorkspaceState.metaAdsAttributionMode);
   const [websiteManagerLoading, setWebsiteManagerLoading] = useState(true);
   const [websiteManagerSaving, setWebsiteManagerSaving] = useState(false);
   const [websiteManagerAction, setWebsiteManagerAction] = useState('save');
@@ -1108,6 +1169,20 @@ const DashboardApp = ({
       setActiveTab(preferredTab);
     }
   }, [activeTab, visibleNavItems]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(
+      workspaceStateStorageKey,
+      JSON.stringify({
+        activeTab,
+        dateRange,
+        customRange,
+        selectedPropertyId,
+        metaAdsAttributionMode,
+      })
+    );
+  }, [activeTab, customRange, dateRange, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
 
   useEffect(() => {
     if (!canEditReportingLayout && reportingAdminEnabled) {
