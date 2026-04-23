@@ -1004,6 +1004,14 @@ const DashboardApp = ({
       end: savedWorkspaceState.customRange.end || defaultRange.end,
     };
   });
+  const [draftDateRange, setDraftDateRange] = useState(savedWorkspaceState.dateRange);
+  const [draftCustomRange, setDraftCustomRange] = useState(() => {
+    const defaultRange = getDefaultCustomRange();
+    return {
+      start: savedWorkspaceState.customRange.start || defaultRange.start,
+      end: savedWorkspaceState.customRange.end || defaultRange.end,
+    };
+  });
   const [selectedPropertyId, setSelectedPropertyId] = useState(savedWorkspaceState.selectedPropertyId);
   const [loading, setLoading] = useState(true);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
@@ -1129,6 +1137,12 @@ const DashboardApp = ({
   const canEditReportingLayout = currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
   const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
+  const canApplyDraftCustomRange = Boolean(draftCustomRange.start && draftCustomRange.end);
+  const hasUnappliedCustomRange = draftDateRange === 'custom' && (
+    dateRange !== 'custom' ||
+    draftCustomRange.start !== customRange.start ||
+    draftCustomRange.end !== customRange.end
+  );
   const adminGlobalRoles = useMemo(
     () => adminRoles.filter((role) => role.scope === 'global'),
     [adminRoles]
@@ -1137,6 +1151,20 @@ const DashboardApp = ({
     () => adminRoles.filter((role) => role.scope === 'property'),
     [adminRoles]
   );
+
+  const handleDateRangeChange = (nextDateRange) => {
+    setDraftDateRange(nextDateRange);
+
+    if (nextDateRange !== 'custom') {
+      setDateRange(nextDateRange);
+    }
+  };
+
+  const applyDraftCustomRange = () => {
+    if (!draftCustomRange.start || !draftCustomRange.end) return;
+    setCustomRange(draftCustomRange);
+    setDateRange('custom');
+  };
 
   useEffect(() => {
     setAccountDraft({
@@ -5931,7 +5959,7 @@ const DashboardApp = ({
                   <div className="global-date-controls__label">Date range</div>
                   <div className="global-date-controls__control">
                     <Calendar size={16} className="global-date-controls__icon" />
-                    <select value={dateRange} onChange={(e) => setDateRange(e.target.value)} className="global-date-controls__select">
+                    <select value={draftDateRange} onChange={(e) => handleDateRangeChange(e.target.value)} className="global-date-controls__select">
                       <option value="7d">Last 7 Days</option>
                       <option value="14d">Last 14 Days</option>
                       <option value="28d">Last 28 Days</option>
@@ -5943,27 +5971,37 @@ const DashboardApp = ({
                       <option value="custom">Custom Range</option>
                     </select>
                   </div>
-                  {dateRange === 'custom' && (
+                  {draftDateRange === 'custom' && (
                     <div className="global-date-controls__custom-range">
                       <input
                         type="date"
-                        value={customRange.start}
-                        onChange={(e) => setCustomRange({ ...customRange, start: e.target.value })}
+                        value={draftCustomRange.start}
+                        onChange={(e) => setDraftCustomRange({ ...draftCustomRange, start: e.target.value })}
                         className="global-date-controls__input"
                       />
                       <span className="global-date-controls__to">to</span>
                       <input
                         type="date"
-                        value={customRange.end}
-                        onChange={(e) => setCustomRange({ ...customRange, end: e.target.value })}
+                        value={draftCustomRange.end}
+                        onChange={(e) => setDraftCustomRange({ ...draftCustomRange, end: e.target.value })}
                         className="global-date-controls__input"
                       />
+                      <button
+                        type="button"
+                        className="global-date-controls__apply"
+                        onClick={applyDraftCustomRange}
+                        disabled={!canApplyDraftCustomRange || !hasUnappliedCustomRange}
+                      >
+                        Apply
+                      </button>
                     </div>
                   )}
                 </div>
                 <div className="global-date-controls__meta">
-                  <span>Live window</span>
-                  <strong>{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</strong>
+                  <div className="global-date-controls__label">Live window</div>
+                  <div className="global-date-controls__meta-window">
+                    <strong>{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</strong>
+                  </div>
                 </div>
               </div>
             )}
