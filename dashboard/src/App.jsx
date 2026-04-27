@@ -366,6 +366,11 @@ const parseEntrataDate = (value) => {
   return new Date(year, month - 1, day);
 };
 
+const parseLocalDateInputValue = (value) => {
+  if (value instanceof Date) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  return parseEntrataDate(value);
+};
+
 const formatReadableDate = (value) => {
   const parsed = value instanceof Date ? value : parseEntrataDate(value);
   if (!parsed || Number.isNaN(parsed.getTime())) return '—';
@@ -1291,8 +1296,10 @@ const DashboardApp = ({
       start = new Date(end.getFullYear(), 0, 1);
     }
     else if (dateRange === 'custom' && customRange.start) {
-      start = new Date(customRange.start);
-      if (customRange.end) end.setTime(new Date(customRange.end).getTime());
+      const parsedStart = parseLocalDateInputValue(customRange.start);
+      const parsedEnd = parseLocalDateInputValue(customRange.end);
+      if (parsedStart) start.setTime(parsedStart.getTime());
+      if (parsedEnd) end.setTime(parsedEnd.getTime());
       if (start > end) {
         const originalStart = new Date(start);
         start.setTime(end.getTime());
@@ -1651,8 +1658,8 @@ const DashboardApp = ({
         const params = new URLSearchParams({
           property_id: selectedPropertyId,
           ga4_property_id: ga4PropertyId,
-          start_date: rangeDates.start.toISOString().slice(0, 10),
-          end_date: rangeDates.end.toISOString().slice(0, 10)
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end)
         });
         const response = await authFetch(`${GA4_DASHBOARD_URL}?${params.toString()}`, {
           signal: controller.signal
@@ -1706,8 +1713,8 @@ const DashboardApp = ({
           property_id: selectedPropertyId,
           google_ads_customer_id: googleAdsCustomerId,
           property_name: selectedProperty?.name || '',
-          start_date: rangeDates.start.toISOString().slice(0, 10),
-          end_date: rangeDates.end.toISOString().slice(0, 10)
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end)
         });
         const response = await authFetch(`${GOOGLE_ADS_DASHBOARD_URL}?${params.toString()}`, {
           signal: controller.signal
@@ -1762,8 +1769,8 @@ const DashboardApp = ({
           meta_ads_account_id: metaAdsAccountId,
           property_name: selectedProperty?.name || '',
           attribution_mode: metaAdsAttributionMode,
-          start_date: rangeDates.start.toISOString().slice(0, 10),
-          end_date: rangeDates.end.toISOString().slice(0, 10)
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end)
         });
         if (selectedProperty?.metaAdsCampaignIds?.length) {
           params.set('campaign_ids', JSON.stringify(selectedProperty.metaAdsCampaignIds));
@@ -1823,8 +1830,8 @@ const DashboardApp = ({
           property_id: selectedPropertyId,
           property_name: selectedProperty?.name || '',
           property_city: selectedProperty?.city || '',
-          start_date: rangeDates.start.toISOString().slice(0, 10),
-          end_date: rangeDates.end.toISOString().slice(0, 10)
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end)
         });
         if (selectedProperty?.opiniionLocationName) {
           params.set('location_name', selectedProperty.opiniionLocationName);
@@ -2229,7 +2236,7 @@ const DashboardApp = ({
   const attributedLeaseCount = roiTotals.attributedLeases;
   const unattributedLeaseCount = roiTotals.unattributedLeases;
   const totalTrackedLeaseCount = attributedLeaseCount + unattributedLeaseCount;
-  const totalLeases = totalTrackedLeaseCount > 0 ? totalTrackedLeaseCount : uniqueLeaseEvents.length;
+  const totalLeases = uniqueLeaseEvents.length;
   const leaseConversion = totalLeads > 0 ? ((totalLeases / totalLeads) * 100).toFixed(1) : '0.0';
   const applicationConversion = totalLeads > 0 ? ((totalApplications / totalLeads) * 100).toFixed(1) : '0.0';
   const costPerLead = totalLeads > 0 && totalPerformanceMarketingCost > 0 ? (totalPerformanceMarketingCost / totalLeads).toFixed(2) : '—';
@@ -4032,11 +4039,11 @@ const DashboardApp = ({
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <FileCheck size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Applications</div>
+          <div className="card-title">Applications Completed</div>
         </div>
         <div className="card-value">{loading ? '…' : totalApplications.toLocaleString()}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Lead-to-app: {applicationConversion}% | Guest cards excluded
+          Lead-to-completed-app: {applicationConversion}% | Guest cards excluded
         </div>
       </div>
 
@@ -4610,7 +4617,7 @@ const DashboardApp = ({
           <div className="reputation-pill">
             {reputationWindow?.startDate && reputationWindow?.endDate
               ? `${reputationWindow.startDate} to ${reputationWindow.endDate}`
-              : `${rangeDates.start.toISOString().slice(0, 10)} to ${rangeDates.end.toISOString().slice(0, 10)}`}
+              : `${formatDateInputValue(rangeDates.start)} to ${formatDateInputValue(rangeDates.end)}`}
           </div>
           <div className="reputation-pill">
             {reputationLoading ? 'Refreshing…' : reputationError ? 'Cached / blocked' : 'Live connector'}
