@@ -347,14 +347,16 @@ const parseBooleanish = (value) => {
 const parseEntrataDate = (value) => {
   if (!value) return null;
   const normalized = String(value).trim();
+  const dateToken = normalized.match(/\d{4}-\d{2}-\d{2}|\d{4}\/\d{2}\/\d{2}|\d{1,2}\/\d{1,2}\/\d{4}/)?.[0];
+  if (!dateToken) return null;
   let parts = null;
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    parts = normalized.split('-');
-  } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(normalized)) {
-    parts = normalized.split('/');
-  } else if (/^\d{2}\/\d{2}\/\d{4}$/.test(normalized)) {
-    const [month, day, year] = normalized.split('/');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateToken)) {
+    parts = dateToken.split('-');
+  } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(dateToken)) {
+    parts = dateToken.split('/');
+  } else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(dateToken)) {
+    const [month, day, year] = dateToken.split('/');
     parts = [year, month, day];
   }
 
@@ -809,9 +811,122 @@ const isClosedLeaseEvent = (event) => {
   return event.typeId === 13 && reason.includes('approved');
 };
 
+const APPLICATION_COMPLETED_DATE_KEYS = [
+  'Application - Completed',
+  'Application Completed',
+  'applicationCompletedOn',
+  'applicationCompletedDate',
+  'applicationDateCompleted',
+  'applicationCompleted',
+  'appCompletedOn',
+  'appCompletedDate'
+];
+
+const APPLICATION_APPROVED_DATE_KEYS = [
+  'Application - Approved',
+  'Application Approved',
+  'applicationApprovedOn',
+  'applicationApprovedDate',
+  'applicationDateApproved',
+  'applicationApproved',
+  'appApprovedOn',
+  'appApprovedDate'
+];
+
+const LEASE_APPROVED_DATE_KEYS = [
+  'Lease - Approved',
+  'Lease Approved',
+  'leaseApprovedOn',
+  'leaseApprovedDate',
+  'leaseDateApproved',
+  'leaseApproved'
+];
+
+const LEASE_COMPLETED_DATE_KEYS = [
+  'Lease - Completed',
+  'Lease Completed',
+  'leaseCompletedOn',
+  'leaseCompletedDate',
+  'leaseDateCompleted',
+  'leaseCompleted',
+  'leaseSignedOn',
+  'leaseSignedDate'
+];
+
+const getLifecycleDate = (record, dateKeys) => parseEntrataDate(findNestedValue(record, dateKeys));
+
+const isInDateRange = (date, start, end) => {
+  if (!date || Number.isNaN(date.getTime())) return false;
+  return date >= start && date <= end;
+};
+
+const getLifecycleApplicationKey = (lead) => {
+  const candidates = [
+    lead.applicationId,
+    lead.applicationID,
+    lead.applicantId,
+    lead.applicantID,
+    lead.leaseIntervalId,
+    lead.leaseId,
+    lead.prospectId,
+    lead.prospectID,
+    lead.leadId,
+    lead.leadID,
+    lead.id
+  ];
+
+  const stableId = candidates.find((value) => value != null && value !== '');
+  if (stableId) return String(stableId);
+  return JSON.stringify(lead);
+};
+
+const getLifecycleLeaseKey = (lead) => {
+  const candidates = [
+    lead.leaseIntervalId,
+    lead.leaseId,
+    lead.leaseID,
+    lead.applicationId,
+    lead.applicationID,
+    lead.prospectId,
+    lead.prospectID,
+    lead.leadId,
+    lead.leadID,
+    lead.id
+  ];
+
+  const stableId = candidates.find((value) => value != null && value !== '');
+  if (stableId) return String(stableId);
+  return JSON.stringify(lead);
+};
+
+const countLifecycleRecords = (records, dateKeys, getKey, start, end) => {
+  const ids = new Set();
+  let hasLifecycleData = false;
+
+  records.forEach((record) => {
+    const lifecycleDate = getLifecycleDate(record, dateKeys);
+    if (lifecycleDate) {
+      hasLifecycleData = true;
+    }
+    if (isInDateRange(lifecycleDate, start, end)) {
+      ids.add(getKey(record));
+    }
+  });
+
+  return {
+    count: ids.size,
+    hasLifecycleData
+  };
+};
+
 const isGuestCardLead = (lead) => {
   const searchSpace = collectPrimitiveValues(lead).join(' ').toLowerCase();
   return searchSpace.includes('guest card') || searchSpace.includes('guestcard');
+};
+
+const isRenewalLead = (lead) => {
+  const searchSpace = collectPrimitiveValues(lead).join(' ').toLowerCase();
+  return searchSpace.includes('renewal lease');
 };
 
 const formatPercent = (value, digits = 1) => {
@@ -1880,10 +1995,14 @@ const DashboardApp = ({
   }, [leadItems]);
 
   const canonicalLeadItems = useMemo(() => {
-    return allCanonicalLeadItems.filter((lead) => !isGuestCardLead(lead));
+    return allCanonicalLeadItems.filter((lead) => !isGuestCardLead(lead) && !isRenewalLead(lead));
   }, [allCanonicalLeadItems]);
 
-  const totalLeads = allCanonicalLeadItems.length;
+  const lifecycleLeadItems = useMemo(() => {
+    return leadItems.filter((lead) => !isGuestCardLead(lead) && !isRenewalLead(lead));
+  }, [leadItems]);
+
+  const totalLeads = canonicalLeadItems.length;
   const leadCohortIds = useMemo(() => {
     const ids = new Set();
     canonicalLeadItems.forEach((lead) => {
@@ -1936,7 +2055,63 @@ const DashboardApp = ({
     return Array.from(uniqueLeases.values());
   }, [cohortEventItems]);
 
-  const totalApplications = uniqueApplicationEvents.length;
+  const lifecycleApplicationMetrics = useMemo(() => {
+    const completed = countLifecycleRecords(
+      lifecycleLeadItems,
+      APPLICATION_COMPLETED_DATE_KEYS,
+      getLifecycleApplicationKey,
+      rangeDates.start,
+      rangeDates.end
+    );
+    const approved = countLifecycleRecords(
+      lifecycleLeadItems,
+      APPLICATION_APPROVED_DATE_KEYS,
+      getLifecycleApplicationKey,
+      rangeDates.start,
+      rangeDates.end
+    );
+
+    return {
+      completed,
+      approved
+    };
+  }, [lifecycleLeadItems, rangeDates]);
+
+  const lifecycleLeaseMetrics = useMemo(() => {
+    const approved = countLifecycleRecords(
+      lifecycleLeadItems,
+      LEASE_APPROVED_DATE_KEYS,
+      getLifecycleLeaseKey,
+      rangeDates.start,
+      rangeDates.end
+    );
+    const completed = countLifecycleRecords(
+      lifecycleLeadItems,
+      LEASE_COMPLETED_DATE_KEYS,
+      getLifecycleLeaseKey,
+      rangeDates.start,
+      rangeDates.end
+    );
+
+    return {
+      approved,
+      completed
+    };
+  }, [lifecycleLeadItems, rangeDates]);
+
+  const eventApplicationCount = uniqueApplicationEvents.length;
+  const eventLeaseCount = uniqueLeaseEvents.length;
+  const totalApplications = lifecycleApplicationMetrics.completed.hasLifecycleData
+    ? lifecycleApplicationMetrics.completed.count
+    : eventApplicationCount;
+  const totalLeases = lifecycleLeaseMetrics.approved.hasLifecycleData
+    ? lifecycleLeaseMetrics.approved.count
+    : eventLeaseCount;
+  const funnelMetricSource = (
+    lifecycleApplicationMetrics.completed.hasLifecycleData || lifecycleLeaseMetrics.approved.hasLifecycleData
+      ? 'Entrata lifecycle fields'
+      : 'Entrata events'
+  );
 
   const normalizedInvoiceItems = useMemo(() => {
     const uniqueInvoices = new Map();
@@ -1996,7 +2171,7 @@ const DashboardApp = ({
   // Lead sources breakdown
   const leadSourceBreakdown = useMemo(() => {
     const sources = {};
-    allCanonicalLeadItems.forEach(l => {
+    canonicalLeadItems.forEach(l => {
       const s = l.leadSource || l.internetListingService || 'Unknown';
       sources[s] = (sources[s] || 0) + 1;
     });
@@ -2005,7 +2180,7 @@ const DashboardApp = ({
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([name, value]) => ({ name: name.length > 20 ? name.slice(0, 20) + '…' : name, value }));
-  }, [allCanonicalLeadItems]);
+  }, [canonicalLeadItems]);
 
   // Marketing cost from invoices
   const totalPerformanceMarketingCost = useMemo(() => {
@@ -2236,7 +2411,6 @@ const DashboardApp = ({
   const attributedLeaseCount = roiTotals.attributedLeases;
   const unattributedLeaseCount = roiTotals.unattributedLeases;
   const totalTrackedLeaseCount = attributedLeaseCount + unattributedLeaseCount;
-  const totalLeases = uniqueLeaseEvents.length;
   const leaseConversion = totalLeads > 0 ? ((totalLeases / totalLeads) * 100).toFixed(1) : '0.0';
   const applicationConversion = totalLeads > 0 ? ((totalApplications / totalLeads) * 100).toFixed(1) : '0.0';
   const costPerLead = totalLeads > 0 && totalPerformanceMarketingCost > 0 ? (totalPerformanceMarketingCost / totalLeads).toFixed(2) : '—';
@@ -2266,7 +2440,7 @@ const DashboardApp = ({
       label: reportingUsesStagedOverview ? 'Data source: Staged route unavailable' : 'Data source: Endpoint unavailable',
       className: 'reports-chip reports-chip--error'
     };
-  }, [reportingDataSource]);
+  }, [reportingDataSource, reportingUsesStagedOverview]);
   const analyticsSourceBadge = useMemo(() => {
     if (analyticsUsesRenderAdapter) {
       return { label: 'Data source: Staged Render', className: 'analytics-chip analytics-chip--staged' };
@@ -4043,18 +4217,18 @@ const DashboardApp = ({
         </div>
         <div className="card-value">{loading ? '…' : totalApplications.toLocaleString()}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Lead-to-completed-app: {applicationConversion}% | Guest cards excluded
+          Lead-to-completed-app: {applicationConversion}% | {funnelMetricSource}
         </div>
       </div>
 
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Home size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Leases Signed</div>
+          <div className="card-title">Leases Approved</div>
         </div>
         <div className="card-value">{loading ? '…' : totalLeases.toLocaleString()}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          App-to-lease: {applicationToLeaseConversion}% | Lead-to-lease: {leaseConversion}%
+          App-to-approved-lease: {applicationToLeaseConversion}% | Lead-to-lease: {leaseConversion}%
         </div>
       </div>
 
