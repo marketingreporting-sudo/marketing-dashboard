@@ -835,6 +835,86 @@ def process_background_backfill_batch() -> str:
     )
 
 
+def process_historical_backfill_batch() -> str:
+    state = get_sync_state("entrata_historical_backfill")
+    start_date = legacy.parse_iso_date(state.get("current_date") if state else None)
+    if start_date is None:
+        start_date = legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_START_DATE)
+    end_date = legacy.parse_iso_date(state.get("end_date") if state else None)
+    if end_date is None:
+        end_date = legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_END_DATE)
+    if start_date is None or end_date is None:
+        raise ValueError("Historical backfill dates must be ISO dates.")
+    if start_date < end_date:
+        raise ValueError("Historical backfill start date must be on or after end date.")
+
+    if not state:
+        state = {
+            "active": True,
+            "current_date": legacy.serialize_date(start_date),
+            "end_date": legacy.serialize_date(end_date),
+            "next_property_index": 0,
+            "batch_size": legacy.HISTORICAL_BACKFILL_BATCH_SIZE,
+        }
+    if not state.get("active", True):
+        return "Historical backfill paused."
+
+    property_ids = legacy.get_automation_property_ids()
+    if not property_ids:
+        return "No property IDs configured."
+
+    current_date = legacy.parse_iso_date(state.get("current_date")) or start_date
+    property_index = int(state.get("next_property_index", 0))
+    batch_size = max(int(state.get("batch_size", legacy.HISTORICAL_BACKFILL_BATCH_SIZE)), 1)
+    processed = 0
+    errors = 0
+
+    while processed < batch_size and current_date >= end_date:
+        property_id = property_ids[property_index]
+        date_str = legacy.format_entrata_date(current_date)
+
+        try:
+            print(f"Historical backfill syncing property {property_id} for {date_str}")
+            sync_property_date(property_id, date_str)
+            processed += 1
+        except Exception as error:
+            errors += 1
+            print(f"Historical backfill error on property {property_id} for {date_str}: {error}")
+            queue_retry_job("historical_backfill", property_id, date_str, str(error))
+
+        property_index += 1
+        if property_index >= len(property_ids):
+            property_index = 0
+            current_date -= datetime.timedelta(days=1)
+        time.sleep(2)
+
+    completed = current_date < end_date
+    set_sync_state(
+        "entrata_historical_backfill",
+        {
+            **state,
+            "current_date": legacy.serialize_date(current_date) if not completed else None,
+            "end_date": legacy.serialize_date(end_date),
+            "next_property_index": property_index,
+            "completed": completed,
+            "active": not completed,
+            "last_processed_at": _iso_now(),
+            "last_processed_count": processed,
+            "last_error_count": errors,
+            "last_summary": (
+                f"processed={processed}, errors={errors}, "
+                f"current_date={legacy.serialize_date(current_date) if not completed else None}, "
+                f"next_property_index={property_index}"
+            ),
+        },
+    )
+    return (
+        f"Historical backfill processed={processed}, errors={errors}, "
+        f"current_date={legacy.serialize_date(current_date) if not completed else None}, "
+        f"next_property_index={property_index}, completed={completed}"
+    )
+
+
 def process_daily_refresh_batch() -> str:
     run_date = legacy.get_local_now().strftime("%Y-%m-%d")
     target_offsets = list(range(1, max(legacy.DAILY_REFRESH_LOOKBACK_DAYS, 1) + 1))
@@ -1426,24 +1506,30 @@ def trigger_entrata_backfill(days: int = 30, start_from: int = 0, property_ids: 
 
 
 def run_named_cron_job(job_name: str) -> dict[str, Any]:
-    today_str = datetime.datetime.now().strftime("%m/%d/%Y")
+    today_str = legacy.get_local_now().strftime("%m/%d/%Y")
     property_ids = legacy.get_automation_property_ids()
     default_property_id = int(legacy.ENTRATA_PROPERTY_ID)
 
     if job_name == "fetch_daily_entrata_leads":
-        result = legacy.fetch_leads_for_date(default_property_id, today_str)
+        legacy.fetch_leads_for_date(default_property_id, today_str)
+        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "leads"}
     elif job_name == "fetch_daily_entrata_events":
-        result = legacy.fetch_events_for_date(default_property_id, today_str)
+        legacy.fetch_events_for_date(default_property_id, today_str)
+        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "events"}
     elif job_name == "fetch_daily_entrata_leases":
-        result = legacy.fetch_leases_for_date(default_property_id, today_str)
+        legacy.fetch_leases_for_date(default_property_id, today_str)
+        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "leases"}
     elif job_name == "fetch_daily_entrata_invoices":
-        result = legacy.fetch_invoices_for_date(default_property_id, today_str)
+        legacy.fetch_invoices_for_date(default_property_id, today_str)
+        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "invoices"}
     elif job_name == "fetch_daily_entrata_availability":
         result = {
             "status": "skipped",
+            "scope": "default_property_canary",
             "reason": "Legacy /v1/properties availability sync is disabled on Render; use propertyunits availability pricing snapshot instead.",
             "property_id": default_property_id,
             "date": today_str,
+            "dataset": "availability",
         }
     elif job_name == "sync_daily_entrata_specials":
         result = []
@@ -1501,6 +1587,8 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
         result = [process_roi_pipeline_job("roi_ytd_backfill"), process_roi_pipeline_job("roi_daily_pipeline")]
     elif job_name == "run_background_entrata_backfill":
         result = process_background_backfill_batch()
+    elif job_name == "run_historical_entrata_backfill":
+        result = process_historical_backfill_batch()
     elif job_name == "run_daily_entrata_refresh":
         result = process_daily_refresh_batch()
     elif job_name == "run_entrata_retry_queue":
