@@ -5076,12 +5076,6 @@ def fetch_daily_entrata_invoices_scheduled(event: scheduler_fn.ScheduledEvent) -
     today_str = datetime.datetime.now().strftime("%m/%d/%Y")
     fetch_invoices_for_date(ENTRATA_PROPERTY_ID, today_str)
 
-@scheduler_fn.on_schedule(schedule="0 2 * * *", timezone="America/Denver", secrets=["ENTRATA_API_KEY", "ENTRATA_API_KEY_MULTIFAMILY"])
-def fetch_daily_entrata_availability_scheduled(event: scheduler_fn.ScheduledEvent) -> None:
-    init_firebase()
-    today_str = datetime.datetime.now().strftime("%m/%d/%Y")
-    fetch_availability_for_date(ENTRATA_PROPERTY_ID, today_str)
-
 @scheduler_fn.on_schedule(schedule="10 */4 * * *", timezone="America/Denver", secrets=["ENTRATA_API_KEY", "ENTRATA_API_KEY_MULTIFAMILY"])
 def sync_daily_entrata_specials_scheduled(event: scheduler_fn.ScheduledEvent) -> None:
     init_firebase()

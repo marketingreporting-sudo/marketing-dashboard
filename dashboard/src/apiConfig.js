@@ -1,18 +1,17 @@
 const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 
-const normalizeKnownUrlTypos = (value) =>
-  trimTrailingSlash(value).replace('marketing-dashbaord.onrender.com', 'marketing-dashboard.onrender.com');
+const normalizeApiUrl = (value) => trimTrailingSlash(value);
 
-export const RENDER_API_BASE_URL = normalizeKnownUrlTypos(import.meta.env.VITE_RENDER_API_BASE_URL || '');
+export const RENDER_API_BASE_URL = normalizeApiUrl(import.meta.env.VITE_RENDER_API_BASE_URL || '');
 
 const resolveApiUrl = (explicitUrl, renderPath, productionFallback = '') => {
   if (explicitUrl) {
-    return normalizeKnownUrlTypos(explicitUrl);
+    return normalizeApiUrl(explicitUrl);
   }
   if (RENDER_API_BASE_URL) {
     return `${RENDER_API_BASE_URL}${renderPath}`;
   }
-  return normalizeKnownUrlTypos(productionFallback);
+  return normalizeApiUrl(productionFallback);
 };
 
 export const ROI_PIPELINE_STATUS_URL = resolveApiUrl(
