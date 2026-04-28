@@ -111,8 +111,6 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
-    parent_ids = [row["id"] for row in parent_rows if row.get("id")]
-    latest_parent_id = parent_ids[-1] if parent_ids else None
     latest_activity_date = parent_rows[-1].get("activity_date") if parent_rows else None
 
     leads_rows = _fetch_json(
@@ -159,20 +157,6 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
-    availability_rows = (
-        _fetch_json(
-            "property_availability",
-            [
-                ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
-                ("property_snapshot_id", f"eq.{latest_parent_id}"),
-                ("order", "activity_date.asc"),
-            ],
-            headers=headers,
-        )
-        if latest_parent_id
-        else []
-    )
-
     specials_rows = _fetch_json(
         "property_specials_current",
         [
@@ -191,6 +175,15 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
+    availability_pricing_snapshot = _shape_current_snapshot(
+        pricing_rows[0] if pricing_rows else None,
+        fallback_array_keys=("floorplans", "units"),
+    )
+    availability_snapshot_date = (
+        availability_pricing_snapshot.get("last_synced_at")
+        or availability_pricing_snapshot.get("last_changed_at")
+        or latest_activity_date
+    )
 
     return {
         "property_id": property_id,
@@ -204,23 +197,20 @@ def get_property_reporting_overview_payload(
         "lead_items": [_shape_child_payload(row) for row in leads_rows],
         "event_items": [_shape_child_payload(row) for row in events_rows],
         "invoice_items": [_shape_child_payload(row) for row in invoice_rows],
-        "availability_items": [dict(row.get("raw_data") or {}) for row in availability_rows],
-        "latest_availability_date": latest_activity_date,
+        "availability_items": [],
+        "latest_availability_date": availability_snapshot_date,
         "specials_snapshot": _shape_current_snapshot(
             specials_rows[0] if specials_rows else None,
             fallback_array_keys=("specials",),
         ),
-        "availability_pricing_snapshot": _shape_current_snapshot(
-            pricing_rows[0] if pricing_rows else None,
-            fallback_array_keys=("floorplans", "units"),
-        ),
+        "availability_pricing_snapshot": availability_pricing_snapshot,
         "roi_daily_items": [_shape_roi_daily_row(row) for row in roi_rows],
         "counts": {
             "parent_docs": len(parent_rows),
             "lead_items": len(leads_rows),
             "event_items": len(events_rows),
             "invoice_items": len(invoice_rows),
-            "availability_items": len(availability_rows),
+            "availability_items": 0,
             "roi_daily_items": len(roi_rows),
         },
         "source": "supabase",

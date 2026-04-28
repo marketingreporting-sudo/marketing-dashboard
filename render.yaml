@@ -39,13 +39,6 @@ services:
     startCommand: python render_cron.py fetch_daily_entrata_invoices
     schedule: "15 9 * * *"
   - type: cron
-    name: data-analysis-fetch-daily-entrata-availability
-    env: python
-    rootDir: functions
-    buildCommand: pip install -r requirements-render.txt
-    startCommand: python render_cron.py fetch_daily_entrata_availability
-    schedule: "18 9 * * *"
-  - type: cron
     name: data-analysis-sync-daily-entrata-specials
     env: python
     rootDir: functions

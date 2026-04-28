@@ -97,7 +97,7 @@ This makes `property_daily_snapshots`, `property_leases`, `property_roi_daily`, 
 1. Create the Supabase schema from `supabase/firestore_first_pass_schema.sql`
 2. Load top-level `properties`
 3. Load `property_daily_snapshots`
-4. Load `property_leads`, `property_events`, `property_invoices`, and `property_availability`
+4. Load `property_leads`, `property_events`, and `property_invoices`
 5. Load per-property singleton tables:
    - `property_specials_current`
    - `property_availability_snapshots`

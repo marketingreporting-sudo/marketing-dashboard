@@ -205,13 +205,6 @@ CRON_JOB_SPECS = (
         render_command="python render_cron.py fetch_daily_entrata_invoices",
     ),
     CronJobSpec(
-        name="fetch_daily_entrata_availability",
-        schedule="18 9 * * * UTC",
-        firebase_handler="fetch_daily_entrata_availability_scheduled",
-        purpose="Default-property legacy availability canary; Render skips this in favor of propertyunits availability/pricing snapshots.",
-        render_command="python render_cron.py fetch_daily_entrata_availability",
-    ),
-    CronJobSpec(
         name="sync_daily_entrata_specials",
         schedule="10 */4 * * * UTC",
         firebase_handler="sync_daily_entrata_specials_scheduled",

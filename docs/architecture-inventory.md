@@ -77,7 +77,6 @@ These are the cron-like jobs that should later become Render Cron Jobs or worker
 - `fetch_daily_entrata_events_scheduled`
 - `fetch_daily_entrata_leases_scheduled`
 - `fetch_daily_entrata_invoices_scheduled`
-- `fetch_daily_entrata_availability_scheduled`
 - `sync_daily_entrata_specials_scheduled`
 - `sync_daily_entrata_units_availability_pricing_scheduled`
 - `sync_daily_entrata_lease_attribution_scheduled`

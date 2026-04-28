@@ -61,17 +61,6 @@ import {
   BarChart, Bar, LineChart, Line
 } from 'recharts';
 
-const FALLBACK_AVAILABILITY_PRICE_KEYS = [
-  'bestPrice',
-  'bestprice',
-  'effectiveRent',
-  'effective_rent',
-  'rent',
-  'marketRent',
-  'price',
-  'unitRent'
-];
-
 const PERFORMANCE_MARKETING_GL_CODES = new Set(['5300-0030', '5300-0210']);
 const ALL_MARKETING_GL_CODES = new Set([
   '5300-0010',
@@ -604,14 +593,6 @@ const getLeadCohortIdentifiers = (lead) => {
   ]
     .filter((value) => value != null && value !== '')
     .map((value) => String(value));
-};
-
-const getAvailabilityPrice = (unit) => {
-  for (const key of FALLBACK_AVAILABILITY_PRICE_KEYS) {
-    const parsed = parseNumber(unit?.[key]);
-    if (parsed != null) return parsed;
-  }
-  return null;
 };
 
 const getAvailabilityStatus = (unit) => {
@@ -1175,7 +1156,6 @@ const DashboardApp = ({
   const [leadItems, setLeadItems] = useState([]);
   const [eventItems, setEventItems] = useState([]);
   const [invoiceItems, setInvoiceItems] = useState([]);
-  const [availabilityItems, setAvailabilityItems] = useState([]);
   const [availabilityPricingSnapshot, setAvailabilityPricingSnapshot] = useState(null);
   const [specialsSnapshot, setSpecialsSnapshot] = useState(null);
   const [latestAvailabilityDate, setLatestAvailabilityDate] = useState(null);
@@ -1435,7 +1415,6 @@ const DashboardApp = ({
         setLeadItems([]);
         setEventItems([]);
         setInvoiceItems([]);
-        setAvailabilityItems([]);
         setAvailabilityPricingSnapshot(null);
         setSpecialsSnapshot(null);
         setLatestAvailabilityDate(null);
@@ -1453,7 +1432,6 @@ const DashboardApp = ({
         setLeadItems([]);
         setEventItems([]);
         setInvoiceItems([]);
-        setAvailabilityItems([]);
         setAvailabilityPricingSnapshot(null);
         setSpecialsSnapshot(null);
         setLatestAvailabilityDate(null);
@@ -1490,7 +1468,6 @@ const DashboardApp = ({
         setLeadItems(Array.isArray(payload.lead_items) ? payload.lead_items : []);
         setEventItems(Array.isArray(payload.event_items) ? payload.event_items : []);
         setInvoiceItems(Array.isArray(payload.invoice_items) ? payload.invoice_items : []);
-        setAvailabilityItems(Array.isArray(payload.availability_items) ? payload.availability_items : []);
         setAvailabilityPricingSnapshot(payload.availability_pricing_snapshot || null);
         setSpecialsSnapshot(payload.specials_snapshot || null);
         setLatestAvailabilityDate(payload.latest_availability_date || null);
@@ -1507,7 +1484,6 @@ const DashboardApp = ({
           setLeadItems([]);
           setEventItems([]);
           setInvoiceItems([]);
-          setAvailabilityItems([]);
           setAvailabilityPricingSnapshot(null);
           setSpecialsSnapshot(null);
           setLatestAvailabilityDate(null);
@@ -2227,14 +2203,11 @@ const DashboardApp = ({
   }, [availabilityPricingSnapshot]);
 
   const availabilitySummary = useMemo(() => {
-    const units = propertyUnitItems.length > 0 ? propertyUnitItems.flatMap(getPropertyUnitSpaces) : (availabilityItems || []);
+    const units = propertyUnitItems.flatMap(getPropertyUnitSpaces);
     const pricedUnits = units
       .map((unit) => {
-        if (propertyUnitItems.length > 0) {
-          const range = getPropertyUnitPriceRange(unit);
-          return range.min ?? range.max;
-        }
-        return getAvailabilityPrice(unit);
+        const range = getPropertyUnitPriceRange(unit);
+        return range.min ?? range.max;
       })
       .filter((value) => value != null);
     const availableUnits = units.filter((unit) => {
@@ -2255,7 +2228,7 @@ const DashboardApp = ({
       maxPrice: pricedUnits.length ? Math.max(...pricedUnits) : null,
       nextAvailableDate: datedUnits[0] || null,
     };
-  }, [availabilityItems, propertyUnitItems, floorplanItems]);
+  }, [propertyUnitItems, floorplanItems]);
 
   const floorplanTableRows = useMemo(() => {
     return [...floorplanItems]
@@ -2294,19 +2267,8 @@ const DashboardApp = ({
         .slice(0, 14);
     }
 
-    return [...availabilityItems]
-      .sort((a, b) => {
-        const statusA = String(getAvailabilityStatus(a)).toLowerCase();
-        const statusB = String(getAvailabilityStatus(b)).toLowerCase();
-        const availableA = statusA.includes('available') ? 0 : 1;
-        const availableB = statusB.includes('available') ? 0 : 1;
-        if (availableA !== availableB) return availableA - availableB;
-        const priceA = getAvailabilityPrice(a) ?? Number.MAX_SAFE_INTEGER;
-        const priceB = getAvailabilityPrice(b) ?? Number.MAX_SAFE_INTEGER;
-        return priceA - priceB;
-      })
-      .slice(0, 14);
-  }, [availabilityItems, propertyUnitItems]);
+    return [];
+  }, [propertyUnitItems]);
 
   const roiTotals = useMemo(() => {
     const totals = {
@@ -3097,7 +3059,7 @@ const DashboardApp = ({
           <div className="property-info-panel__eyebrow">Pricing + Availability</div>
           <div className="property-info-panel__title">Latest unit snapshot</div>
           <div className="property-info-panel__subhead">
-            Prioritizing the dedicated `getUnitsAvailabilityAndPricing` snapshot when available, with the older raw availability pull as a fallback.
+            Stored from the dedicated `getUnitsAvailabilityAndPricing` availability/pricing snapshot.
           </div>
           {floorplanTableRows.length > 0 && (
             <div className="property-info-table">
@@ -3131,7 +3093,7 @@ const DashboardApp = ({
           {propertyInfoLoading ? (
             <div className="property-info-empty">Loading availability…</div>
           ) : unitTableRows.length === 0 ? (
-            <div className="property-info-empty">No availability rows were found in this date window.</div>
+            <div className="property-info-empty">No availability snapshot is stored for this property yet.</div>
           ) : (
             <div className="property-info-table">
               <div className="property-info-table__head">Unit</div>
@@ -3151,12 +3113,10 @@ const DashboardApp = ({
                     {unit._unitAttrs?.OccupancyType || unit.bedCount || unit.beds || '—'} / {unit.bathCount || unit.baths || '—'}
                   </div>
                   <div className="property-info-table__cell">
-                    {propertyUnitItems.length > 0
-                      ? (() => {
-                          const range = getPropertyUnitPriceRange(unit);
-                          return range.min != null ? `${formatCurrency(range.min)} - ${formatCurrency(range.max ?? range.min)}` : '—';
-                        })()
-                      : (getAvailabilityPrice(unit) != null ? formatCurrency(getAvailabilityPrice(unit)) : '—')}
+                    {(() => {
+                      const range = getPropertyUnitPriceRange(unit);
+                      return range.min != null ? `${formatCurrency(range.min)} - ${formatCurrency(range.max ?? range.min)}` : '—';
+                    })()}
                   </div>
                   <div className="property-info-table__cell">
                     {getAvailabilityStatus(unit)}
