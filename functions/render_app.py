@@ -35,7 +35,7 @@ from render_supabase_admin_access import (
 )
 from render_supabase_reporting import get_property_reporting_overview_summary
 from render_supabase_roi import get_supabase_roi_pipeline_status_summary
-from render_supabase_sync_state import get_supabase_sync_state_summary
+from render_supabase_sync_state import get_supabase_sync_health_summary, get_supabase_sync_state_summary
 from render_supabase_validation import (
     SupabaseValidationConfigError,
     get_supabase_migration_validation_summary,
@@ -166,6 +166,19 @@ def create_app() -> Flask:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
 
         payload = get_supabase_sync_state_summary(access_token=access_token)
+        status_code = 200 if payload.get("status") == "ok" else 503
+        return jsonify(payload), status_code
+
+    @app.get("/api/admin/sync-health")
+    def admin_sync_health():
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        payload = get_supabase_sync_health_summary()
         status_code = 200 if payload.get("status") == "ok" else 503
         return jsonify(payload), status_code
 

@@ -84,6 +84,7 @@ For now:
 The first real staging read path now available is:
 
 - `GET /api/entrata/sync-state`
+- `GET /api/admin/sync-health`
 - `GET /api/roi/pipeline-status`
 - `GET|POST|OPTIONS /api/analytics/ga4`
 - `GET|POST|OPTIONS /api/analytics/google-ads`

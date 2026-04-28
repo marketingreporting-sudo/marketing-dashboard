@@ -87,6 +87,7 @@ The staged adapter now includes live staging routes backed by Supabase:
 
 - `GET /api/staging/supabase/migration-validation`
 - `GET /api/entrata/sync-state`
+- `GET /api/admin/sync-health`
 - `GET /api/roi/pipeline-status`
 - `POST /api/cron/run`
 - `POST /api/entrata/backfill`

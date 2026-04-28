@@ -90,6 +90,13 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Read Entrata background sync state and retry queue preview.",
     ),
     HttpEndpointSpec(
+        route="/api/admin/sync-health",
+        methods=("GET",),
+        firebase_handler="render_only",
+        purpose="Read admin sync health summary for Entrata refresh, retries, and key table freshness.",
+        render_handler="get_supabase_sync_health_summary",
+    ),
+    HttpEndpointSpec(
         route="/api/roi/pipeline-status",
         methods=("GET",),
         firebase_handler="get_roi_pipeline_status",
