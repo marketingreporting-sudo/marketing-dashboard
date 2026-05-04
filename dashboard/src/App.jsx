@@ -3,6 +3,7 @@ import {
   ADMIN_ACCESS_USERS_URL,
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
+  LOCAL_FALCON_DASHBOARD_URL,
   META_ADS_DASHBOARD_URL,
   PROPERTY_REPORTING_OVERVIEW_URL,
   RENDER_API_BASE_URL,
@@ -115,6 +116,7 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'google-ads', title: 'Google Ads', eyebrow: 'Paid Search' },
   { id: 'ga4', title: 'Google Analytics', eyebrow: 'Behavior + Demand' },
   { id: 'opiniion', title: 'Opiniion', eyebrow: 'Resident Sentiment' },
+  { id: 'local-falcon', title: 'Local Falcon', eyebrow: 'Local SEO' },
   { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
 ];
 const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
@@ -1134,6 +1136,7 @@ const DashboardApp = ({
   const [googleAdsLoading, setGoogleAdsLoading] = useState(true);
   const [metaAdsLoading, setMetaAdsLoading] = useState(true);
   const [reputationLoading, setReputationLoading] = useState(true);
+  const [localFalconLoading, setLocalFalconLoading] = useState(true);
   const [metaAdsAttributionMode, setMetaAdsAttributionMode] = useState(savedWorkspaceState.metaAdsAttributionMode);
   const [websiteManagerLoading, setWebsiteManagerLoading] = useState(true);
   const [websiteManagerSaving, setWebsiteManagerSaving] = useState(false);
@@ -1185,6 +1188,8 @@ const DashboardApp = ({
   const [metaAdsError, setMetaAdsError] = useState(null);
   const [reputationData, setReputationData] = useState(null);
   const [reputationError, setReputationError] = useState(null);
+  const [localFalconData, setLocalFalconData] = useState(null);
+  const [localFalconError, setLocalFalconError] = useState(null);
   const [adminAccessLoading, setAdminAccessLoading] = useState(false);
   const [adminAccessError, setAdminAccessError] = useState(null);
   const [adminAccessNotice, setAdminAccessNotice] = useState(null);
@@ -1957,6 +1962,68 @@ const DashboardApp = ({
     };
 
     loadReputationData();
+    return () => controller.abort();
+  }, [rangeDates, selectedPropertyId, selectedProperty]);
+
+  useEffect(() => {
+    if (!selectedPropertyId) {
+      setLocalFalconData(null);
+      setLocalFalconError(null);
+      setLocalFalconLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadLocalFalconData = async () => {
+      setLocalFalconLoading(true);
+      setLocalFalconError(null);
+
+      try {
+        if (!LOCAL_FALCON_DASHBOARD_URL) {
+          throw new Error('Local Falcon endpoint is not configured. Set VITE_LOCAL_FALCON_DASHBOARD_URL to enable local SEO reporting.');
+        }
+
+        const params = new URLSearchParams({
+          property_id: selectedPropertyId,
+          property_name: selectedProperty?.name || '',
+          property_city: selectedProperty?.city || '',
+          property_state: selectedProperty?.state || '',
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end)
+        });
+        if (selectedProperty?.localFalconPlaceId) {
+          params.set('place_id', selectedProperty.localFalconPlaceId);
+        }
+        if (selectedProperty?.localFalconCampaignKey) {
+          params.set('campaign_key', selectedProperty.localFalconCampaignKey);
+        }
+        if (selectedProperty?.localFalconKeyword) {
+          params.set('keyword', selectedProperty.localFalconKeyword);
+        }
+        if (selectedProperty?.localFalconPlatform) {
+          params.set('platform', selectedProperty.localFalconPlatform);
+        }
+
+        const response = await authFetch(`${LOCAL_FALCON_DASHBOARD_URL}?${params.toString()}`, {
+          signal: controller.signal
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || `Local Falcon fetch failed: ${response.status}`);
+        }
+        setLocalFalconData(payload);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Local Falcon dashboard fetch failed', error);
+        setLocalFalconData(null);
+        setLocalFalconError(error.message || 'Unable to load Local Falcon data. The property may need a Local Falcon place ID mapping.');
+      } finally {
+        setLocalFalconLoading(false);
+      }
+    };
+
+    loadLocalFalconData();
     return () => controller.abort();
   }, [rangeDates, selectedPropertyId, selectedProperty]);
 
@@ -2915,7 +2982,13 @@ const DashboardApp = ({
   const googleAdsStatusMessage = normalizeAnalyticsError(googleAdsError);
   const metaAdsStatusMessage = normalizeAnalyticsError(metaAdsError);
   const reputationStatusMessage = normalizeAnalyticsError(reputationError);
+  const localFalconStatusMessage = normalizeAnalyticsError(localFalconError);
   const ga4Blocked = Boolean(ga4StatusMessage && !ga4Data);
+  const localFalconOverview = localFalconData?.Overview || null;
+  const localFalconKeywords = localFalconData?.Keywords || [];
+  const localFalconReports = localFalconData?.Reports || [];
+  const localFalconLocation = localFalconData?.Location || null;
+  const localFalconLatestReport = localFalconReports[0] || null;
   const reportingPanelSummaries = useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
@@ -2924,6 +2997,7 @@ const DashboardApp = ({
     'google-ads': googleAdsLoading ? 'Loading paid search metrics' : googleAdsStatusMessage ? 'Google Ads connection needs attention' : `${formatNumber(googleAdsOverview?.clicks)} clicks | ${formatCurrency(googleAdsOverview?.cost)} spend`,
     ga4: ga4Loading ? 'Loading analytics metrics' : ga4Blocked ? 'GA4 access required' : `${formatNumber(ga4Sessions)} sessions | ${formatNumber(ga4EventTotal)} tracked events`,
     opiniion: reputationLoading ? 'Loading reputation metrics' : `${formatNumber(reputationReviewCount)} reviews | ${formatNumber(reputationAverageRating, 2)} avg rating`,
+    'local-falcon': localFalconLoading ? 'Loading local SEO metrics' : localFalconStatusMessage ? 'Local Falcon mapping needed' : `${formatNumber(localFalconOverview?.avgSolv, 2)} SoLV | ${formatNumber(localFalconOverview?.scanCount)} scans`,
     'meta-ads': metaAdsLoading ? 'Loading paid social metrics' : `${formatNumber(metaAdsOverview?.clicks)} clicks | ${formatCurrency(metaAdsOverview?.spend)} spend`
   }), [
     blendedRoi,
@@ -2935,6 +3009,9 @@ const DashboardApp = ({
     googleAdsLoading,
     googleAdsOverview,
     googleAdsStatusMessage,
+    localFalconLoading,
+    localFalconOverview,
+    localFalconStatusMessage,
     marketingSpendBreakdown.length,
     metaAdsLoading,
     metaAdsOverview,
@@ -4711,6 +4788,54 @@ const DashboardApp = ({
                   ))}
                   {reputationSummary.length === 0 && <div className="reports-empty">{reputationStatusMessage || 'No Opiniion summary metrics are available for this property.'}</div>}
                 </div>
+              </section>
+            )}
+
+            {activeReportingPanels.some((panel) => panel.id === 'local-falcon') && (
+              <section id="reporting-panel-local-falcon" className="reports-panel">
+                <div className="reports-panel__eyebrow">Local SEO</div>
+                <div className="reports-panel__title">Local Falcon Metrics</div>
+                <div className="reports-panel__grid reports-panel__grid--three">
+                  <div className="reports-stat"><span>Share of Local Voice</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgSolv, 2)}</strong><small>{localFalconLoading ? 'Loading…' : `${formatNumber(localFalconOverview?.scanCount)} scans in range`}</small></div>
+                  <div className="reports-stat"><span>Average Rank</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgArp, 2)}</strong><small>{localFalconLoading ? 'Loading…' : `${formatNumber(localFalconOverview?.keywordCount)} tracked keywords`}</small></div>
+                  <div className="reports-stat"><span>Top Rank Position</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgAtrp, 2)}</strong><small>{localFalconStatusMessage || localFalconOverview?.lastRunDate || localFalconData?.Status?.message || 'Latest Local Falcon scan set'}</small></div>
+                </div>
+                <div className="reports-list">
+                  {localFalconKeywords.slice(0, 5).map((item) => (
+                    <div key={item.keyword || item.lastScanReportKey} className="reports-list__row">
+                      <div>
+                        <strong>{item.keyword || 'Tracked keyword'}</strong>
+                        <small>SoLV {formatNumber(item.solv, 2)} | ARP {formatNumber(item.arp, 2)} | {formatNumber(item.scanCount)} scans</small>
+                      </div>
+                      <div>{item.solvMove != null ? `${formatSignedPercent(item.solvMove / 100, 1)} SoLV` : '—'}</div>
+                    </div>
+                  ))}
+                  {localFalconKeywords.length === 0 && localFalconReports.slice(0, 5).map((item) => (
+                    <div key={item.reportKey || item.keyword} className="reports-list__row">
+                      <div>
+                        <strong>{item.keyword || 'Local Falcon scan'}</strong>
+                        <small>{item.date || 'Latest scan'} | {item.gridSize || 'Grid'} {item.radius ? `${item.radius}${item.measurement || ''}` : ''}</small>
+                      </div>
+                      <div>{formatNumber(item.solv, 2)} SoLV</div>
+                    </div>
+                  ))}
+                  {localFalconKeywords.length === 0 && localFalconReports.length === 0 && <div className="reports-empty">{localFalconStatusMessage || 'No Local Falcon reports are available for this property and date range.'}</div>}
+                </div>
+                {(localFalconLatestReport?.publicUrl || localFalconLatestReport?.heatmap || localFalconOverview?.publicUrl || localFalconLocation?.placeId) && (
+                  <div className="reports-list" style={{ marginTop: '0.9rem' }}>
+                    <div className="reports-list__row">
+                      <div>
+                        <strong>{localFalconLocation?.match?.name || localFalconLocation?.name || 'Matched Local Falcon location'}</strong>
+                        <small>{localFalconLocation?.placeId || 'Place ID pending'}</small>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {(localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl) && <a href={localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl} target="_blank" rel="noreferrer">Open report</a>}
+                        {localFalconLatestReport?.heatmap && <a href={localFalconLatestReport.heatmap} target="_blank" rel="noreferrer">Heatmap</a>}
+                        {(localFalconLatestReport?.pdf || localFalconOverview?.pdf) && <a href={localFalconLatestReport?.pdf || localFalconOverview?.pdf} target="_blank" rel="noreferrer">PDF</a>}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 

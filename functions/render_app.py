@@ -11,8 +11,10 @@ from render_auth import (
 )
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
 from render_runtime import (
+    build_local_falcon_location_match_summary,
     fetch_and_store_ga4_dashboard,
     fetch_and_store_google_ads_dashboard,
+    fetch_and_store_local_falcon_dashboard,
     fetch_and_store_meta_ads_dashboard,
     fetch_and_store_reputation_dashboard,
     install_render_storage_overrides,
@@ -401,6 +403,89 @@ def create_app() -> Flask:
         except RenderAuthError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 401
+        except Exception as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 500
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/analytics/local-falcon", methods=["GET", "POST", "OPTIONS"])
+    def staged_local_falcon_dashboard():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        place_id = request.args.get("place_id") or req_json.get("place_id")
+        property_name = request.args.get("property_name") or req_json.get("property_name")
+        property_city = request.args.get("property_city") or req_json.get("property_city")
+        property_state = request.args.get("property_state") or req_json.get("property_state")
+        campaign_key = request.args.get("campaign_key") or req_json.get("campaign_key")
+        keyword = request.args.get("keyword") or req_json.get("keyword")
+        platform = request.args.get("platform") or req_json.get("platform") or "google"
+        start_date_value = request.args.get("start_date") or req_json.get("start_date")
+        end_date_value = request.args.get("end_date") or req_json.get("end_date")
+        default_days = request.args.get("days") or req_json.get("days") or 90
+        if not property_id:
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        try:
+            require_property_permission(str(property_id), "analytics.view")
+            payload = fetch_and_store_local_falcon_dashboard(
+                property_id=str(property_id),
+                place_id=place_id,
+                property_name=property_name,
+                property_city=property_city,
+                property_state=property_state,
+                campaign_key=campaign_key,
+                keyword=keyword,
+                platform=platform,
+                start_date_value=start_date_value,
+                end_date_value=end_date_value,
+                default_days=int(default_days),
+            )
+            status_code = 200
+        except ValueError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 400
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
+        except Exception as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 500
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/local-falcon/location-matches", methods=["GET", "POST", "OPTIONS"])
+    def admin_local_falcon_location_matches():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        req_json = request.get_json(silent=True) or {}
+        properties = req_json.get("properties") if isinstance(req_json.get("properties"), list) else None
+        limit = int(request.args.get("limit") or req_json.get("limit") or 100)
+        try:
+            payload = build_local_falcon_location_match_summary(properties=properties, limit=limit)
+            status_code = 200
+        except ValueError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 400
         except Exception as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 500

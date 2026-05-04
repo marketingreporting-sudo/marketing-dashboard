@@ -107,6 +107,391 @@ def _iso_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
+LOCAL_FALCON_API_BASE_URL = "https://api.localfalcon.com"
+
+
+def _parse_local_falcon_number(value: Any) -> float | None:
+    if value in (None, "", False):
+        return None
+    try:
+        return float(str(value).replace("+", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_local_falcon_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    parsed = legacy.parse_iso_date(value)
+    if not parsed:
+        return None
+    return parsed.strftime("%m/%d/%Y")
+
+
+def _local_falcon_post(path: str, form: dict[str, Any] | None = None) -> dict[str, Any]:
+    api_key = legacy.os.environ.get("LOCAL_FALCON_API_KEY")
+    if not api_key:
+        raise ValueError("LOCAL_FALCON_API_KEY must be configured in Render.")
+
+    payload = {"api_key": api_key}
+    for key, value in (form or {}).items():
+        if value not in (None, "", [], {}):
+            payload[key] = value
+
+    request = Request(
+        f"{LOCAL_FALCON_API_BASE_URL}{path}",
+        data=urlencode(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")[:1000]
+        raise ValueError(f"Local Falcon API request failed for {path}: {error.code} {body}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Local Falcon API request for {path} did not return JSON.") from error
+
+
+def _local_falcon_data(response: dict[str, Any], path: str) -> dict[str, Any]:
+    if not response.get("success"):
+        raise ValueError(f"Local Falcon API request failed for {path}: {response.get('message') or response.get('code_desc') or 'Unknown error'}")
+    data = response.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def _score_local_falcon_location(location: dict[str, Any], property_name: str | None, property_city: str | None, property_state: str | None) -> int:
+    haystack = " ".join(
+        str(location.get(key) or "").lower()
+        for key in ("name", "address", "store_code")
+    )
+    score = 0
+    if property_name:
+        name_tokens = [token for token in legacy.normalize_string(property_name).lower().replace("-", " ").split() if len(token) > 2]
+        score += sum(3 for token in name_tokens if token in haystack)
+        if legacy.normalize_string(property_name).lower() in haystack:
+            score += 10
+    if property_city and property_city.lower() in haystack:
+        score += 6
+    if property_state and property_state.lower() in haystack:
+        score += 2
+    return score
+
+
+def _resolve_local_falcon_location(
+    place_id: str | None,
+    property_name: str | None,
+    property_city: str | None,
+    property_state: str | None,
+) -> tuple[str | None, dict[str, Any] | None, list[dict[str, Any]]]:
+    if place_id:
+        return place_id, None, []
+
+    query = " ".join(part for part in (property_name, property_city, property_state) if part)
+    if not query:
+        return None, None, []
+
+    data = _local_falcon_data(
+        _local_falcon_post("/v1/locations/", {"query": query, "limit": 10}),
+        "/v1/locations/",
+    )
+    candidates = data.get("locations") if isinstance(data.get("locations"), list) else []
+    ranked = sorted(
+        candidates,
+        key=lambda item: _score_local_falcon_location(item, property_name, property_city, property_state),
+        reverse=True,
+    )
+    match = ranked[0] if ranked else None
+    return (match.get("place_id") if match else None), match, ranked[:5]
+
+
+def list_local_falcon_connected_locations(limit: int = 100) -> list[dict[str, Any]]:
+    locations: list[dict[str, Any]] = []
+    next_token = None
+    page_count = 0
+    while True:
+        page_count += 1
+        data = _local_falcon_data(
+            _local_falcon_post(
+                "/v1/locations/",
+                {
+                    "limit": max(1, min(limit, 100)),
+                    "next_token": next_token,
+                },
+            ),
+            "/v1/locations/",
+        )
+        page_locations = data.get("locations") if isinstance(data.get("locations"), list) else []
+        locations.extend(item for item in page_locations if isinstance(item, dict))
+        next_token = data.get("next_token")
+        if not next_token or page_count >= 50:
+            break
+    return locations
+
+
+def _normalize_property_match_input(item: dict[str, Any]) -> dict[str, str]:
+    raw_data = item.get("raw_data") if isinstance(item.get("raw_data"), dict) else {}
+    return {
+        "propertyId": str(item.get("propertyId") or item.get("property_id") or item.get("id") or ""),
+        "name": str(item.get("name") or raw_data.get("name") or ""),
+        "city": str(item.get("city") or raw_data.get("city") or ""),
+        "state": str(item.get("state") or raw_data.get("state") or ""),
+        "localFalconPlaceId": str(item.get("localFalconPlaceId") or raw_data.get("localFalconPlaceId") or ""),
+    }
+
+
+def build_local_falcon_location_match_summary(properties: list[dict[str, Any]] | None = None, limit: int = 100) -> dict[str, Any]:
+    if properties is None:
+        rows = _fetch_json(
+            "properties",
+            [
+                ("select", "id,name,raw_data"),
+                ("order", "name.asc"),
+            ],
+        )
+        properties = rows if isinstance(rows, list) else []
+
+    normalized_properties = [
+        _normalize_property_match_input(item)
+        for item in properties
+        if isinstance(item, dict)
+    ]
+    locations = list_local_falcon_connected_locations(limit=limit)
+    matches = []
+    for property_item in normalized_properties:
+        ranked = sorted(
+            locations,
+            key=lambda location: _score_local_falcon_location(
+                location,
+                property_item.get("name"),
+                property_item.get("city"),
+                property_item.get("state"),
+            ),
+            reverse=True,
+        )
+        candidates = []
+        for location in ranked[:5]:
+            score = _score_local_falcon_location(
+                location,
+                property_item.get("name"),
+                property_item.get("city"),
+                property_item.get("state"),
+            )
+            candidates.append(
+                {
+                    "score": score,
+                    "placeId": location.get("place_id"),
+                    "name": location.get("name"),
+                    "address": location.get("address"),
+                    "storeCode": location.get("store_code"),
+                    "rating": location.get("rating"),
+                    "reviews": location.get("reviews"),
+                    "platform": location.get("platform"),
+                }
+            )
+        best = candidates[0] if candidates else None
+        matches.append(
+            {
+                "propertyId": property_item.get("propertyId"),
+                "propertyName": property_item.get("name"),
+                "city": property_item.get("city"),
+                "state": property_item.get("state"),
+                "existingLocalFalconPlaceId": property_item.get("localFalconPlaceId") or None,
+                "bestCandidate": best,
+                "confidence": "high" if best and best["score"] >= 12 else "review" if best and best["score"] >= 6 else "low",
+                "candidates": candidates,
+            }
+        )
+
+    return {
+        "status": "ok",
+        "localFalconLocationCount": len(locations),
+        "propertyCount": len(normalized_properties),
+        "matches": matches,
+        "source": "local_falcon",
+        "staging_only": True,
+    }
+
+
+def fetch_and_store_local_falcon_dashboard(
+    property_id: str,
+    place_id: str | None = None,
+    property_name: str | None = None,
+    property_city: str | None = None,
+    property_state: str | None = None,
+    campaign_key: str | None = None,
+    keyword: str | None = None,
+    platform: str | None = "google",
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+    default_days: int = 90,
+) -> dict[str, Any]:
+    property_context = _get_property_context(str(property_id))
+    resolved_property_name = property_name or property_context.get("name")
+    resolved_property_city = property_city or property_context.get("city")
+    resolved_property_state = property_state or property_context.get("state")
+    window = legacy.resolve_reporting_window(start_date_value, end_date_value, default_days=default_days)
+    start_date = _format_local_falcon_date(window["current_start"].isoformat())
+    end_date = _format_local_falcon_date(window["current_end"].isoformat())
+
+    resolved_place_id, matched_location, location_candidates = _resolve_local_falcon_location(
+        place_id,
+        resolved_property_name,
+        resolved_property_city,
+        resolved_property_state,
+    )
+    if not resolved_place_id:
+        raise ValueError("No Local Falcon location could be matched. Add localFalconPlaceId to the property or save the location in Local Falcon.")
+
+    report_filters = {
+        "place_id": resolved_place_id,
+        "start_date": start_date,
+        "end_date": end_date,
+        "limit": 25,
+        "platform": platform or "google",
+    }
+    if keyword:
+        report_filters["keyword"] = keyword
+    if campaign_key:
+        report_filters["campaign_key"] = campaign_key
+
+    scan_data = _local_falcon_data(_local_falcon_post("/v1/reports/", report_filters), "/v1/reports/")
+    location_report_data = _local_falcon_data(
+        _local_falcon_post(
+            "/v1/location-reports/",
+            {
+                "place_id": resolved_place_id,
+                "start_date": start_date,
+                "end_date": end_date,
+                "keyword": keyword,
+                "limit": 5,
+            },
+        ),
+        "/v1/location-reports/",
+    )
+    location_reports = location_report_data.get("reports") if isinstance(location_report_data.get("reports"), list) else []
+    location_detail = None
+    if location_reports:
+        report_key = location_reports[0].get("report_key")
+        if report_key:
+            location_detail = _local_falcon_data(
+                _local_falcon_post(f"/v1/location-reports/{report_key}", {"report_key": report_key}),
+                f"/v1/location-reports/{report_key}",
+            )
+
+    campaign_reports: list[dict[str, Any]] = []
+    if campaign_key:
+        campaign_data = _local_falcon_data(
+            _local_falcon_post(
+                "/v1/campaigns/",
+                {
+                    "place_id": resolved_place_id,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "limit": 10,
+                },
+            ),
+            "/v1/campaigns/",
+        )
+        campaign_reports = campaign_data.get("reports") if isinstance(campaign_data.get("reports"), list) else []
+
+    scan_reports = scan_data.get("reports") if isinstance(scan_data.get("reports"), list) else []
+    latest_report = scan_reports[0] if scan_reports else None
+    overview_source = location_detail or (location_reports[0] if location_reports else {}) or latest_report or {}
+    keyword_rows = location_detail.get("keywords", []) if isinstance(location_detail, dict) else []
+    if not isinstance(keyword_rows, list):
+        keyword_rows = []
+    location_source = matched_location or overview_source.get("location") or {}
+    if not isinstance(location_source, dict):
+        location_source = {}
+
+    payload = {
+        "PropertyId": str(property_id),
+        "Window": {
+            "startDate": window["current_start"].isoformat(),
+            "endDate": window["current_end"].isoformat(),
+        },
+        "Location": {
+            "placeId": resolved_place_id,
+            "matchedFromSearch": not bool(place_id),
+            "match": matched_location,
+            "candidates": location_candidates,
+            "name": location_source.get("name"),
+        },
+        "Overview": {
+            "scanCount": int(_parse_local_falcon_number(overview_source.get("scan_count")) or len(scan_reports)),
+            "keywordCount": int(_parse_local_falcon_number(overview_source.get("keyword_count")) or len(keyword_rows)),
+            "avgArp": _parse_local_falcon_number(overview_source.get("avg_arp") or overview_source.get("arp")),
+            "avgAtrp": _parse_local_falcon_number(overview_source.get("avg_atrp") or overview_source.get("atrp")),
+            "avgSolv": _parse_local_falcon_number(overview_source.get("avg_solv") or overview_source.get("solv")),
+            "lastRunDate": overview_source.get("last_date") or overview_source.get("date"),
+            "publicUrl": overview_source.get("public_url"),
+            "pdf": overview_source.get("pdf"),
+        },
+        "Keywords": [
+            {
+                "keyword": item.get("keyword"),
+                "scanCount": int(_parse_local_falcon_number(item.get("scan_count")) or 0),
+                "arp": _parse_local_falcon_number(item.get("arp")),
+                "arpMove": _parse_local_falcon_number(item.get("arp_move")),
+                "atrp": _parse_local_falcon_number(item.get("atrp")),
+                "atrpMove": _parse_local_falcon_number(item.get("atrp_move")),
+                "solv": _parse_local_falcon_number(item.get("solv")),
+                "solvMove": _parse_local_falcon_number(item.get("solv_move")),
+                "lastDate": item.get("last_date"),
+                "lastScanReportKey": item.get("last_scan_report_key"),
+            }
+            for item in keyword_rows
+            if isinstance(item, dict)
+        ],
+        "Reports": [
+            {
+                "reportKey": item.get("report_key"),
+                "date": item.get("date"),
+                "keyword": item.get("keyword"),
+                "platform": item.get("platform"),
+                "gridSize": item.get("grid_size"),
+                "radius": item.get("radius"),
+                "measurement": item.get("measurement"),
+                "arp": _parse_local_falcon_number(item.get("arp")),
+                "atrp": _parse_local_falcon_number(item.get("atrp")),
+                "solv": _parse_local_falcon_number(item.get("solv")),
+                "heatmap": item.get("heatmap"),
+                "image": item.get("image"),
+                "pdf": item.get("pdf"),
+                "publicUrl": item.get("public_url"),
+            }
+            for item in scan_reports
+            if isinstance(item, dict)
+        ],
+        "Campaigns": campaign_reports,
+        "Status": {
+            "message": f"Matched Local Falcon place ID {resolved_place_id}",
+            "rawReportCount": len(scan_reports),
+            "rawLocationReportCount": len(location_reports),
+        },
+    }
+
+    _ensure_property_row(str(property_id), property_name=resolved_property_name)
+    _upsert_row(
+        "property_analytics_snapshots",
+        {
+            "property_id": str(property_id),
+            "snapshot_type": "local_falcon_dashboard",
+            "fetched_at": _iso_now(),
+            "payload": payload,
+            "firestore_path": f"properties/{property_id}/analytics/local_falcon_dashboard",
+        },
+        "property_id,snapshot_type",
+    )
+    return {**payload, "source": "supabase", "staging_only": True}
+
+
 _SYNC_STATE_COLUMNS = {
     "id",
     "active",

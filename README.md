@@ -58,6 +58,7 @@ That staged base URL currently covers:
 - `VITE_REPORTING_LAYOUT_URL` via `/api/admin/reporting-layout`
 - `VITE_GA4_DASHBOARD_URL` via `/api/analytics/ga4`
 - `VITE_GOOGLE_ADS_DASHBOARD_URL` via `/api/analytics/google-ads`
+- `VITE_LOCAL_FALCON_DASHBOARD_URL` via `/api/analytics/local-falcon`
 - `VITE_REPUTATION_DASHBOARD_URL` via `/api/analytics/reputation`
 
 Explicit `VITE_*_URL` values still take precedence, so production can stay on Firebase endpoints while staging progressively shifts to Render.
@@ -94,7 +95,9 @@ The staged adapter now includes live staging routes backed by Supabase:
 - `GET|POST|OPTIONS /api/analytics/ga4`
 - `GET|POST|OPTIONS /api/analytics/google-ads`
 - `GET|POST|OPTIONS /api/analytics/meta-ads`
+- `GET|POST|OPTIONS /api/analytics/local-falcon`
 - `GET|POST|OPTIONS /api/analytics/reputation`
+- `GET|POST|OPTIONS /api/admin/local-falcon/location-matches`
 - `GET|POST|OPTIONS /api/reporting/property-overview`
 - `GET|POST|OPTIONS /api/admin/website-manager`
 - `GET|POST|OPTIONS /api/admin/reporting-layout`

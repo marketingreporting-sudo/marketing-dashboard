@@ -62,6 +62,11 @@ export const META_ADS_DASHBOARD_URL = resolveApiUrl(
   'https://us-central1-data-analysis-eeb4d.cloudfunctions.net/get_meta_ads_dashboard_data'
 );
 
+export const LOCAL_FALCON_DASHBOARD_URL = resolveApiUrl(
+  import.meta.env.VITE_LOCAL_FALCON_DASHBOARD_URL || '',
+  '/api/analytics/local-falcon'
+);
+
 export const REPUTATION_DASHBOARD_URL = resolveApiUrl(
   import.meta.env.VITE_REPUTATION_DASHBOARD_URL || '',
   '/api/analytics/reputation',

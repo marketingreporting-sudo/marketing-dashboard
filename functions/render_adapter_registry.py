@@ -136,6 +136,20 @@ HTTP_ENDPOINT_SPECS = (
         render_handler="fetch_and_store_meta_ads_dashboard",
     ),
     HttpEndpointSpec(
+        route="/api/analytics/local-falcon",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="render_only",
+        purpose="Fetch Local Falcon local SEO report payloads and cache them.",
+        render_handler="fetch_and_store_local_falcon_dashboard",
+    ),
+    HttpEndpointSpec(
+        route="/api/admin/local-falcon/location-matches",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="render_only",
+        purpose="Admin-only discovery endpoint for matching dashboard properties to Local Falcon locations.",
+        render_handler="build_local_falcon_location_match_summary",
+    ),
+    HttpEndpointSpec(
         route="/api/analytics/reputation",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="get_reputation_dashboard_data",
