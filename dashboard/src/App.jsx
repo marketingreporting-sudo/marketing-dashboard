@@ -953,6 +953,17 @@ const shortenLabel = (value, max = 20) => {
 const normalizeAnalyticsError = (message) => {
   const text = String(message || '').trim();
   if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (normalized.includes('deleted_client') || normalized.includes('oauth client was deleted')) {
+    return 'Google Ads access needs to be reconnected. The OAuth client in GOOGLE_ADS_CONFIG_JSON was deleted, so refresh the Google Ads credentials before live paid search metrics can load.';
+  }
+  if (
+    normalized.includes('consumer_invalid')
+    || normalized.includes('project #')
+    || normalized.includes('project has been deleted')
+  ) {
+    return 'GA4 reporting credentials need to be updated. The Google Cloud project behind the Analytics API credential was deleted or disabled, so replace the service account/API credential and enable the Analytics Data API.';
+  }
   if (text.includes('403') && text.toLowerCase().includes('property')) {
     return 'GA4 access is not enabled for this property yet. Share the property with the reporting service account to unlock the GA4 sections.';
   }
@@ -2910,7 +2921,7 @@ const DashboardApp = ({
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
     budget: `${marketingSpendBreakdown.length} tracked spend lines | ${formatCurrency(totalPerformanceMarketingCost)} paid media`,
     entrata: `${totalLeads} leads | ${totalApplications} apps | ${totalLeases} leases`,
-    'google-ads': googleAdsLoading ? 'Loading paid search metrics' : `${formatNumber(googleAdsOverview?.clicks)} clicks | ${formatCurrency(googleAdsOverview?.cost)} spend`,
+    'google-ads': googleAdsLoading ? 'Loading paid search metrics' : googleAdsStatusMessage ? 'Google Ads connection needs attention' : `${formatNumber(googleAdsOverview?.clicks)} clicks | ${formatCurrency(googleAdsOverview?.cost)} spend`,
     ga4: ga4Loading ? 'Loading analytics metrics' : ga4Blocked ? 'GA4 access required' : `${formatNumber(ga4Sessions)} sessions | ${formatNumber(ga4EventTotal)} tracked events`,
     opiniion: reputationLoading ? 'Loading reputation metrics' : `${formatNumber(reputationReviewCount)} reviews | ${formatNumber(reputationAverageRating, 2)} avg rating`,
     'meta-ads': metaAdsLoading ? 'Loading paid social metrics' : `${formatNumber(metaAdsOverview?.clicks)} clicks | ${formatCurrency(metaAdsOverview?.spend)} spend`
@@ -2923,6 +2934,7 @@ const DashboardApp = ({
     ga4Sessions,
     googleAdsLoading,
     googleAdsOverview,
+    googleAdsStatusMessage,
     marketingSpendBreakdown.length,
     metaAdsLoading,
     metaAdsOverview,
@@ -4659,7 +4671,7 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Behavior + Demand</div>
                 <div className="reports-panel__title">Google Analytics Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Sessions</span><strong>{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4Sessions)}</strong><small>{ga4Loading ? 'Loading…' : ga4Blocked ? ga4StatusMessage : formatNumber(ga4NewUsers)} new users</small></div>
+                  <div className="reports-stat"><span>Sessions</span><strong>{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4Sessions)}</strong><small>{ga4Loading ? 'Loading…' : ga4Blocked ? ga4StatusMessage : `${formatNumber(ga4NewUsers)} new users`}</small></div>
                   <div className="reports-stat"><span>Tracked Events</span><strong>{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal)}</strong><small>{ga4Loading ? 'Loading…' : ga4Blocked ? 'Access required' : formatPercent(ga4ApplyPage?.abandonmentRate, 1)} apply drop-off</small></div>
                   <div className="reports-stat"><span>Top Channel</span><strong>{ga4AcquisitionChannels[0]?.channel || '—'}</strong><small>{ga4StatusMessage || 'Top GA4 acquisition channel in range'}</small></div>
                 </div>
