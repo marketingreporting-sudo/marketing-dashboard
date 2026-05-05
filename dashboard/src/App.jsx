@@ -125,6 +125,15 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
 ];
 const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
+const TASK_STATUSES = [
+  { id: 'new', label: 'New' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'on_hold', label: 'On Hold' },
+  { id: 'awaiting_approval', label: 'Awaiting Approval' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'complete', label: 'Complete' },
+];
+const TASK_STATUS_IDS = TASK_STATUSES.map((status) => status.id);
 const WEBSITE_SCHEMA_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const WEBSITE_SCHEMA_FIELD_TYPES = [
   { value: 'text', label: 'Text' },
@@ -138,7 +147,7 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: FileText, permission: TAB_PERMISSIONS.reports },
   { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
   { id: 'reputation', label: 'Reputation', icon: MessageSquareText, permission: TAB_PERMISSIONS.reputation },
-  { id: 'notes', label: 'Notes', icon: ClipboardList, permission: TAB_PERMISSIONS.notes },
+  { id: 'tasks', label: 'Tasks', icon: ClipboardList, permission: TAB_PERMISSIONS.tasks },
   { id: 'admin', label: 'Admin', icon: Users, permission: TAB_PERMISSIONS.admin }
 ];
 const MONTH_INDEX_BY_NAME = {
@@ -359,9 +368,10 @@ const normalizeSavedDashboardState = (savedState, fallbackPropertyId) => {
   const customRange = nextState.customRange && typeof nextState.customRange === 'object'
     ? nextState.customRange
     : {};
+  const savedTab = nextState.activeTab === 'notes' ? 'tasks' : nextState.activeTab;
 
   return {
-    activeTab: NAV_ITEMS.some((item) => item.id === nextState.activeTab) ? nextState.activeTab : 'dashboard',
+    activeTab: NAV_ITEMS.some((item) => item.id === savedTab) ? savedTab : 'dashboard',
     dateRange: DATE_RANGE_OPTIONS.has(nextState.dateRange) ? nextState.dateRange : '28d',
     customRange: {
       start: isDateInputValue(customRange.start) ? customRange.start : null,
@@ -522,6 +532,30 @@ const formatDateInputValue = (value) => {
   const day = String(parsed.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 };
+
+const normalizeTaskRecord = (row) => {
+  const status = TASK_STATUS_IDS.includes(row?.status) ? row.status : 'new';
+  return {
+    id: row?.id || '',
+    title: row?.title || '',
+    description: row?.description || '',
+    notes: row?.notes || '',
+    dueDate: row?.due_date || '',
+    status,
+    propertyId: row?.property_id || '',
+    createdAt: row?.created_at || '',
+    updatedAt: row?.updated_at || '',
+  };
+};
+
+const createEmptyTaskDraft = (propertyId = '') => ({
+  title: '',
+  description: '',
+  notes: '',
+  dueDate: '',
+  status: 'new',
+  propertyId: propertyId || '',
+});
 
 const parseEntrataPostMonth = (value) => {
   if (!value) return null;
@@ -1335,6 +1369,12 @@ const DashboardApp = ({
   const [reputationError, setReputationError] = useState(null);
   const [localFalconData, setLocalFalconData] = useState(null);
   const [localFalconError, setLocalFalconError] = useState(null);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksSaving, setTasksSaving] = useState(false);
+  const [tasks, setTasks] = useState([]);
+  const [taskDraft, setTaskDraft] = useState(() => createEmptyTaskDraft(savedWorkspaceState.selectedPropertyId));
+  const [tasksError, setTasksError] = useState(null);
+  const [tasksNotice, setTasksNotice] = useState(null);
   const [adminAccessLoading, setAdminAccessLoading] = useState(false);
   const [adminAccessError, setAdminAccessError] = useState(null);
   const [adminAccessNotice, setAdminAccessNotice] = useState(null);
@@ -1395,6 +1435,14 @@ const DashboardApp = ({
     () => NAV_ITEMS.filter((item) => currentPropertyPermissionSet.has(item.permission)),
     [currentPropertyPermissionSet]
   );
+  const taskPropertyIds = useMemo(
+    () => new Set(availableProperties.map((property) => property.propertyId)),
+    [availableProperties]
+  );
+  const taskPropertyById = useMemo(
+    () => new Map(availableProperties.map((property) => [property.propertyId, property])),
+    [availableProperties]
+  );
   const canEditReportingLayout = currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
   const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
@@ -1411,6 +1459,18 @@ const DashboardApp = ({
   const adminPropertyRoles = useMemo(
     () => adminRoles.filter((role) => role.scope === 'property'),
     [adminRoles]
+  );
+  const tasksByStatus = useMemo(() => {
+    const grouped = Object.fromEntries(TASK_STATUSES.map((status) => [status.id, []]));
+    tasks.forEach((task) => {
+      const status = TASK_STATUS_IDS.includes(task.status) ? task.status : 'new';
+      grouped[status].push(task);
+    });
+    return grouped;
+  }, [tasks]);
+  const openTaskCount = useMemo(
+    () => tasks.filter((task) => task.status !== 'complete').length,
+    [tasks]
   );
 
   const handleDateRangeChange = (nextDateRange) => {
@@ -1531,6 +1591,192 @@ const DashboardApp = ({
     if (!canManageUsers || activeTab !== 'admin') return;
     loadAdminAccess();
   }, [activeTab, canManageUsers, loadAdminAccess]);
+
+  useEffect(() => {
+    setTaskDraft((current) => {
+      if (current.propertyId && taskPropertyIds.has(current.propertyId)) return current;
+      return { ...current, propertyId: selectedPropertyId || availableProperties[0]?.propertyId || '' };
+    });
+  }, [availableProperties, selectedPropertyId, taskPropertyIds]);
+
+  const loadTasks = useCallback(async () => {
+    if (!currentUser?.id || !supabase) {
+      setTasks([]);
+      setTasksError('Tasks require a signed-in Supabase account.');
+      return;
+    }
+
+    setTasksLoading(true);
+    setTasksError(null);
+    setTasksNotice(null);
+
+    try {
+      const response = await supabase
+        .from('user_tasks')
+        .select('id, owner_user_id, property_id, title, description, notes, due_date, status, created_at, updated_at')
+        .eq('owner_user_id', currentUser.id)
+        .order('updated_at', { ascending: false });
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      setTasks((response.data || []).map(normalizeTaskRecord));
+    } catch (error) {
+      setTasksError(error.message || 'Unable to load your task board.');
+    } finally {
+      setTasksLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (activeTab !== 'tasks') return;
+    loadTasks();
+  }, [activeTab, loadTasks]);
+
+  const updateTaskDraft = (field, value) => {
+    setTasksError(null);
+    setTasksNotice(null);
+    setTaskDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateTaskField = (taskId, field, value) => {
+    setTasksError(null);
+    setTasksNotice(null);
+    setTasks((current) => current.map((task) => (
+      task.id === taskId ? { ...task, [field]: value } : task
+    )));
+  };
+
+  const createTask = async () => {
+    const title = taskDraft.title.trim();
+    if (!title) {
+      setTasksError('Add a task title before creating it.');
+      return;
+    }
+    if (!taskDraft.propertyId || !taskPropertyIds.has(taskDraft.propertyId)) {
+      setTasksError('Choose one of your active properties for this task.');
+      return;
+    }
+    if (!currentUser?.id || !supabase) {
+      setTasksError('Tasks require a signed-in Supabase account.');
+      return;
+    }
+
+    setTasksSaving(true);
+    setTasksError(null);
+    setTasksNotice(null);
+
+    try {
+      const response = await supabase
+        .from('user_tasks')
+        .insert({
+          owner_user_id: currentUser.id,
+          property_id: taskDraft.propertyId,
+          title,
+          description: taskDraft.description.trim(),
+          notes: taskDraft.notes.trim(),
+          due_date: taskDraft.dueDate || null,
+          status: taskDraft.status,
+        })
+        .select('id, owner_user_id, property_id, title, description, notes, due_date, status, created_at, updated_at')
+        .single();
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      const savedTask = normalizeTaskRecord(response.data);
+      setTasks((current) => [savedTask, ...current]);
+      setTaskDraft(createEmptyTaskDraft(selectedPropertyId || taskDraft.propertyId));
+      setTasksNotice('Task created.');
+    } catch (error) {
+      setTasksError(error.message || 'Unable to create the task.');
+    } finally {
+      setTasksSaving(false);
+    }
+  };
+
+  const saveTask = async (task) => {
+    if (!task?.id) return;
+    if (!task.title.trim()) {
+      setTasksError('Task titles cannot be blank.');
+      return;
+    }
+    if (!task.propertyId || !taskPropertyIds.has(task.propertyId)) {
+      setTasksError('Choose one of your active properties for this task.');
+      return;
+    }
+    if (!currentUser?.id || !supabase) {
+      setTasksError('Tasks require a signed-in Supabase account.');
+      return;
+    }
+
+    setTasksSaving(true);
+    setTasksError(null);
+    setTasksNotice(null);
+
+    try {
+      const response = await supabase
+        .from('user_tasks')
+        .update({
+          property_id: task.propertyId,
+          title: task.title.trim(),
+          description: task.description.trim(),
+          notes: task.notes.trim(),
+          due_date: task.dueDate || null,
+          status: task.status,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', task.id)
+        .eq('owner_user_id', currentUser.id)
+        .select('id, owner_user_id, property_id, title, description, notes, due_date, status, created_at, updated_at')
+        .single();
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      const savedTask = normalizeTaskRecord(response.data);
+      setTasks((current) => current.map((candidate) => (
+        candidate.id === savedTask.id ? savedTask : candidate
+      )));
+      setTasksNotice('Task updated.');
+    } catch (error) {
+      setTasksError(error.message || 'Unable to update the task.');
+    } finally {
+      setTasksSaving(false);
+    }
+  };
+
+  const deleteTask = async (taskId) => {
+    if (!taskId || !currentUser?.id || !supabase) return;
+    const task = tasks.find((candidate) => candidate.id === taskId);
+    if (task && !window.confirm(`Delete "${task.title}"?`)) return;
+
+    setTasksSaving(true);
+    setTasksError(null);
+    setTasksNotice(null);
+
+    try {
+      const response = await supabase
+        .from('user_tasks')
+        .delete()
+        .eq('id', taskId)
+        .eq('owner_user_id', currentUser.id);
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      setTasks((current) => current.filter((candidate) => candidate.id !== taskId));
+      setTasksNotice('Task deleted.');
+    } catch (error) {
+      setTasksError(error.message || 'Unable to delete the task.');
+    } finally {
+      setTasksSaving(false);
+    }
+  };
   // Derived Date Range
   const rangeDates = useMemo(() => {
     const end = new Date();
@@ -5500,17 +5746,203 @@ const DashboardApp = ({
     </div>
   );
 
-  const renderNotes = () => (
-    <div className="notes-view">
-      <h2 className="title">Change Log & Notes</h2>
-      <div className="notes-container">
-        <div style={{ borderLeft: '4px solid var(--pop-red)', paddingLeft: '1rem' }}>
-          <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>No notes source configured</div>
-          <div style={{ marginTop: '0.25rem' }}>
-            This section is intentionally empty until notes are backed by persisted data.
-          </div>
+  const renderTasks = () => (
+    <div className="tasks-view">
+      <div className="tasks-hero">
+        <div>
+          <div className="tasks-kicker">Personal workflow</div>
+          <h2 className="tasks-headline">Tasks</h2>
+          <p className="tasks-copy">
+            Your board is scoped to your account. Assign work to an active property, track due dates, and move tasks through approval.
+          </p>
+        </div>
+        <div className="tasks-summary">
+          <span>{openTaskCount} open</span>
+          <strong>{tasks.length}</strong>
+          <small>total tasks</small>
         </div>
       </div>
+
+      <div className="tasks-create-panel">
+        <div className="tasks-create-panel__main">
+          <label className="tasks-field">
+            <span>Task</span>
+            <input
+              value={taskDraft.title}
+              onChange={(event) => updateTaskDraft('title', event.target.value)}
+              placeholder="Create a task"
+            />
+          </label>
+          <label className="tasks-field">
+            <span>Description</span>
+            <input
+              value={taskDraft.description}
+              onChange={(event) => updateTaskDraft('description', event.target.value)}
+              placeholder="Add the outcome or next step"
+            />
+          </label>
+        </div>
+        <div className="tasks-create-panel__meta">
+          <label className="tasks-field">
+            <span>Property</span>
+            <select
+              value={taskDraft.propertyId}
+              onChange={(event) => updateTaskDraft('propertyId', event.target.value)}
+            >
+              {availableProperties.map((property) => (
+                <option key={property.propertyId} value={property.propertyId}>
+                  {property.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="tasks-field">
+            <span>Due</span>
+            <input
+              type="date"
+              value={taskDraft.dueDate}
+              onChange={(event) => updateTaskDraft('dueDate', event.target.value)}
+            />
+          </label>
+          <label className="tasks-field">
+            <span>Status</span>
+            <select
+              value={taskDraft.status}
+              onChange={(event) => updateTaskDraft('status', event.target.value)}
+            >
+              {TASK_STATUSES.map((status) => (
+                <option key={status.id} value={status.id}>{status.label}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="tasks-create-button"
+            onClick={createTask}
+            disabled={tasksSaving || !taskDraft.title.trim()}
+          >
+            <Plus size={16} />
+            Create
+          </button>
+        </div>
+        <label className="tasks-field tasks-field--wide">
+          <span>Notes</span>
+          <textarea
+            value={taskDraft.notes}
+            onChange={(event) => updateTaskDraft('notes', event.target.value)}
+            placeholder="Add context, links, review notes, or blockers"
+            rows={3}
+          />
+        </label>
+      </div>
+
+      {(tasksError || tasksNotice) && (
+        <div className={`tasks-message ${tasksError ? 'tasks-message--error' : 'tasks-message--success'}`}>
+          {tasksError || tasksNotice}
+        </div>
+      )}
+
+      {tasksLoading ? (
+        <div className="tasks-empty">Loading your task board...</div>
+      ) : (
+        <div className="tasks-board" aria-label="Task kanban board">
+          {TASK_STATUSES.map((status) => {
+            const statusTasks = tasksByStatus[status.id] || [];
+            return (
+              <section className="tasks-column" key={status.id}>
+                <div className="tasks-column__header">
+                  <h3>{status.label}</h3>
+                  <span>{statusTasks.length}</span>
+                </div>
+                <div className="tasks-column__cards">
+                  {statusTasks.length === 0 ? (
+                    <div className="tasks-empty-card">No tasks</div>
+                  ) : statusTasks.map((task) => {
+                    const property = taskPropertyById.get(task.propertyId);
+                    return (
+                      <article className="task-card" key={task.id}>
+                        <label className="tasks-field task-card__title-field">
+                          <span>Title</span>
+                          <input
+                            value={task.title}
+                            onChange={(event) => updateTaskField(task.id, 'title', event.target.value)}
+                          />
+                        </label>
+                        <label className="tasks-field">
+                          <span>Status</span>
+                          <select
+                            value={task.status}
+                            onChange={(event) => {
+                              const nextTask = { ...task, status: event.target.value };
+                              updateTaskField(task.id, 'status', event.target.value);
+                              saveTask(nextTask);
+                            }}
+                          >
+                            {TASK_STATUSES.map((candidate) => (
+                              <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="tasks-field">
+                          <span>Property</span>
+                          <select
+                            value={task.propertyId}
+                            onChange={(event) => updateTaskField(task.id, 'propertyId', event.target.value)}
+                          >
+                            {availableProperties.map((candidate) => (
+                              <option key={candidate.propertyId} value={candidate.propertyId}>
+                                {candidate.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="tasks-field">
+                          <span>Due date</span>
+                          <input
+                            type="date"
+                            value={task.dueDate}
+                            onChange={(event) => updateTaskField(task.id, 'dueDate', event.target.value)}
+                          />
+                        </label>
+                        <label className="tasks-field">
+                          <span>Description</span>
+                          <textarea
+                            value={task.description}
+                            onChange={(event) => updateTaskField(task.id, 'description', event.target.value)}
+                            rows={2}
+                          />
+                        </label>
+                        <label className="tasks-field">
+                          <span>Notes</span>
+                          <textarea
+                            value={task.notes}
+                            onChange={(event) => updateTaskField(task.id, 'notes', event.target.value)}
+                            rows={4}
+                          />
+                        </label>
+                        <div className="task-card__meta">
+                          <span>{property?.name || 'Active property'}</span>
+                          <span>{task.dueDate ? `Due ${formatReadableDate(task.dueDate)}` : 'No due date'}</span>
+                        </div>
+                        <div className="task-card__actions">
+                          <button type="button" onClick={() => saveTask(task)} disabled={tasksSaving}>
+                            <Save size={15} />
+                            Save
+                          </button>
+                          <button type="button" className="task-card__delete" onClick={() => deleteTask(task.id)} disabled={tasksSaving}>
+                            <Trash2 size={15} />
+                            Delete
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 
@@ -6548,7 +6980,7 @@ const DashboardApp = ({
           {activeTab === 'reports' && renderReports()}
           {activeTab === 'analytics' && renderAnalytics()}
           {activeTab === 'reputation' && renderReputation()}
-          {activeTab === 'notes' && renderNotes()}
+          {activeTab === 'tasks' && renderTasks()}
           {activeTab === 'admin' && renderAdmin()}
 
           <div className="app-footer-links">

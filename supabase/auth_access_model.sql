@@ -74,6 +74,38 @@ before update on public.property_memberships
 for each row
 execute function public.set_updated_at();
 
+create table if not exists public.user_tasks (
+  id uuid primary key default gen_random_uuid(),
+  owner_user_id uuid not null references auth.users(id) on delete cascade,
+  property_id text not null references public.properties(id) on delete restrict,
+  title text not null,
+  description text not null default '',
+  notes text not null default '',
+  due_date date,
+  status text not null default 'new' check (status in (
+    'new',
+    'in_progress',
+    'on_hold',
+    'awaiting_approval',
+    'approved',
+    'complete'
+  )),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_user_tasks_owner_status
+  on public.user_tasks (owner_user_id, status, updated_at desc);
+
+create index if not exists idx_user_tasks_property
+  on public.user_tasks (property_id);
+
+drop trigger if exists set_user_tasks_updated_at on public.user_tasks;
+create trigger set_user_tasks_updated_at
+before update on public.user_tasks
+for each row
+execute function public.set_updated_at();
+
 create table if not exists public.access_audit_logs (
   id uuid primary key default gen_random_uuid(),
   actor_user_id uuid references auth.users(id) on delete set null,
@@ -113,6 +145,7 @@ values
   ('admin', 'website_manager.edit'),
   ('admin', 'reports.layout.edit'),
   ('admin', 'notes.view'),
+  ('admin', 'tasks.view'),
   ('admin', 'users.manage'),
   ('regional_manager', 'dashboard.view'),
   ('regional_manager', 'reports.view'),
@@ -121,11 +154,14 @@ values
   ('regional_manager', 'property_info.view'),
   ('regional_manager', 'website_manager.view'),
   ('regional_manager', 'website_manager.edit'),
+  ('regional_manager', 'tasks.view'),
   ('community_manager', 'dashboard.view'),
   ('community_manager', 'analytics.view'),
   ('community_manager', 'website_manager.view'),
   ('community_manager', 'website_manager.edit'),
-  ('client', 'reports.view')
+  ('community_manager', 'tasks.view'),
+  ('client', 'reports.view'),
+  ('client', 'tasks.view')
 on conflict (role, permission) do nothing;
 
 create or replace function public.handle_new_user_profile()
@@ -263,6 +299,7 @@ alter table public.app_roles enable row level security;
 alter table public.role_permissions enable row level security;
 alter table public.profiles enable row level security;
 alter table public.property_memberships enable row level security;
+alter table public.user_tasks enable row level security;
 alter table public.access_audit_logs enable row level security;
 alter table public.properties enable row level security;
 alter table public.property_reporting_layout_current enable row level security;
@@ -367,6 +404,41 @@ for all
 to authenticated
 using (public.user_has_platform_permission('users.manage'))
 with check (public.user_has_platform_permission('users.manage'));
+
+drop policy if exists "users can read own tasks" on public.user_tasks;
+create policy "users can read own tasks"
+on public.user_tasks
+for select
+to authenticated
+using (owner_user_id = auth.uid());
+
+drop policy if exists "users can create own tasks for active properties" on public.user_tasks;
+create policy "users can create own tasks for active properties"
+on public.user_tasks
+for insert
+to authenticated
+with check (
+  owner_user_id = auth.uid()
+  and public.user_can_access_property(property_id)
+);
+
+drop policy if exists "users can update own tasks for active properties" on public.user_tasks;
+create policy "users can update own tasks for active properties"
+on public.user_tasks
+for update
+to authenticated
+using (owner_user_id = auth.uid())
+with check (
+  owner_user_id = auth.uid()
+  and public.user_can_access_property(property_id)
+);
+
+drop policy if exists "users can delete own tasks" on public.user_tasks;
+create policy "users can delete own tasks"
+on public.user_tasks
+for delete
+to authenticated
+using (owner_user_id = auth.uid());
 
 drop policy if exists "admins can read access audit logs" on public.access_audit_logs;
 create policy "admins can read access audit logs"

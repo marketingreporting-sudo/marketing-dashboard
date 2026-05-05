@@ -5,7 +5,7 @@ export const TAB_PERMISSIONS = {
   reports: 'reports.view',
   analytics: 'analytics.view',
   reputation: 'reputation.view',
-  notes: 'notes.view',
+  tasks: 'tasks.view',
   admin: 'users.manage',
 };
 
@@ -16,7 +16,7 @@ export const DEFAULT_TAB_ORDER = [
   'reputation',
   'website manager',
   'property info',
-  'notes',
+  'tasks',
   'admin',
 ];
 
