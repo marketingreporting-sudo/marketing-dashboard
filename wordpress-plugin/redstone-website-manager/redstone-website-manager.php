@@ -3,7 +3,7 @@
  * Plugin Name: Redstone Website Manager
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -16,6 +16,7 @@ if (!defined('ABSPATH')) {
 if (!class_exists('Redstone_Website_Manager')) {
     final class Redstone_Website_Manager {
         const OPTION_KEY = 'redstone_website_manager_content';
+        const SCHEMA_OPTION_KEY = 'redstone_website_manager_schema';
         const MENU_SLUG = 'redstone-website-manager';
         const REST_NAMESPACE = 'redstone-site-manager/v1';
         const TOKEN_PREFIX = 'rwm:';
@@ -247,6 +248,7 @@ if (!class_exists('Redstone_Website_Manager')) {
                 array(
                     'content' => $this->get_content(),
                     'schema' => $this->get_flat_schema(),
+                    'schema_groups' => $this->get_schema(),
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
@@ -270,6 +272,11 @@ if (!class_exists('Redstone_Website_Manager')) {
                 );
             }
 
+            $schema = $this->extract_schema_from_payload($payload);
+            if (is_array($schema)) {
+                update_option(self::SCHEMA_OPTION_KEY, $schema, false);
+            }
+
             $normalized = $this->sanitize_payload($payload);
             update_option(self::OPTION_KEY, $normalized, false);
             update_option(self::OPTION_KEY . '_updated_at', current_time('mysql'), false);
@@ -279,6 +286,8 @@ if (!class_exists('Redstone_Website_Manager')) {
                 array(
                     'success' => true,
                     'content' => $normalized,
+                    'schema' => $this->get_flat_schema(),
+                    'schema_groups' => $this->get_schema(),
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
@@ -359,8 +368,9 @@ if (!class_exists('Redstone_Website_Manager')) {
         public function sanitize_payload($value) {
             $input = is_array($value) ? $value : array();
             $sanitized = $this->get_default_values();
+            $schema = $this->get_schema();
 
-            foreach ($this->field_schema as $section) {
+            foreach ($schema as $section) {
                 foreach ($section['fields'] as $key => $field) {
                     $raw = isset($input[$key]) ? $input[$key] : '';
                     $sanitized[$key] = $this->sanitize_field_value($field['type'], $raw);
@@ -368,6 +378,10 @@ if (!class_exists('Redstone_Website_Manager')) {
             }
 
             foreach ($input as $key => $raw) {
+                if ($key === '__schema' || $key === 'schema') {
+                    continue;
+                }
+
                 if (!is_string($key) || !preg_match('/^[a-z0-9_]+$/i', $key)) {
                     continue;
                 }
@@ -381,6 +395,101 @@ if (!class_exists('Redstone_Website_Manager')) {
             }
 
             return $sanitized;
+        }
+
+        /**
+         * @param mixed $value
+         * @return array<string, array<string, mixed>>
+         */
+        public function sanitize_schema($value) {
+            if (!is_array($value)) {
+                return $this->field_schema;
+            }
+
+            $source_groups = isset($value['groups']) && is_array($value['groups'])
+                ? $value['groups']
+                : $value;
+            $schema = array();
+            $seen_field_keys = array();
+            $group_index = 1;
+
+            foreach ($source_groups as $section_key => $section) {
+                if (!is_array($section)) {
+                    continue;
+                }
+
+                $raw_section_id = isset($section['id']) ? (string) $section['id'] : (is_string($section_key) ? $section_key : 'group_' . $group_index);
+                $safe_section_id = sanitize_key($raw_section_id);
+                if ($safe_section_id === '') {
+                    $safe_section_id = 'group_' . $group_index;
+                }
+
+                $title = isset($section['label'])
+                    ? sanitize_text_field($section['label'])
+                    : (isset($section['title']) ? sanitize_text_field($section['title']) : ucwords(str_replace('_', ' ', $safe_section_id)));
+                $description = isset($section['description'])
+                    ? sanitize_text_field($section['description'])
+                    : 'Managed by the Redstone dashboard.';
+                $source_fields = isset($section['fields']) && is_array($section['fields']) ? $section['fields'] : array();
+                $fields = array();
+
+                foreach ($source_fields as $field_key => $field) {
+                    if (!is_array($field)) {
+                        continue;
+                    }
+
+                    $raw_field_key = isset($field['key']) ? (string) $field['key'] : (is_string($field_key) ? $field_key : '');
+                    $safe_field_key = sanitize_key($raw_field_key);
+                    if ($safe_field_key === '' || !preg_match('/^[a-z][a-z0-9_]*$/', $safe_field_key) || isset($seen_field_keys[$safe_field_key])) {
+                        continue;
+                    }
+
+                    $field_type = isset($field['type']) ? sanitize_key($field['type']) : 'text';
+                    if ($field_type === 'richtext') {
+                        $field_type = 'textarea';
+                    }
+                    if (!in_array($field_type, array('text', 'url', 'textarea'), true)) {
+                        $field_type = 'text';
+                    }
+
+                    $help = isset($field['help'])
+                        ? sanitize_text_field($field['help'])
+                        : (isset($field['placeholder']) ? sanitize_text_field($field['placeholder']) : '');
+                    $fields[$safe_field_key] = array(
+                        'label' => isset($field['label']) ? sanitize_text_field($field['label']) : ucwords(str_replace('_', ' ', $safe_field_key)),
+                        'type' => $field_type,
+                        'help' => $help,
+                    );
+                    $seen_field_keys[$safe_field_key] = true;
+                }
+
+                if (!empty($fields)) {
+                    $schema[$safe_section_id] = array(
+                        'title' => $title !== '' ? $title : ucwords(str_replace('_', ' ', $safe_section_id)),
+                        'description' => $description,
+                        'fields' => $fields,
+                    );
+                    $group_index++;
+                }
+            }
+
+            return !empty($schema) ? $schema : $this->field_schema;
+        }
+
+        /**
+         * @param array<string, mixed> $payload
+         * @return array<string, array<string, mixed>>|null
+         */
+        private function extract_schema_from_payload($payload) {
+            if (isset($payload['__schema']) && is_array($payload['__schema'])) {
+                return $this->sanitize_schema($payload['__schema']);
+            }
+
+            if (isset($payload['schema']) && is_array($payload['schema'])) {
+                return $this->sanitize_schema($payload['schema']);
+            }
+
+            return null;
         }
 
         /**
@@ -402,7 +511,7 @@ if (!class_exists('Redstone_Website_Manager')) {
                 return esc_url_raw($value);
             }
 
-            if ($type === 'textarea') {
+            if ($type === 'textarea' || $type === 'richtext') {
                 return wp_kses_post($value);
             }
 
@@ -415,7 +524,7 @@ if (!class_exists('Redstone_Website_Manager')) {
         public function get_default_values() {
             $defaults = array();
 
-            foreach ($this->field_schema as $section) {
+            foreach ($this->get_schema() as $section) {
                 foreach ($section['fields'] as $key => $field) {
                     $defaults[$key] = '';
                 }
@@ -440,7 +549,12 @@ if (!class_exists('Redstone_Website_Manager')) {
          * @return array<string, array<string, string>>
          */
         public function get_schema() {
-            return $this->field_schema;
+            $stored = get_option(self::SCHEMA_OPTION_KEY, array());
+            if (!is_array($stored) || empty($stored)) {
+                return $this->field_schema;
+            }
+
+            return $this->sanitize_schema($stored);
         }
 
         /**
@@ -449,7 +563,7 @@ if (!class_exists('Redstone_Website_Manager')) {
         public function get_flat_schema() {
             $flat = array();
 
-            foreach ($this->field_schema as $section_key => $section) {
+            foreach ($this->get_schema() as $section_key => $section) {
                 foreach ($section['fields'] as $field_key => $field) {
                     $flat[$field_key] = array(
                         'section' => $section_key,
@@ -470,6 +584,7 @@ if (!class_exists('Redstone_Website_Manager')) {
             }
 
             $content = $this->get_content();
+            $schema = $this->get_schema();
             ?>
             <div class="wrap">
                 <h1>Redstone Website Manager</h1>
@@ -517,7 +632,7 @@ if (!class_exists('Redstone_Website_Manager')) {
 
                     <table class="form-table" role="presentation">
                         <tbody>
-                        <?php foreach ($this->field_schema as $section_key => $section) : ?>
+                        <?php foreach ($schema as $section_key => $section) : ?>
                             <tr>
                                 <th colspan="2" style="padding-top: 24px;">
                                     <h2 style="margin: 0;"><?php echo esc_html($section['title']); ?></h2>
@@ -532,20 +647,20 @@ if (!class_exists('Redstone_Website_Manager')) {
                                         </label>
                                     </th>
                                     <td>
-                                        <?php if ($field['type'] === 'textarea') : ?>
+                                        <?php if ($field['type'] === 'textarea' || $field['type'] === 'richtext') : ?>
                                             <textarea
                                                 class="large-text"
                                                 rows="4"
                                                 id="<?php echo esc_attr($field_key); ?>"
                                                 name="<?php echo esc_attr(self::OPTION_KEY . '[' . $field_key . ']'); ?>"
-                                            ><?php echo esc_textarea($content[$field_key]); ?></textarea>
+                                            ><?php echo esc_textarea(isset($content[$field_key]) ? $content[$field_key] : ''); ?></textarea>
                                         <?php else : ?>
                                             <input
                                                 class="regular-text"
                                                 type="<?php echo esc_attr($field['type'] === 'url' ? 'url' : 'text'); ?>"
                                                 id="<?php echo esc_attr($field_key); ?>"
                                                 name="<?php echo esc_attr(self::OPTION_KEY . '[' . $field_key . ']'); ?>"
-                                                value="<?php echo esc_attr($content[$field_key]); ?>"
+                                                value="<?php echo esc_attr(isset($content[$field_key]) ? $content[$field_key] : ''); ?>"
                                             />
                                         <?php endif; ?>
                                         <p class="description">

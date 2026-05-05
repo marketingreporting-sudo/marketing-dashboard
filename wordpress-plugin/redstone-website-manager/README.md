@@ -7,6 +7,7 @@ Small WordPress plugin for storing editable property marketing content in one pl
 - a protected REST endpoint for future dashboard sync
 - frontend token replacement using controlled placeholders like `{{rwm:hero_headline}}`
 - signed remote updates from the Redstone dashboard
+- dashboard-managed field schemas, so the WordPress settings screen can match the fields configured in the Redstone dashboard
 
 ## Included fields
 
@@ -129,7 +130,7 @@ Textarea-style content fields also allow safe inline HTML such as:
 
 That means you can store formatted copy in the dashboard for fields like subtitles, banner body copy, and availability notes.
 
-The REST sync endpoint also accepts additional safe field keys beyond the built-in admin settings screen, which lets the Redstone dashboard publish property-specific field sets for each website.
+The REST sync endpoint also accepts additional safe field keys beyond the built-in defaults. When the Redstone dashboard includes a `__schema` object in the publish payload, the plugin stores that schema and uses it to render the WordPress admin settings screen. That keeps WordPress aligned with the property-specific fields configured in the dashboard.
 
 Examples:
 

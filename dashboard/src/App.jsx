@@ -55,7 +55,12 @@ import {
   Mail,
   KeyRound,
   UserRound,
-  X
+  X,
+  Plus,
+  Trash2,
+  RotateCcw,
+  Save,
+  AlertTriangle
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -120,6 +125,12 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
 ];
 const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
+const WEBSITE_SCHEMA_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
+const WEBSITE_SCHEMA_FIELD_TYPES = [
+  { value: 'text', label: 'Text' },
+  { value: 'richtext', label: 'Rich text' },
+  { value: 'url', label: 'URL' },
+];
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: TAB_PERMISSIONS.dashboard },
   { id: 'website manager', label: 'Website Manager', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
@@ -183,6 +194,75 @@ const CHART_AXIS_LIGHT_SOFT = 'rgba(16, 33, 38, 0.3)';
 const CHART_MARGIN_STANDARD = { top: 8, right: 12, left: 0, bottom: 20 };
 const CHART_MARGIN_TALL = { top: 8, right: 12, left: 0, bottom: 24 };
 const CHART_MARGIN_VERTICAL = { top: 8, right: 12, left: 8, bottom: 10 };
+
+const slugifyWebsiteSchemaKey = (value, fallback = 'new_field') => {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_');
+  const withLetterStart = normalized.replace(/^[^a-z]+/, '');
+  return withLetterStart || fallback;
+};
+
+const getUniqueWebsiteSchemaKey = (groups, seed) => {
+  const existingKeys = new Set(
+    (Array.isArray(groups) ? groups : []).flatMap((group) => (
+      Array.isArray(group?.fields) ? group.fields.map((field) => field.key) : []
+    ))
+  );
+  const baseKey = slugifyWebsiteSchemaKey(seed);
+  if (!existingKeys.has(baseKey)) return baseKey;
+  let suffix = 2;
+  while (existingKeys.has(`${baseKey}_${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseKey}_${suffix}`;
+};
+
+const getWebsiteSchemaValidationIssues = (schema) => {
+  const issues = [];
+  const fieldCounts = new Map();
+  const groups = Array.isArray(schema?.groups) ? schema.groups : [];
+
+  groups.forEach((group) => {
+    (Array.isArray(group?.fields) ? group.fields : []).forEach((field) => {
+      const key = String(field?.key || '').trim();
+      if (!key) return;
+      fieldCounts.set(key, (fieldCounts.get(key) || 0) + 1);
+    });
+  });
+
+  groups.forEach((group, groupIndex) => {
+    const groupLabel = String(group?.label || '').trim() || `Group ${groupIndex + 1}`;
+    const fields = Array.isArray(group?.fields) ? group.fields : [];
+    if (!String(group?.label || '').trim()) {
+      issues.push(`${groupLabel} needs a group label.`);
+    }
+    if (fields.length === 0) {
+      issues.push(`${groupLabel} needs at least one field.`);
+    }
+    fields.forEach((field, fieldIndex) => {
+      const fieldLabel = String(field?.label || '').trim() || `Field ${fieldIndex + 1}`;
+      const key = String(field?.key || '').trim();
+      if (!String(field?.label || '').trim()) {
+        issues.push(`${groupLabel}: ${fieldLabel} needs a label.`);
+      }
+      if (!WEBSITE_SCHEMA_FIELD_KEY_PATTERN.test(key)) {
+        issues.push(`${groupLabel}: ${fieldLabel} key must start with a letter and use only lowercase letters, numbers, and underscores.`);
+      }
+      if ((fieldCounts.get(key) || 0) > 1) {
+        issues.push(`${groupLabel}: ${key} is duplicated.`);
+      }
+      if (!WEBSITE_SCHEMA_FIELD_TYPES.some((type) => type.value === field?.type)) {
+        issues.push(`${groupLabel}: ${fieldLabel} has an unsupported type.`);
+      }
+    });
+  });
+
+  return Array.from(new Set(issues));
+};
 
 const PROFILE_AVATAR_BUCKET = 'profile-avatars';
 const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
@@ -2601,25 +2681,32 @@ const DashboardApp = ({
     setWebsiteSchemaError(null);
     setWebsiteSchemaDraft((current) => ({
       ...current,
-      groups: [
-        ...current.groups,
-        {
-          id: `group_${Date.now()}`,
-          label: 'New Group',
-          fields: [
-            {
-              key: `new_field_${current.groups.length + 1}`,
-              label: 'New Field',
-              type: 'text',
-              placeholder: '',
-            },
-          ],
-        },
-      ],
+      groups: (() => {
+        const nextKey = getUniqueWebsiteSchemaKey(current.groups, `new_group_${current.groups.length + 1}_field`);
+        return [
+          ...current.groups,
+          {
+            id: `group_${Date.now()}`,
+            label: 'New Group',
+            fields: [
+              {
+                key: nextKey,
+                label: 'New Field',
+                type: 'text',
+                placeholder: '',
+              },
+            ],
+          },
+        ];
+      })(),
     }));
   };
 
   const removeWebsiteSchemaGroup = (groupId) => {
+    const group = websiteSchemaDraft.groups.find((item) => item.id === groupId);
+    if (group && !window.confirm(`Remove "${group.label}" and its ${group.fields.length} field${group.fields.length === 1 ? '' : 's'} from this schema? Existing content for these keys will no longer appear in the editor.`)) {
+      return;
+    }
     setWebsiteSchemaNotice(null);
     setWebsiteSchemaError(null);
     setWebsiteSchemaDraft((current) => ({
@@ -2640,7 +2727,7 @@ const DashboardApp = ({
           fields: [
             ...group.fields,
             {
-              key: `new_field_${group.fields.length + 1}`,
+              key: getUniqueWebsiteSchemaKey(current.groups, `${group.label || 'group'} field ${group.fields.length + 1}`),
               label: 'New Field',
               type: 'text',
               placeholder: '',
@@ -2652,6 +2739,11 @@ const DashboardApp = ({
   };
 
   const removeWebsiteSchemaField = (groupId, fieldKey) => {
+    const group = websiteSchemaDraft.groups.find((item) => item.id === groupId);
+    const field = group?.fields.find((item) => item.key === fieldKey);
+    if (field && !window.confirm(`Remove "${field.label}" (${field.key}) from this schema? Existing content for this key will no longer appear in the editor.`)) {
+      return;
+    }
     setWebsiteSchemaNotice(null);
     setWebsiteSchemaError(null);
     setWebsiteSchemaDraft((current) => ({
@@ -2673,6 +2765,24 @@ const DashboardApp = ({
   };
 
   const websiteSchemaDirty = JSON.stringify(websiteSchemaDraft) !== JSON.stringify(websiteSchemaDoc);
+  const websiteSchemaValidationIssues = useMemo(
+    () => getWebsiteSchemaValidationIssues(websiteSchemaDraft),
+    [websiteSchemaDraft]
+  );
+  const websiteSchemaFieldCount = useMemo(
+    () => websiteSchemaDraft.groups.reduce((count, group) => count + group.fields.length, 0),
+    [websiteSchemaDraft.groups]
+  );
+  const websiteSchemaFieldKeyCounts = useMemo(() => {
+    const counts = new Map();
+    websiteSchemaDraft.groups.forEach((group) => {
+      group.fields.forEach((field) => {
+        const key = String(field.key || '').trim();
+        if (key) counts.set(key, (counts.get(key) || 0) + 1);
+      });
+    });
+    return counts;
+  }, [websiteSchemaDraft.groups]);
 
   const saveWebsiteSchemaDraft = async () => {
     if (!selectedPropertyId) {
@@ -2681,6 +2791,11 @@ const DashboardApp = ({
     }
     if (!canManageUsers) {
       setWebsiteSchemaError('Only admins can edit website field schemas.');
+      return;
+    }
+    if (websiteSchemaValidationIssues.length > 0) {
+      setWebsiteSchemaError('Fix the schema issues before saving.');
+      setWebsiteSchemaNotice(null);
       return;
     }
 
@@ -5966,41 +6081,89 @@ const DashboardApp = ({
 
       <div className="admin-access-panel">
         <div className="admin-access-section-head">
-          <div className="admin-access-panel__eyebrow">Website Schema</div>
-          <h3 className="admin-access-panel__title">Edit website fields for {selectedPropertyLabel}</h3>
+          <div>
+            <div className="admin-access-panel__eyebrow">Website Schema</div>
+            <h3 className="admin-access-panel__title">Edit website fields for {selectedPropertyLabel}</h3>
+          </div>
+          <div className="website-schema-summary">
+            <span>{websiteSchemaDraft.groups.length} groups</span>
+            <span>{websiteSchemaFieldCount} fields</span>
+          </div>
         </div>
 
-        <div className="website-manager-card__meta" style={{ marginBottom: '1rem' }}>
-          This schema controls which editable website fields appear for the currently selected property. Admins can change it here without uploading another CSV.
+        <div className="website-schema-intro">
+          <div>
+            This schema controls which editable website fields appear for the currently selected property. Field keys become WordPress tokens, so they must stay lowercase and unique.
+          </div>
+          <button type="button" className="website-schema-action website-schema-action--primary" onClick={addWebsiteSchemaGroup}>
+            <Plus size={14} />
+            Add group
+          </button>
         </div>
+
+        {websiteSchemaValidationIssues.length > 0 && (
+          <div className="website-schema-validation">
+            <div className="website-schema-validation__title">
+              <AlertTriangle size={15} />
+              Fix before saving
+            </div>
+            {websiteSchemaValidationIssues.slice(0, 5).map((issue) => (
+              <div key={issue} className="website-schema-validation__item">{issue}</div>
+            ))}
+            {websiteSchemaValidationIssues.length > 5 && (
+              <div className="website-schema-validation__item">And {websiteSchemaValidationIssues.length - 5} more.</div>
+            )}
+          </div>
+        )}
 
         {websiteSchemaLoading ? (
           <div className="admin-access-empty">Loading website schema…</div>
         ) : (
           <>
             {websiteSchemaDraft.groups.map((group) => (
-              <div key={group.id} className="website-manager-group" style={{ marginBottom: '1rem' }}>
-                <div className="website-manager-form-grid">
-                  <label className="admin-access-field">
+              <div key={group.id} className="website-schema-group">
+                <div className="website-schema-group__top">
+                  <label className="admin-access-field website-schema-group__label">
                     <span>Group label</span>
                     <input
                       type="text"
                       value={group.label}
                       onChange={(event) => updateWebsiteSchemaGroupLabel(group.id, event.target.value)}
+                      placeholder="Homepage"
                     />
                   </label>
+                  <div className="website-schema-group__meta">
+                    <span>{group.fields.length} fields</span>
+                    <button type="button" className="website-schema-icon-button" onClick={() => addWebsiteSchemaField(group.id)} title="Add field">
+                      <Plus size={15} />
+                    </button>
+                    <button type="button" className="website-schema-icon-button website-schema-icon-button--danger" onClick={() => removeWebsiteSchemaGroup(group.id)} title="Remove group">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="admin-access-user-list" style={{ marginTop: '0.75rem' }}>
+                <div className="website-schema-field-list">
                   {group.fields.map((field) => (
-                    <div key={field.key} className="admin-access-user-card active" style={{ cursor: 'default' }}>
-                      <div className="admin-access-form-grid">
+                    <div key={field.key} className="website-schema-field-card">
+                      <div className="website-schema-field-card__top">
+                        <div>
+                          <strong>{field.label || 'Untitled field'}</strong>
+                          <span>{field.type === 'url' ? `rwm:${field.key || 'field_key'}` : `{{rwm:${field.key || 'field_key'}}}`}</span>
+                        </div>
+                        <button type="button" className="website-schema-icon-button website-schema-icon-button--danger" onClick={() => removeWebsiteSchemaField(group.id, field.key)} title="Remove field">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                      <div className="admin-access-form-grid website-schema-field-card__grid">
                         <label className="admin-access-field">
                           <span>Field key</span>
                           <input
                             type="text"
                             value={field.key}
                             onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'key', event.target.value)}
+                            className={!WEBSITE_SCHEMA_FIELD_KEY_PATTERN.test(field.key) || (websiteSchemaFieldKeyCounts.get(field.key) || 0) > 1 ? 'website-schema-input--invalid' : ''}
+                            placeholder="homepage_headline"
                           />
                         </label>
                         <label className="admin-access-field">
@@ -6017,9 +6180,9 @@ const DashboardApp = ({
                             value={field.type}
                             onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'type', event.target.value)}
                           >
-                            <option value="text">Text</option>
-                            <option value="richtext">Rich text</option>
-                            <option value="url">URL</option>
+                            {WEBSITE_SCHEMA_FIELD_TYPES.map((type) => (
+                              <option key={type.value} value={type.value}>{type.label}</option>
+                            ))}
                           </select>
                         </label>
                         <label className="admin-access-field">
@@ -6031,28 +6194,19 @@ const DashboardApp = ({
                           />
                         </label>
                       </div>
-                      <div className="admin-access-actions">
-                        <button type="button" onClick={() => removeWebsiteSchemaField(group.id, field.key)}>
-                          Remove field
-                        </button>
-                      </div>
                     </div>
                   ))}
-                </div>
-
-                <div className="admin-access-actions" style={{ marginTop: '0.75rem' }}>
-                  <button type="button" onClick={() => addWebsiteSchemaField(group.id)}>Add field</button>
-                  <button type="button" onClick={() => removeWebsiteSchemaGroup(group.id)}>Remove group</button>
                 </div>
               </div>
             ))}
 
-            <div className="admin-access-actions">
-              <button type="button" onClick={addWebsiteSchemaGroup}>Add group</button>
-              <button type="button" onClick={resetWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving}>
+            <div className="website-schema-footer-actions">
+              <button type="button" className="website-schema-action" onClick={resetWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving}>
+                <RotateCcw size={14} />
                 Reset schema
               </button>
-              <button type="button" onClick={saveWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving}>
+              <button type="button" className="website-schema-action website-schema-action--primary" onClick={saveWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving || websiteSchemaValidationIssues.length > 0}>
+                <Save size={14} />
                 {websiteSchemaSaving ? 'Saving…' : 'Save schema'}
               </button>
             </div>
