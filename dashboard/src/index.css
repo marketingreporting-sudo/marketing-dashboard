@@ -2326,6 +2326,63 @@ td {
   box-shadow: 0 0 0 1px rgba(121, 41, 36, 0.16);
 }
 
+.website-schema-history {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(16, 33, 38, 0.1);
+}
+
+.website-schema-history__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.website-schema-history__head h4 {
+  margin: 0.15rem 0 0;
+  color: var(--analytics-ink);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.website-schema-history__list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.website-schema-history__item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(16, 33, 38, 0.08);
+}
+
+.website-schema-history__time {
+  color: rgba(16, 33, 38, 0.62);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.website-schema-history__change,
+.website-schema-history__empty {
+  color: rgba(16, 33, 38, 0.74);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.website-schema-history__empty {
+  padding: 0.85rem 0.95rem;
+  border-radius: 12px;
+  background: rgba(16, 33, 38, 0.04);
+  border: 1px dashed rgba(16, 33, 38, 0.14);
+}
+
 @media (max-width: 1100px) {
   .property-info-grid,
   .property-info-panels {
@@ -3746,7 +3803,10 @@ body,
 .website-manager-group,
 .website-schema-group,
 .website-schema-field-card,
-.website-schema-field-card__grid {
+.website-schema-field-card__grid,
+.website-schema-history,
+.website-schema-history__item,
+.website-schema-history__empty {
   min-width: 0;
 }
 
@@ -3794,6 +3854,8 @@ body,
 .website-schema-icon-button,
 .website-schema-action,
 .website-schema-summary span,
+.website-schema-history__item,
+.website-schema-history__empty,
 .search-ad-preview,
 .legal-card,
 .reports-hero,
@@ -3861,6 +3923,8 @@ body,
 .website-schema-field-card,
 .website-schema-icon-button,
 .website-schema-summary span,
+.website-schema-history__item,
+.website-schema-history__empty,
 .search-ad-preview,
 .legal-card {
   background-color: var(--panel-soft) !important;
@@ -3966,6 +4030,7 @@ body,
 .website-schema-field-card__top strong,
 .website-schema-action,
 .website-schema-icon-button,
+.website-schema-history__head h4,
 .card-value,
 th,
 td,
@@ -3993,6 +4058,8 @@ code {
 .website-manager-checklist__item,
 .website-manager-lockup,
 .website-schema-intro,
+.website-schema-history__change,
+.website-schema-history__empty,
 .search-ad-preview__desc,
 .app-footer-links,
 .legal-links,

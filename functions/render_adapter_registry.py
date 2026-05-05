@@ -173,13 +173,13 @@ HTTP_ENDPOINT_SPECS = (
         route="/api/admin/website-manager",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="staging_supabase_website_manager_only",
-        purpose="Read, save, and publish staged website manager content from Supabase.",
+        purpose="Read, save, and publish staged website editor content from Supabase.",
     ),
     HttpEndpointSpec(
         route="/api/admin/website-manager/schema",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="staging_supabase_website_manager_schema_only",
-        purpose="Read and save admin-managed website manager field schemas.",
+        purpose="Read and save admin-managed website editor field schemas.",
     ),
     HttpEndpointSpec(
         route="/api/admin/reporting-layout",
@@ -243,7 +243,7 @@ CRON_JOB_SPECS = (
         name="sync_wordpress_website_manager",
         schedule="35 */4 * * * UTC",
         firebase_handler="render_only",
-        purpose="Publish cached website manager + Entrata snapshot content to WordPress every four hours.",
+        purpose="Publish cached website editor + Entrata snapshot content to WordPress every four hours.",
         render_command="python render_cron.py sync_wordpress_website_manager",
     ),
     CronJobSpec(

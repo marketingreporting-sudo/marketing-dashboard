@@ -58,7 +58,6 @@ import {
   X,
   Plus,
   Trash2,
-  RotateCcw,
   Save,
   AlertTriangle
 } from 'lucide-react';
@@ -111,6 +110,7 @@ const STATUS_CHANGE_EVENT_TYPE_ID = 21;
 const REPORTING_LAYOUT_STORAGE_KEY = 'reportingLayoutAdminEnabled';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dashboardSidebarCollapsed';
 const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
+const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
 const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
 const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
 const REPORTING_PANEL_LIBRARY = [
@@ -133,7 +133,7 @@ const WEBSITE_SCHEMA_FIELD_TYPES = [
 ];
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: TAB_PERMISSIONS.dashboard },
-  { id: 'website manager', label: 'Website Manager', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
+  { id: 'website manager', label: 'Website Editor', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
   { id: 'property info', label: 'Property Info', icon: Home, permission: TAB_PERMISSIONS['property info'] },
   { id: 'reports', label: 'Reports', icon: FileText, permission: TAB_PERMISSIONS.reports },
   { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
@@ -262,6 +262,70 @@ const getWebsiteSchemaValidationIssues = (schema) => {
   });
 
   return Array.from(new Set(issues));
+};
+
+const flattenWebsiteSchemaFields = (schema) => {
+  const fields = new Map();
+  (Array.isArray(schema?.groups) ? schema.groups : []).forEach((group) => {
+    (Array.isArray(group?.fields) ? group.fields : []).forEach((field) => {
+      if (!field?.key) return;
+      fields.set(field.key, {
+        ...field,
+        groupLabel: group.label || 'Untitled group',
+      });
+    });
+  });
+  return fields;
+};
+
+const describeWebsiteSchemaChanges = (beforeSchema, afterSchema) => {
+  const beforeFields = flattenWebsiteSchemaFields(beforeSchema);
+  const afterFields = flattenWebsiteSchemaFields(afterSchema);
+  const changes = [];
+
+  afterFields.forEach((field, key) => {
+    const previous = beforeFields.get(key);
+    if (!previous) {
+      changes.push(`Added ${field.label || key} (${key}) to ${field.groupLabel}.`);
+      return;
+    }
+    const changedParts = [];
+    if ((previous.label || '') !== (field.label || '')) changedParts.push('label');
+    if ((previous.type || '') !== (field.type || '')) changedParts.push('type');
+    if ((previous.placeholder || '') !== (field.placeholder || '')) changedParts.push('placeholder');
+    if ((previous.groupLabel || '') !== (field.groupLabel || '')) changedParts.push('group');
+    if (changedParts.length) {
+      changes.push(`Updated ${field.label || key} (${key}): ${changedParts.join(', ')}.`);
+    }
+  });
+
+  beforeFields.forEach((field, key) => {
+    if (!afterFields.has(key)) {
+      changes.push(`Removed ${field.label || key} (${key}) from ${field.groupLabel}.`);
+    }
+  });
+
+  return changes;
+};
+
+const getWebsiteSchemaHistoryStorageKey = (propertyId) => `${WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX}:${propertyId || 'none'}`;
+
+const readWebsiteSchemaHistory = (propertyId) => {
+  if (typeof window === 'undefined' || !propertyId) return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(getWebsiteSchemaHistoryStorageKey(propertyId)) || '[]');
+    return Array.isArray(parsed) ? parsed.slice(0, 12) : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeWebsiteSchemaHistory = (propertyId, history) => {
+  if (typeof window === 'undefined' || !propertyId) return;
+  window.localStorage.setItem(
+    getWebsiteSchemaHistoryStorageKey(propertyId),
+    JSON.stringify(Array.isArray(history) ? history.slice(0, 12) : [])
+  );
 };
 
 const PROFILE_AVATAR_BUCKET = 'profile-avatars';
@@ -1231,6 +1295,7 @@ const DashboardApp = ({
   const [websiteSchemaNotice, setWebsiteSchemaNotice] = useState(null);
   const [websiteSchemaDoc, setWebsiteSchemaDoc] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
   const [websiteSchemaDraft, setWebsiteSchemaDraft] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
+  const [websiteSchemaHistory, setWebsiteSchemaHistory] = useState([]);
   const [reportingLayoutLoading, setReportingLayoutLoading] = useState(true);
   const [reportingLayoutSaving, setReportingLayoutSaving] = useState(false);
   const [reportingLayoutError, setReportingLayoutError] = useState(null);
@@ -1616,7 +1681,7 @@ const DashboardApp = ({
         const fallback = normalizeWebsiteManagerRecord(null);
         setWebsiteManagerDoc(fallback);
         setWebsiteManagerDraft(fallback);
-        setWebsiteManagerError('Website manager endpoint is not configured.');
+        setWebsiteManagerError('Website editor endpoint is not configured.');
         setWebsiteManagerLoading(false);
         return;
       }
@@ -1630,7 +1695,7 @@ const DashboardApp = ({
         const response = await authFetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Website manager fetch failed: ${response.status}`);
+          throw new Error(payload?.error || `Website editor fetch failed: ${response.status}`);
         }
 
         if (cancelled) return;
@@ -1640,12 +1705,12 @@ const DashboardApp = ({
         setWebsiteManagerDraft(normalized);
         setWebsiteManagerLoading(false);
       } catch (error) {
-        console.error('Website manager staged fetch failed', error);
+        console.error('Website editor staged fetch failed', error);
         if (cancelled) return;
         const fallback = normalizeWebsiteManagerRecord(null);
         setWebsiteManagerDoc(fallback);
         setWebsiteManagerDraft(fallback);
-        setWebsiteManagerError('Unable to load website manager content from the staged adapter.');
+        setWebsiteManagerError('Unable to load website editor content from the staged adapter.');
         setWebsiteManagerLoading(false);
       }
     };
@@ -1655,6 +1720,10 @@ const DashboardApp = ({
       cancelled = true;
     };
   }, [selectedPropertyId, websiteManagerUsesStagedAdapter]);
+
+  useEffect(() => {
+    setWebsiteSchemaHistory(readWebsiteSchemaHistory(selectedPropertyId));
+  }, [selectedPropertyId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2659,7 +2728,7 @@ const DashboardApp = ({
     }));
   };
 
-  const updateWebsiteSchemaField = (groupId, fieldKey, property, value) => {
+  const updateWebsiteSchemaField = (groupId, fieldIndex, property, value) => {
     setWebsiteSchemaNotice(null);
     setWebsiteSchemaError(null);
     setWebsiteSchemaDraft((current) => ({
@@ -2668,8 +2737,8 @@ const DashboardApp = ({
         if (group.id !== groupId) return group;
         return {
           ...group,
-          fields: group.fields.map((field) => (
-            field.key === fieldKey ? { ...field, [property]: value } : field
+          fields: group.fields.map((field, index) => (
+            index === fieldIndex ? { ...field, [property]: value } : field
           )),
         };
       }),
@@ -2738,9 +2807,9 @@ const DashboardApp = ({
     }));
   };
 
-  const removeWebsiteSchemaField = (groupId, fieldKey) => {
+  const removeWebsiteSchemaField = (groupId, fieldIndex) => {
     const group = websiteSchemaDraft.groups.find((item) => item.id === groupId);
-    const field = group?.fields.find((item) => item.key === fieldKey);
+    const field = group?.fields[fieldIndex];
     if (field && !window.confirm(`Remove "${field.label}" (${field.key}) from this schema? Existing content for this key will no longer appear in the editor.`)) {
       return;
     }
@@ -2752,16 +2821,10 @@ const DashboardApp = ({
         if (group.id !== groupId) return group;
         return {
           ...group,
-          fields: group.fields.filter((field) => field.key !== fieldKey),
+          fields: group.fields.filter((field, index) => index !== fieldIndex),
         };
       }).filter((group) => group.fields.length > 0),
     }));
-  };
-
-  const resetWebsiteSchemaDraft = () => {
-    setWebsiteSchemaDraft(websiteSchemaDoc);
-    setWebsiteSchemaNotice('Unsaved schema edits were discarded.');
-    setWebsiteSchemaError(null);
   };
 
   const websiteSchemaDirty = JSON.stringify(websiteSchemaDraft) !== JSON.stringify(websiteSchemaDoc);
@@ -2822,6 +2885,22 @@ const DashboardApp = ({
         throw new Error(payload?.error || `Website schema save failed: ${response.status}`);
       }
       const savedSchema = normalizeWebsiteManagerSchema(payload?.record?.schema);
+      const schemaChanges = describeWebsiteSchemaChanges(websiteSchemaDoc, savedSchema);
+      if (schemaChanges.length > 0) {
+        setWebsiteSchemaHistory((current) => {
+          const nextHistory = [
+            {
+              id: `${Date.now()}`,
+              savedAt: new Date().toISOString(),
+              propertyName: selectedProperty?.name || selectedPropertyLabel,
+              changes: schemaChanges,
+            },
+            ...current,
+          ].slice(0, 12);
+          writeWebsiteSchemaHistory(selectedPropertyId, nextHistory);
+          return nextHistory;
+        });
+      }
       setWebsiteSchemaDoc(savedSchema);
       setWebsiteSchemaDraft(savedSchema);
       setWebsiteSchemaNotice('Website field schema saved.');
@@ -2846,7 +2925,7 @@ const DashboardApp = ({
       return;
     }
     if (!canEditWebsiteManager) {
-      setWebsiteManagerError('Your current role can view website manager content, but cannot edit it.');
+      setWebsiteManagerError('Your current role can view website editor content, but cannot edit it.');
       return;
     }
 
@@ -2857,7 +2936,7 @@ const DashboardApp = ({
 
     try {
       if (!websiteManagerUsesStagedAdapter) {
-        throw new Error('Website manager endpoint is not configured.');
+        throw new Error('Website editor endpoint is not configured.');
       }
       const normalizedDraft = normalizeWebsiteManagerRecord(websiteManagerDraft);
       const response = await authFetch(WEBSITE_MANAGER_URL, {
@@ -2874,7 +2953,7 @@ const DashboardApp = ({
       });
       const payload = await response.json();
       if (!response.ok || payload?.status === 'error') {
-        throw new Error(payload?.error || `Website manager save failed: ${response.status}`);
+        throw new Error(payload?.error || `Website editor save failed: ${response.status}`);
       }
       const savedRecord = normalizeWebsiteManagerRecord(payload.record);
       setWebsiteManagerDoc(savedRecord);
@@ -2882,11 +2961,11 @@ const DashboardApp = ({
       if (publish) {
         setWebsiteManagerNotice('Website content was saved and pushed to the linked WordPress site.');
       } else {
-        setWebsiteManagerNotice('Website manager content saved for this property.');
+        setWebsiteManagerNotice('Website editor content saved for this property.');
       }
     } catch (error) {
-      console.error('Website manager save failed', error);
-      setWebsiteManagerError(error.message || 'Unable to save website manager content.');
+      console.error('Website editor save failed', error);
+      setWebsiteManagerError(error.message || 'Unable to save website editor content.');
     } finally {
       setWebsiteManagerSaving(false);
       setWebsiteManagerAction('save');
@@ -5118,7 +5197,7 @@ const DashboardApp = ({
       <div className="website-manager-hero">
         <div>
           <div className="website-manager-kicker">WordPress Content Control Layer</div>
-          <div className="website-manager-headline">Website Manager</div>
+          <div className="website-manager-headline">Website Editor</div>
           <div className="website-manager-subhead">
             Give on-site and regional teams a property-scoped place to update approved website messaging without routing every request through the web team. This tab stores the platform classification and the content payload we want to push into WordPress.
           </div>
@@ -5180,7 +5259,7 @@ const DashboardApp = ({
 
       {!canEditWebsiteManager && (
         <div className="website-manager-banner">
-          Your current role can view website manager content for this property, but editing is disabled.
+          Your current role can view website editor content for this property, but editing is disabled.
         </div>
       )}
 
@@ -5343,7 +5422,7 @@ const DashboardApp = ({
             {websiteManagerContentTokens.slice(0, 18).map((field) => (
               <div key={field.token} className="website-manager-token">
                 <div className="website-manager-token__name">
-                  {field.type === 'url' ? `rwm:${field.token}` : `{{rwm:${field.token}}}`}
+                  {field.type === 'url' ? `r:${field.token}` : `{{r:${field.token}}}`}
                 </div>
                 <div className="website-manager-token__detail">
                   {field.groupLabel}: <strong>{field.label}</strong>
@@ -6144,14 +6223,14 @@ const DashboardApp = ({
                 </div>
 
                 <div className="website-schema-field-list">
-                  {group.fields.map((field) => (
-                    <div key={field.key} className="website-schema-field-card">
+                  {group.fields.map((field, fieldIndex) => (
+                    <div key={`${group.id}-${fieldIndex}`} className="website-schema-field-card">
                       <div className="website-schema-field-card__top">
                         <div>
                           <strong>{field.label || 'Untitled field'}</strong>
-                          <span>{field.type === 'url' ? `rwm:${field.key || 'field_key'}` : `{{rwm:${field.key || 'field_key'}}}`}</span>
+                          <span>{field.type === 'url' ? `r:${field.key || 'field_key'}` : `{{r:${field.key || 'field_key'}}}`}</span>
                         </div>
-                        <button type="button" className="website-schema-icon-button website-schema-icon-button--danger" onClick={() => removeWebsiteSchemaField(group.id, field.key)} title="Remove field">
+                        <button type="button" className="website-schema-icon-button website-schema-icon-button--danger" onClick={() => removeWebsiteSchemaField(group.id, fieldIndex)} title="Remove field">
                           <Trash2 size={15} />
                         </button>
                       </div>
@@ -6161,7 +6240,7 @@ const DashboardApp = ({
                           <input
                             type="text"
                             value={field.key}
-                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'key', event.target.value)}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, fieldIndex, 'key', event.target.value)}
                             className={!WEBSITE_SCHEMA_FIELD_KEY_PATTERN.test(field.key) || (websiteSchemaFieldKeyCounts.get(field.key) || 0) > 1 ? 'website-schema-input--invalid' : ''}
                             placeholder="homepage_headline"
                           />
@@ -6171,14 +6250,14 @@ const DashboardApp = ({
                           <input
                             type="text"
                             value={field.label}
-                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'label', event.target.value)}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, fieldIndex, 'label', event.target.value)}
                           />
                         </label>
                         <label className="admin-access-field">
                           <span>Field type</span>
                           <select
                             value={field.type}
-                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'type', event.target.value)}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, fieldIndex, 'type', event.target.value)}
                           >
                             {WEBSITE_SCHEMA_FIELD_TYPES.map((type) => (
                               <option key={type.value} value={type.value}>{type.label}</option>
@@ -6190,7 +6269,7 @@ const DashboardApp = ({
                           <input
                             type="text"
                             value={field.placeholder || ''}
-                            onChange={(event) => updateWebsiteSchemaField(group.id, field.key, 'placeholder', event.target.value)}
+                            onChange={(event) => updateWebsiteSchemaField(group.id, fieldIndex, 'placeholder', event.target.value)}
                           />
                         </label>
                       </div>
@@ -6201,14 +6280,38 @@ const DashboardApp = ({
             ))}
 
             <div className="website-schema-footer-actions">
-              <button type="button" className="website-schema-action" onClick={resetWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving}>
-                <RotateCcw size={14} />
-                Reset schema
-              </button>
               <button type="button" className="website-schema-action website-schema-action--primary" onClick={saveWebsiteSchemaDraft} disabled={!websiteSchemaDirty || websiteSchemaSaving || websiteSchemaValidationIssues.length > 0}>
                 <Save size={14} />
                 {websiteSchemaSaving ? 'Saving…' : 'Save schema'}
               </button>
+            </div>
+
+            <div className="website-schema-history">
+              <div className="website-schema-history__head">
+                <div>
+                  <div className="admin-access-panel__eyebrow">Schema History</div>
+                  <h4>Recent field changes</h4>
+                </div>
+              </div>
+              {websiteSchemaHistory.length > 0 ? (
+                <div className="website-schema-history__list">
+                  {websiteSchemaHistory.map((entry) => (
+                    <div key={entry.id} className="website-schema-history__item">
+                      <div className="website-schema-history__time">
+                        {new Date(entry.savedAt).toLocaleString()}
+                      </div>
+                      {entry.changes.slice(0, 4).map((change) => (
+                        <div key={change} className="website-schema-history__change">{change}</div>
+                      ))}
+                      {entry.changes.length > 4 && (
+                        <div className="website-schema-history__change">And {entry.changes.length - 4} more changes.</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="website-schema-history__empty">Saved field changes will appear here after the first schema update.</div>
+              )}
             </div>
           </>
         )}

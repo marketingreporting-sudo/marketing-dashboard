@@ -1,11 +1,11 @@
-# Redstone Website Manager
+# Redstone Website Editor
 
 Small WordPress plugin for storing editable property marketing content in one place and exposing it to:
 
 - a WordPress admin settings page
 - your theme/template files
 - a protected REST endpoint for future dashboard sync
-- frontend token replacement using controlled placeholders like `{{rwm:hero_headline}}`
+- frontend token replacement using controlled placeholders like `{{r:hero_headline}}`
 - signed remote updates from the Redstone dashboard
 - dashboard-managed field schemas, so the WordPress settings screen can match the fields configured in the Redstone dashboard
 
@@ -37,8 +37,8 @@ Small WordPress plugin for storing editable property marketing content in one pl
 ## Install
 
 1. Upload the ZIP in WordPress under `Plugins > Add New > Upload Plugin`.
-2. Activate `Redstone Website Manager`.
-3. Open `Settings > Redstone Website Manager`.
+2. Activate `Redstone Website Editor`.
+3. Open `Settings > Redstone Website Editor`.
 4. Enter values manually for testing.
 5. In the same settings page, configure the site key and shared secret used for signed remote publishes.
 
@@ -97,9 +97,9 @@ For a shortcode-rendered button:
 Use this controlled placeholder format:
 
 ```text
-{{rwm:hero_headline}}
-{{rwm:hero_subtitle}}
-{{rwm:primary_cta_url}}
+{{r:hero_headline}}
+{{r:hero_subtitle}}
+{{r:primary_cta_url}}
 ```
 
 The plugin replaces tokens in final frontend HTML.
@@ -114,11 +114,13 @@ This includes:
 For builder URL fields that strip curly braces, the plugin also supports these URL-only forms:
 
 ```text
-rwm:primary_cta_url
-/rwm:primary_cta_url
+r:primary_cta_url
+/r:primary_cta_url
 ```
 
-That is especially helpful for Salient button URL inputs that rewrite `{{rwm:...}}` tokens.
+That is especially helpful for Salient button URL inputs that rewrite `{{r:...}}` tokens.
+
+Legacy `rwm:` tokens still resolve, so existing pages can be migrated gradually.
 
 Textarea-style content fields also allow safe inline HTML such as:
 
@@ -137,9 +139,9 @@ If an older publish service sends custom field values without `__schema`, the pl
 Examples:
 
 ```html
-<h1>{{rwm:hero_headline}}</h1>
-<p>{{rwm:hero_subtitle}}</p>
-<a href="{{rwm:primary_cta_url}}">{{rwm:primary_cta_label}}</a>
+<h1>{{r:hero_headline}}</h1>
+<p>{{r:hero_subtitle}}</p>
+<a href="{{r:primary_cta_url}}">{{r:primary_cta_label}}</a>
 ```
 
 This is intended for builder-driven workflows like Salient where shortcode support in URL fields is inconsistent.
@@ -190,12 +192,12 @@ This plugin is fine for a Salient child theme, and now supports two implementati
 2. For Salient builder content, use controlled tokens like:
 
 ```text
-{{rwm:hero_headline}}
-{{rwm:primary_cta_label}}
-{{rwm:primary_cta_url}}
-{{rwm:pricing_summary}}
-{{rwm:availability_summary}}
-{{rwm:specials_summary}}
+{{r:hero_headline}}
+{{r:primary_cta_label}}
+{{r:primary_cta_url}}
+{{r:pricing_summary}}
+{{r:availability_summary}}
+{{r:specials_summary}}
 ```
 
 3. In child theme templates or hooks, you can still pull values directly with:

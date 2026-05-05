@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: Redstone Website Manager
+ * Plugin Name: Redstone Website Editor
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.4.1
+ * Version: 1.5.0
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -19,7 +19,8 @@ if (!class_exists('Redstone_Website_Manager')) {
         const SCHEMA_OPTION_KEY = 'redstone_website_manager_schema';
         const MENU_SLUG = 'redstone-website-manager';
         const REST_NAMESPACE = 'redstone-site-manager/v1';
-        const TOKEN_PREFIX = 'rwm:';
+        const TOKEN_PREFIX = 'r:';
+        const LEGACY_TOKEN_PREFIX = 'rwm:';
         const SITE_KEY_OPTION = 'redstone_website_manager_site_key';
         const SHARED_SECRET_OPTION = 'redstone_website_manager_shared_secret';
         const SIGNATURE_WINDOW_SECONDS = 900;
@@ -179,8 +180,8 @@ if (!class_exists('Redstone_Website_Manager')) {
 
         public function register_admin_page() {
             add_options_page(
-                'Redstone Website Manager',
-                'Redstone Website Manager',
+                'Redstone Website Editor',
+                'Redstone Website Editor',
                 'manage_options',
                 self::MENU_SLUG,
                 array($this, 'render_admin_page')
@@ -668,7 +669,7 @@ if (!class_exists('Redstone_Website_Manager')) {
             $schema = $this->get_schema();
             ?>
             <div class="wrap">
-                <h1>Redstone Website Manager</h1>
+                <h1>Redstone Website Editor</h1>
                 <p>Use this screen as the single source of truth for property marketing copy that can be driven from the Redstone dashboard later.</p>
 
                 <form method="post" action="options.php">
@@ -762,7 +763,7 @@ if (!class_exists('Redstone_Website_Manager')) {
 
                 <hr />
                 <h2>Token Format</h2>
-                <p>Use tokens like <code>{{rwm:hero_headline}}</code> inside Salient text blocks or link fields. The plugin replaces them in final frontend HTML, including <code>href</code>, <code>src</code>, and <code>action</code> attributes.</p>
+                <p>Use tokens like <code>{{r:hero_headline}}</code> inside Salient text blocks or link fields. URL-only fields can use <code>r:primary_cta_url</code> or <code>/r:primary_cta_url</code>. Legacy <code>rwm:</code> tokens are still supported while templates are migrated.</p>
 
                 <hr />
                 <h2>Theme Usage</h2>
@@ -784,14 +785,15 @@ if (!class_exists('Redstone_Website_Manager')) {
          * @return string
          */
         public function replace_tokens_in_html($html) {
-            if (!is_string($html) || strpos($html, self::TOKEN_PREFIX) === false) {
+            if (!is_string($html) || (strpos($html, self::TOKEN_PREFIX) === false && strpos($html, self::LEGACY_TOKEN_PREFIX) === false)) {
                 return $html;
             }
 
             $content = $this->get_content();
+            $token_prefix_pattern = '(?:' . preg_quote(self::TOKEN_PREFIX, '/') . '|' . preg_quote(self::LEGACY_TOKEN_PREFIX, '/') . ')';
 
             $html = preg_replace_callback(
-                '/\b(href|src|action)=([\'"])\{\{\s*' . preg_quote(self::TOKEN_PREFIX, '/') . '([a-z0-9_]+)\s*\}\}\2/i',
+                '/\b(href|src|action)=([\'"])\{\{\s*' . $token_prefix_pattern . '([a-z0-9_]+)\s*\}\}\2/i',
                 function ($matches) use ($content) {
                     $attribute = strtolower($matches[1]);
                     $quote = $matches[2];
@@ -809,7 +811,7 @@ if (!class_exists('Redstone_Website_Manager')) {
             );
 
             $html = preg_replace_callback(
-                '/\b(href|src|action)=([\'"])(?:\/)?' . preg_quote(self::TOKEN_PREFIX, '/') . '([a-z0-9_]+)\2/i',
+                '/\b(href|src|action)=([\'"])(?:\/)?' . $token_prefix_pattern . '([a-z0-9_]+)\2/i',
                 function ($matches) use ($content) {
                     $attribute = strtolower($matches[1]);
                     $quote = $matches[2];
@@ -827,7 +829,7 @@ if (!class_exists('Redstone_Website_Manager')) {
             );
 
             $html = preg_replace_callback(
-                '/\{\{\s*' . preg_quote(self::TOKEN_PREFIX, '/') . '([a-z0-9_]+)\s*\}\}/i',
+                '/\{\{\s*' . $token_prefix_pattern . '([a-z0-9_]+)\s*\}\}/i',
                 function ($matches) use ($content) {
                     $key = $matches[1];
                     $value = isset($content[$key]) ? $content[$key] : '';
