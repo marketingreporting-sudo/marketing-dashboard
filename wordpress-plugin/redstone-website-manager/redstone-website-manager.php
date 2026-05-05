@@ -3,7 +3,7 @@
  * Plugin Name: Redstone Website Manager
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.4.0
+ * Version: 1.4.1
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -489,7 +489,83 @@ if (!class_exists('Redstone_Website_Manager')) {
                 return $this->sanitize_schema($payload['schema']);
             }
 
-            return null;
+            return $this->infer_schema_from_payload($payload);
+        }
+
+        /**
+         * @param array<string, mixed> $payload
+         * @return array<string, array<string, mixed>>|null
+         */
+        private function infer_schema_from_payload($payload) {
+            $excluded_keys = array_fill_keys(
+                array(
+                    '__schema',
+                    'schema',
+                    'property_name',
+                    'website_url',
+                    'pricing_summary',
+                    'availability_summary',
+                    'specials_summary',
+                    'availability_url',
+                    'starting_price',
+                    'price_range',
+                    'specials_count',
+                    'floorplan_count',
+                    'available_unit_count',
+                ),
+                true
+            );
+            $default_fields = $this->get_default_schema_field_keys();
+            $fields = array();
+
+            foreach ($payload as $key => $raw) {
+                if (!is_string($key) || isset($excluded_keys[$key]) || isset($default_fields[$key])) {
+                    continue;
+                }
+
+                $safe_key = sanitize_key($key);
+                if ($safe_key === '' || !preg_match('/^[a-z][a-z0-9_]*$/', $safe_key)) {
+                    continue;
+                }
+
+                $field_type = preg_match('/(_url|_link)$/', $safe_key) ? 'url' : 'textarea';
+                $fields[$safe_key] = array(
+                    'label' => $this->humanize_field_key($safe_key),
+                    'type' => $field_type,
+                    'help' => 'Inferred from the latest dashboard publish. Save schema in the dashboard and publish again to restore exact group labels.',
+                );
+            }
+
+            if (empty($fields)) {
+                return null;
+            }
+
+            return array(
+                'dashboard_fields' => array(
+                    'title' => 'Dashboard Fields',
+                    'description' => 'Inferred from the latest dashboard publish because no schema metadata was included.',
+                    'fields' => $fields,
+                ),
+            );
+        }
+
+        /**
+         * @return array<string, bool>
+         */
+        private function get_default_schema_field_keys() {
+            $keys = array();
+
+            foreach ($this->field_schema as $section) {
+                foreach ($section['fields'] as $key => $field) {
+                    $keys[$key] = true;
+                }
+            }
+
+            return $keys;
+        }
+
+        private function humanize_field_key($key) {
+            return ucwords(str_replace('_', ' ', (string) $key));
         }
 
         /**
@@ -551,6 +627,11 @@ if (!class_exists('Redstone_Website_Manager')) {
         public function get_schema() {
             $stored = get_option(self::SCHEMA_OPTION_KEY, array());
             if (!is_array($stored) || empty($stored)) {
+                $inferred = $this->infer_schema_from_payload(get_option(self::OPTION_KEY, array()));
+                if (is_array($inferred)) {
+                    return $inferred;
+                }
+
                 return $this->field_schema;
             }
 

@@ -132,6 +132,8 @@ That means you can store formatted copy in the dashboard for fields like subtitl
 
 The REST sync endpoint also accepts additional safe field keys beyond the built-in defaults. When the Redstone dashboard includes a `__schema` object in the publish payload, the plugin stores that schema and uses it to render the WordPress admin settings screen. That keeps WordPress aligned with the property-specific fields configured in the dashboard.
 
+If an older publish service sends custom field values without `__schema`, the plugin now infers a temporary "Dashboard Fields" schema from those custom keys. The next schema-aware publish replaces that inferred fallback with the exact dashboard groups and labels.
+
 Examples:
 
 ```html
