@@ -31,6 +31,7 @@ from render_supabase_admin_content import (
     save_website_manager_summary,
 )
 from render_supabase_admin_access import (
+    generate_user_password_reset_summary,
     invite_user_with_access_summary,
     list_access_admin_summary,
     update_user_access_summary,
@@ -689,6 +690,28 @@ def create_app() -> Flask:
 
         req_json = request.get_json(silent=True) or {}
         payload = update_user_access_summary(
+            user_id,
+            req_json,
+            actor_user_id=str(user.get("id") or ""),
+            actor_email=str(user.get("email") or ""),
+        )
+        status_code = 200 if payload.get("status") != "error" else 503
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/access/users/<user_id>/password-reset", methods=["POST", "OPTIONS"])
+    def staged_admin_access_user_password_reset(user_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            _access_token, user = require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        req_json = request.get_json(silent=True) or {}
+        payload = generate_user_password_reset_summary(
             user_id,
             req_json,
             actor_user_id=str(user.get("id") or ""),

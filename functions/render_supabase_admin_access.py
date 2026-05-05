@@ -177,7 +177,9 @@ def _fetch_single_memberships(user_id: str) -> list[dict[str, Any]]:
 def _fetch_single_auth_user(user_id: str) -> dict[str, Any]:
     payload = _auth_admin_request(f"/admin/users/{user_id}")
     user = payload.get("user")
-    return user if isinstance(user, dict) else {}
+    if isinstance(user, dict):
+        return user
+    return payload if isinstance(payload, dict) else {}
 
 
 def _build_user_access_snapshot(user_id: str) -> dict[str, Any]:
@@ -445,6 +447,57 @@ def invite_user_with_access_payload(
     }
 
 
+def generate_user_password_reset_payload(
+    user_id: str,
+    *,
+    redirect_to: str | None = None,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    auth_user = _fetch_single_auth_user(user_id)
+    email = str(auth_user.get("email") or "").strip()
+    if not email:
+        raise RuntimeError("Supabase did not return an email for that user.")
+
+    recovery_payload = {
+        "type": "recovery",
+        "email": email,
+    }
+    if redirect_to:
+        recovery_payload["redirect_to"] = redirect_to
+
+    generated = _auth_admin_request(
+        "/admin/generate_link",
+        method="POST",
+        payload=recovery_payload,
+    )
+    properties = generated.get("properties") if isinstance(generated.get("properties"), dict) else {}
+    action_link = generated.get("action_link") or properties.get("action_link") or ""
+    hashed_token = generated.get("hashed_token") or properties.get("hashed_token") or ""
+
+    _log_access_audit_event(
+        actor_user_id=actor_user_id,
+        actor_email=actor_email,
+        action="update_user_access",
+        target_user_id=user_id,
+        target_email=email,
+        details={
+            "operation": "generate_password_reset_link",
+            "redirectTo": redirect_to or None,
+        },
+    )
+
+    return {
+        "status": "ok",
+        "reset": {
+            "email": email,
+            "actionLink": action_link,
+            "hashedToken": hashed_token,
+            "userId": user_id,
+        },
+    }
+
+
 def list_access_admin_summary() -> dict[str, Any]:
     try:
         return list_access_admin_payload()
@@ -488,6 +541,24 @@ def invite_user_with_access_summary(
             global_role=payload.get("globalRole"),
             property_role=payload.get("propertyRole"),
             property_ids=payload.get("propertyIds") if isinstance(payload.get("propertyIds"), list) else [],
+            actor_user_id=actor_user_id,
+            actor_email=actor_email,
+        )
+    except (HTTPError, URLError, SupabaseValidationConfigError, RuntimeError) as error:
+        return {"status": "error", "error": str(error)}
+
+
+def generate_user_password_reset_summary(
+    user_id: str,
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return generate_user_password_reset_payload(
+            user_id,
+            redirect_to=payload.get("redirectTo"),
             actor_user_id=actor_user_id,
             actor_email=actor_email,
         )

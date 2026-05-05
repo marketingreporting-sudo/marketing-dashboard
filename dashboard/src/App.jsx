@@ -1379,6 +1379,7 @@ const DashboardApp = ({
   const [adminAccessError, setAdminAccessError] = useState(null);
   const [adminAccessNotice, setAdminAccessNotice] = useState(null);
   const [adminInviteLink, setAdminInviteLink] = useState('');
+  const [adminPasswordResetLink, setAdminPasswordResetLink] = useState('');
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminRoles, setAdminRoles] = useState([]);
   const [adminProperties, setAdminProperties] = useState([]);
@@ -5992,6 +5993,7 @@ const DashboardApp = ({
     setAdminAccessError(null);
     setAdminAccessNotice(null);
     setAdminInviteLink('');
+    setAdminPasswordResetLink('');
 
     try {
       const response = await authFetch(`${ADMIN_ACCESS_USERS_URL}/${adminUserDraft.id}`, {
@@ -6028,6 +6030,7 @@ const DashboardApp = ({
     setAdminAccessError(null);
     setAdminAccessNotice(null);
     setAdminInviteLink('');
+    setAdminPasswordResetLink('');
 
     try {
       const response = await authFetch(ADMIN_ACCESS_USERS_URL, {
@@ -6059,6 +6062,40 @@ const DashboardApp = ({
       await loadAdminAccess();
     } catch (error) {
       setAdminAccessError(error.message || 'Unable to create invite.');
+      setAdminAccessLoading(false);
+    }
+  };
+
+  const createAdminPasswordResetLink = async () => {
+    if (!adminUserDraft?.id) {
+      setAdminAccessError('Choose a user before creating a password reset link.');
+      return;
+    }
+
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+    setAdminInviteLink('');
+    setAdminPasswordResetLink('');
+
+    try {
+      const response = await authFetch(`${ADMIN_ACCESS_USERS_URL}/${adminUserDraft.id}/password-reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirectTo: `${window.location.origin}/set-password`,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Password reset link failed: ${response.status}`);
+      }
+
+      setAdminAccessNotice(`Password reset link created for ${payload?.reset?.email || adminUserDraft.email}.`);
+      setAdminPasswordResetLink(payload?.reset?.actionLink || '');
+      await loadAdminAccess();
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to create a password reset link.');
       setAdminAccessLoading(false);
     }
   };
@@ -6418,6 +6455,12 @@ const DashboardApp = ({
         </div>
       )}
 
+      {adminPasswordResetLink && (
+        <div className="admin-access-banner admin-access-banner--info">
+          Password reset link: <a href={adminPasswordResetLink} target="_blank" rel="noreferrer">{adminPasswordResetLink}</a>
+        </div>
+      )}
+
       {(websiteSchemaError || websiteSchemaNotice) && (
         <div className={`admin-access-banner ${websiteSchemaError ? 'admin-access-banner--error' : 'admin-access-banner--success'}`}>
           {websiteSchemaError || websiteSchemaNotice}
@@ -6581,6 +6624,9 @@ const DashboardApp = ({
               <div className="admin-access-actions">
                 <button type="button" onClick={saveAdminUserAccess} disabled={adminAccessLoading}>
                   {adminAccessLoading ? 'Saving…' : 'Save Access'}
+                </button>
+                <button type="button" onClick={createAdminPasswordResetLink} disabled={adminAccessLoading}>
+                  {adminAccessLoading ? 'Working…' : 'Create Password Reset Link'}
                 </button>
               </div>
             </>
