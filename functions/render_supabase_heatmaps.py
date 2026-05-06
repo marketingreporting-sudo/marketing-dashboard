@@ -1042,8 +1042,12 @@ def capture_site_screenshots(
                             )
                             page = context.new_page()
                             try:
-                                page.goto(page_url, wait_until="networkidle", timeout=timeout_ms)
-                                page.wait_for_timeout(750)
+                                page.goto(page_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                                try:
+                                    page.wait_for_load_state("load", timeout=10_000)
+                                except Exception:
+                                    pass
+                                page.wait_for_timeout(1500)
                                 dimensions = page.evaluate(
                                     """() => ({
                                       width: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0, window.innerWidth || 0),
