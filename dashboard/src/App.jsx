@@ -1388,6 +1388,15 @@ const DashboardApp = ({
     engagement: false,
   });
   const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
+  const heatmapPageOptions = heatmapPagesData?.pages || [];
+  const auditPageOptions = siteAuditPagesData?.pages || [];
+  const selectedAuditPage = useMemo(() => (
+    auditPageOptions.find((page) => (page.path || '/') === selectedHeatmapPath) || auditPageOptions[0] || null
+  ), [auditPageOptions, selectedHeatmapPath]);
+  const selectedScreenshot = useMemo(() => {
+    const screenshots = Array.isArray(selectedAuditPage?.screenshots) ? selectedAuditPage.screenshots : [];
+    return screenshots.find((item) => item.deviceType === selectedHeatmapDevice) || screenshots[0] || null;
+  }, [selectedAuditPage, selectedHeatmapDevice]);
   const [websiteSchemaLoading, setWebsiteSchemaLoading] = useState(false);
   const [websiteSchemaSaving, setWebsiteSchemaSaving] = useState(false);
   const [websiteSchemaError, setWebsiteSchemaError] = useState(null);
@@ -3854,15 +3863,6 @@ const DashboardApp = ({
   const localFalconReports = localFalconData?.Reports || [];
   const localFalconLocation = localFalconData?.Location || null;
   const localFalconLatestReport = localFalconReports[0] || null;
-  const heatmapPageOptions = heatmapPagesData?.pages || [];
-  const auditPageOptions = siteAuditPagesData?.pages || [];
-  const selectedAuditPage = useMemo(() => (
-    auditPageOptions.find((page) => (page.path || '/') === selectedHeatmapPath) || auditPageOptions[0] || null
-  ), [auditPageOptions, selectedHeatmapPath]);
-  const selectedScreenshot = useMemo(() => {
-    const screenshots = Array.isArray(selectedAuditPage?.screenshots) ? selectedAuditPage.screenshots : [];
-    return screenshots.find((item) => item.deviceType === selectedHeatmapDevice) || screenshots[0] || null;
-  }, [selectedAuditPage, selectedHeatmapDevice]);
   const heatmapTotals = heatmapSummaryData?.totals || {};
   const heatmapPoints = useMemo(() => (
     (heatmapSummaryData?.points || [])
