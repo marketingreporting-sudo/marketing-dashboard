@@ -1975,6 +1975,14 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
         import site_audit
 
         result = site_audit.save_audit(site_audit.perform_site_audit())
+    elif job_name == "maintain_site_tracking":
+        import render_supabase_heatmaps
+
+        result = render_supabase_heatmaps.run_site_tracking_maintenance()
+    elif job_name == "capture_site_screenshots":
+        import render_supabase_heatmaps
+
+        result = render_supabase_heatmaps.capture_site_screenshots()
     else:
         raise ValueError(f"Unsupported cron job: {job_name}")
 

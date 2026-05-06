@@ -193,6 +193,73 @@ export const WEBSITE_MANAGER_DEFAULT_RECORD = {
   }
 };
 
+export const HEATMAP_SITE_DEFAULT_CONFIG = {
+  id: '',
+  name: '',
+  siteKey: '',
+  allowedDomains: [],
+  trackingEnabled: false,
+  samplingRate: 0.10,
+  featureFlags: {
+    heatmaps: true,
+    pageSnapshots: true,
+    screenshots: false,
+  },
+  screenshotCaptureFrequency: 'manual',
+  consentMode: 'opt_out',
+  respectDnt: true,
+  screenshotMinIntervalHours: 24,
+  rawEventRetentionDays: 90,
+  aggregateRetentionDays: 730,
+  notes: '',
+};
+
+export const normalizeHeatmapSiteConfig = (value) => {
+  const safeValue = value && typeof value === 'object' ? value : {};
+  const featureFlags = safeValue.featureFlags && typeof safeValue.featureFlags === 'object'
+    ? safeValue.featureFlags
+    : {};
+  const samplingRate = Number(safeValue.samplingRate ?? 0.10);
+  const frequency = ['manual', 'daily', 'weekly'].includes(safeValue.screenshotCaptureFrequency)
+    ? safeValue.screenshotCaptureFrequency
+    : 'manual';
+  const consentMode = ['opt_out', 'required', 'disabled'].includes(safeValue.consentMode)
+    ? safeValue.consentMode
+    : 'opt_out';
+  const screenshotMinIntervalHours = Number(safeValue.screenshotMinIntervalHours ?? 24);
+  const rawEventRetentionDays = Number(safeValue.rawEventRetentionDays ?? 90);
+  const aggregateRetentionDays = Number(safeValue.aggregateRetentionDays ?? 730);
+  return {
+    ...HEATMAP_SITE_DEFAULT_CONFIG,
+    id: String(safeValue.id || ''),
+    name: String(safeValue.name || ''),
+    siteKey: String(safeValue.siteKey || ''),
+    allowedDomains: Array.isArray(safeValue.allowedDomains)
+      ? safeValue.allowedDomains.map((item) => String(item || '').trim()).filter(Boolean)
+      : [],
+    trackingEnabled: Boolean(safeValue.trackingEnabled),
+    samplingRate: Number.isFinite(samplingRate) ? Math.max(0, Math.min(1, samplingRate)) : 0.10,
+    featureFlags: {
+      heatmaps: featureFlags.heatmaps !== false,
+      pageSnapshots: featureFlags.pageSnapshots !== false,
+      screenshots: featureFlags.screenshots === true,
+    },
+    screenshotCaptureFrequency: frequency,
+    consentMode,
+    respectDnt: safeValue.respectDnt !== false,
+    screenshotMinIntervalHours: Number.isFinite(screenshotMinIntervalHours)
+      ? Math.max(1, Math.min(720, screenshotMinIntervalHours))
+      : 24,
+    rawEventRetentionDays: Number.isFinite(rawEventRetentionDays)
+      ? Math.max(1, Math.min(365, rawEventRetentionDays))
+      : 90,
+    aggregateRetentionDays: Number.isFinite(aggregateRetentionDays)
+      ? Math.max(30, Math.min(3650, aggregateRetentionDays))
+      : 730,
+    notes: String(safeValue.notes || ''),
+  };
+};
+
 export const WEBSITE_MANAGER_TOKEN_DEFINITIONS = [
   { token: 'property_name', label: 'Property name' },
   { token: 'city', label: 'City' },

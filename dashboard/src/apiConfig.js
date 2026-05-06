@@ -72,3 +72,58 @@ export const REPUTATION_DASHBOARD_URL = resolveApiUrl(
   '/api/analytics/reputation',
   'https://us-central1-data-analysis-eeb4d.cloudfunctions.net/get_reputation_dashboard_data'
 );
+
+export const HEATMAP_SITES_URL = resolveApiUrl(
+  import.meta.env.VITE_HEATMAP_SITES_URL || '',
+  '/api/admin/heatmap-sites'
+);
+
+export const HEATMAP_SUMMARY_URL = resolveApiUrl(
+  import.meta.env.VITE_HEATMAP_SUMMARY_URL || '',
+  '/api/heatmaps/summary'
+);
+
+export const HEATMAP_PAGES_URL = resolveApiUrl(
+  import.meta.env.VITE_HEATMAP_PAGES_URL || '',
+  '/api/heatmaps/pages'
+);
+
+export const HEATMAP_TRACKER_URL = resolveApiUrl(
+  import.meta.env.VITE_HEATMAP_TRACKER_URL || '',
+  '/api/heatmaps/tracker.js'
+);
+
+export const SITE_AUDIT_PAGE_SNAPSHOT_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_PAGE_SNAPSHOT_URL || '',
+  '/api/site-audit/page-snapshot'
+);
+
+export const SITE_AUDIT_PAGES_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_PAGES_URL || '',
+  '/api/site-audit/pages'
+);
+
+export const SITE_AUDIT_RUN_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_RUN_URL || '',
+  '/api/site-audit/run'
+);
+
+export const SITE_AUDIT_SUMMARY_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_SUMMARY_URL || '',
+  '/api/site-audit/summary'
+);
+
+export const SITE_AUDIT_SCREENSHOT_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_SCREENSHOT_URL || '',
+  '/api/site-audit/screenshot'
+);
+
+export const SITE_AUDIT_SCREENSHOT_UPLOAD_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_SCREENSHOT_UPLOAD_URL || '',
+  '/api/site-audit/screenshot-upload-url'
+);
+
+export const SITE_AUDIT_SCREENSHOT_PREVIEW_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_SCREENSHOT_PREVIEW_URL || '',
+  '/api/site-audit/screenshot-preview'
+);

@@ -4,17 +4,26 @@ import {
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
   LOCAL_FALCON_DASHBOARD_URL,
+  HEATMAP_SITES_URL,
+  HEATMAP_PAGES_URL,
+  HEATMAP_SUMMARY_URL,
+  HEATMAP_TRACKER_URL,
   META_ADS_DASHBOARD_URL,
   PROPERTY_REPORTING_OVERVIEW_URL,
   RENDER_API_BASE_URL,
   REPORTING_LAYOUT_URL,
   REPUTATION_DASHBOARD_URL,
   ROI_PIPELINE_STATUS_URL,
+  SITE_AUDIT_PAGES_URL,
+  SITE_AUDIT_RUN_URL,
+  SITE_AUDIT_SCREENSHOT_PREVIEW_URL,
+  SITE_AUDIT_SUMMARY_URL,
   WEBSITE_MANAGER_SCHEMA_URL,
   WEBSITE_MANAGER_URL
 } from './apiConfig';
 import { authFetch } from './lib/authFetch';
 import { supabase } from './lib/supabase';
+import HeatmapRenderer from './components/HeatmapRenderer';
 import { OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
 import {
   DEFAULT_TAB_ORDER,
@@ -26,11 +35,13 @@ import { useAccess } from './access/useAccess';
 import {
   WEBSITE_MANAGER_DEFAULT_RECORD,
   WEBSITE_MANAGER_DEFAULT_SCHEMA,
+  HEATMAP_SITE_DEFAULT_CONFIG,
   WEBSITE_MANAGER_TOKEN_DEFINITIONS,
   getWebsiteManagerFieldGroups,
   getWebsiteManagerFieldTokenDefinitions,
   getWebsitePlatformMeta,
   isWebsiteManagerEditable,
+  normalizeHeatmapSiteConfig,
   normalizeWebsiteManagerRecord,
   normalizeWebsiteManagerSchema,
   resolveMustacheTokens
@@ -118,6 +129,7 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'roi', title: 'ROI Metrics', eyebrow: 'Revenue Efficiency' },
   { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
   { id: 'entrata', title: 'Entrata Funnel', eyebrow: 'Leads to Leases' },
+  { id: 'heatmaps-audit', title: 'Heatmaps + Site Audit', eyebrow: 'Website Experience' },
   { id: 'google-ads', title: 'Google Ads', eyebrow: 'Paid Search' },
   { id: 'ga4', title: 'Google Analytics', eyebrow: 'Behavior + Demand' },
   { id: 'opiniion', title: 'Opiniion', eyebrow: 'Resident Sentiment' },
@@ -125,6 +137,7 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
 ];
 const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
+const HEATMAP_DEVICE_OPTIONS = ['desktop', 'mobile', 'tablet'];
 const TASK_STATUSES = [
   { id: 'new', label: 'New' },
   { id: 'in_progress', label: 'In Progress' },
@@ -327,6 +340,32 @@ const readWebsiteSchemaHistory = (propertyId) => {
   } catch {
     return [];
   }
+};
+
+const getHostnameFromUrl = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    const parsed = new URL(text.includes('://') ? text : `https://${text}`);
+    return parsed.hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
+const toDomainText = (domains) => (Array.isArray(domains) ? domains.join('\n') : '');
+
+const parseDomainText = (value) => (
+  String(value || '')
+    .split(/[\n,]+/)
+    .map((item) => item.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
+    .filter(Boolean)
+);
+
+const buildManualTrackerSnippet = (siteKey) => {
+  if (!siteKey || !HEATMAP_TRACKER_URL) return '';
+  const separator = HEATMAP_TRACKER_URL.includes('?') ? '&' : '?';
+  return `<script async id="redstone-tracker" data-redstone-tracker="1" src="${HEATMAP_TRACKER_URL}${separator}site_key=${encodeURIComponent(siteKey)}"></script>`;
 };
 
 const writeWebsiteSchemaHistory = (propertyId, history) => {
@@ -1323,6 +1362,32 @@ const DashboardApp = ({
   const [websiteManagerNotice, setWebsiteManagerNotice] = useState(null);
   const [websiteManagerDoc, setWebsiteManagerDoc] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
   const [websiteManagerDraft, setWebsiteManagerDraft] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
+  const [heatmapSiteLoading, setHeatmapSiteLoading] = useState(true);
+  const [heatmapSiteSaving, setHeatmapSiteSaving] = useState(false);
+  const [heatmapSiteError, setHeatmapSiteError] = useState(null);
+  const [heatmapSiteNotice, setHeatmapSiteNotice] = useState(null);
+  const [heatmapSiteDoc, setHeatmapSiteDoc] = useState(HEATMAP_SITE_DEFAULT_CONFIG);
+  const [heatmapSiteDraft, setHeatmapSiteDraft] = useState(HEATMAP_SITE_DEFAULT_CONFIG);
+  const [heatmapPagesLoading, setHeatmapPagesLoading] = useState(false);
+  const [heatmapSummaryLoading, setHeatmapSummaryLoading] = useState(false);
+  const [siteAuditLoading, setSiteAuditLoading] = useState(false);
+  const [siteAuditRunning, setSiteAuditRunning] = useState(false);
+  const [heatmapPanelError, setHeatmapPanelError] = useState(null);
+  const [heatmapPagesData, setHeatmapPagesData] = useState(null);
+  const [heatmapSummaryData, setHeatmapSummaryData] = useState(null);
+  const [siteAuditPagesData, setSiteAuditPagesData] = useState(null);
+  const [siteAuditSummaryData, setSiteAuditSummaryData] = useState(null);
+  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState('');
+  const [screenshotPreviewLoading, setScreenshotPreviewLoading] = useState(false);
+  const [screenshotPreviewError, setScreenshotPreviewError] = useState(null);
+  const [selectedHeatmapPath, setSelectedHeatmapPath] = useState('');
+  const [heatmapLayers, setHeatmapLayers] = useState({
+    click: true,
+    cursor: false,
+    scroll: false,
+    engagement: false,
+  });
+  const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
   const [websiteSchemaLoading, setWebsiteSchemaLoading] = useState(false);
   const [websiteSchemaSaving, setWebsiteSchemaSaving] = useState(false);
   const [websiteSchemaError, setWebsiteSchemaError] = useState(null);
@@ -1967,6 +2032,229 @@ const DashboardApp = ({
       cancelled = true;
     };
   }, [selectedPropertyId, websiteManagerUsesStagedAdapter]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadHeatmapSite = async () => {
+      if (!selectedPropertyId) {
+        const fallback = normalizeHeatmapSiteConfig(null);
+        setHeatmapSiteDoc(fallback);
+        setHeatmapSiteDraft(fallback);
+        setHeatmapSiteError(null);
+        setHeatmapSiteLoading(false);
+        return;
+      }
+
+      if (!HEATMAP_SITES_URL) {
+        const fallback = normalizeHeatmapSiteConfig(null);
+        setHeatmapSiteDoc(fallback);
+        setHeatmapSiteDraft(fallback);
+        setHeatmapSiteError('Heatmap site configuration endpoint is not configured.');
+        setHeatmapSiteLoading(false);
+        return;
+      }
+
+      setHeatmapSiteLoading(true);
+      setHeatmapSiteError(null);
+      setHeatmapSiteNotice(null);
+
+      try {
+        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const response = await authFetch(`${HEATMAP_SITES_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Tracking site fetch failed: ${response.status}`);
+        }
+        if (cancelled) return;
+        const primarySite = Array.isArray(payload.sites) ? payload.sites[0] : null;
+        const normalized = normalizeHeatmapSiteConfig(primarySite);
+        if (!normalized.name) normalized.name = selectedProperty?.name || 'Selected property';
+        if (normalized.allowedDomains.length === 0) {
+          const host = getHostnameFromUrl(websiteManagerDoc.websiteUrl);
+          if (host) normalized.allowedDomains = [host];
+        }
+        setHeatmapSiteDoc(normalized);
+        setHeatmapSiteDraft(normalized);
+        setHeatmapSiteLoading(false);
+      } catch (error) {
+        console.error('Tracking site config fetch failed', error);
+        if (cancelled) return;
+        const fallback = normalizeHeatmapSiteConfig(null);
+        setHeatmapSiteDoc(fallback);
+        setHeatmapSiteDraft(fallback);
+        setHeatmapSiteError('Unable to load tracking site configuration.');
+        setHeatmapSiteLoading(false);
+      }
+    };
+
+    loadHeatmapSite();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedPropertyId, selectedProperty?.name, websiteManagerDoc.websiteUrl]);
+
+  useEffect(() => {
+    if (!selectedPropertyId || !HEATMAP_PAGES_URL || !SITE_AUDIT_PAGES_URL || !SITE_AUDIT_SUMMARY_URL) {
+      setHeatmapPagesData(null);
+      setSiteAuditPagesData(null);
+      setSiteAuditSummaryData(null);
+      setHeatmapPanelError(selectedPropertyId ? 'Heatmap and audit endpoints are not fully configured.' : null);
+      setHeatmapPagesLoading(false);
+      setSiteAuditLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadHeatmapPanelData = async () => {
+      setHeatmapPagesLoading(true);
+      setSiteAuditLoading(true);
+      setHeatmapPanelError(null);
+      try {
+        const params = new URLSearchParams({
+          property_id: selectedPropertyId,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
+
+        const fetchPanelPayload = async (label, url) => {
+          const response = await authFetch(url, { signal: controller.signal });
+          const payload = await response.json();
+          if (!response.ok || payload?.status === 'error') {
+            throw new Error(payload?.error || `${label} fetch failed: ${response.status}`);
+          }
+          return payload;
+        };
+        const [pagesResult, auditPagesResult, auditSummaryResult] = await Promise.allSettled([
+          fetchPanelPayload('Heatmap pages', `${HEATMAP_PAGES_URL}?${params.toString()}`),
+          fetchPanelPayload('Audit pages', `${SITE_AUDIT_PAGES_URL}?${params.toString()}`),
+          fetchPanelPayload('Audit summary', `${SITE_AUDIT_SUMMARY_URL}?${params.toString()}`),
+        ]);
+        const partialErrors = [];
+        if (pagesResult.status === 'fulfilled') setHeatmapPagesData(pagesResult.value);
+        else {
+          setHeatmapPagesData(null);
+          partialErrors.push(pagesResult.reason?.message || 'Heatmap pages unavailable.');
+        }
+        if (auditPagesResult.status === 'fulfilled') setSiteAuditPagesData(auditPagesResult.value);
+        else {
+          setSiteAuditPagesData(null);
+          partialErrors.push(auditPagesResult.reason?.message || 'Audit pages unavailable.');
+        }
+        if (auditSummaryResult.status === 'fulfilled') setSiteAuditSummaryData(auditSummaryResult.value);
+        else {
+          setSiteAuditSummaryData(null);
+          partialErrors.push(auditSummaryResult.reason?.message || 'Audit summary unavailable.');
+        }
+        setHeatmapPanelError(partialErrors.length ? `Partial data loaded: ${partialErrors.join(' ')}` : null);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Heatmap/audit panel fetch failed', error);
+        setHeatmapPagesData(null);
+        setSiteAuditPagesData(null);
+        setSiteAuditSummaryData(null);
+        setHeatmapPanelError(error.message || 'Unable to load heatmap and audit data.');
+      } finally {
+        if (!controller.signal.aborted) {
+          setHeatmapPagesLoading(false);
+          setSiteAuditLoading(false);
+        }
+      }
+    };
+
+    loadHeatmapPanelData();
+    return () => controller.abort();
+  }, [rangeDates, selectedPropertyId, heatmapSiteDraft.siteKey]);
+
+  useEffect(() => {
+    const pages = heatmapPagesData?.pages || [];
+    if (!selectedHeatmapPath && pages.length > 0) {
+      setSelectedHeatmapPath(pages[0].path || pages[0].canonicalPath || '/');
+    }
+    if (selectedHeatmapPath && pages.length > 0 && !pages.some((page) => (page.path || page.canonicalPath || '/') === selectedHeatmapPath)) {
+      setSelectedHeatmapPath(pages[0].path || pages[0].canonicalPath || '/');
+    }
+  }, [heatmapPagesData, selectedHeatmapPath]);
+
+  useEffect(() => {
+    if (!selectedPropertyId || !HEATMAP_SUMMARY_URL || !selectedHeatmapPath) {
+      setHeatmapSummaryData(null);
+      setHeatmapSummaryLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadHeatmapSummary = async () => {
+      setHeatmapSummaryLoading(true);
+      setHeatmapPanelError(null);
+      try {
+        const params = new URLSearchParams({
+          property_id: selectedPropertyId,
+          path: selectedHeatmapPath,
+          device_type: selectedHeatmapDevice,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
+        const response = await authFetch(`${HEATMAP_SUMMARY_URL}?${params.toString()}`, { signal: controller.signal });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Heatmap summary fetch failed: ${response.status}`);
+        }
+        setHeatmapSummaryData(payload);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Heatmap summary fetch failed', error);
+        setHeatmapSummaryData(null);
+        setHeatmapPanelError(error.message || 'Unable to load heatmap summary.');
+      } finally {
+        if (!controller.signal.aborted) setHeatmapSummaryLoading(false);
+      }
+    };
+
+    loadHeatmapSummary();
+    return () => controller.abort();
+  }, [rangeDates, selectedHeatmapDevice, selectedHeatmapPath, selectedPropertyId, heatmapSiteDraft.siteKey]);
+
+  useEffect(() => {
+    if (!selectedScreenshot?.id || !SITE_AUDIT_SCREENSHOT_PREVIEW_URL) {
+      setScreenshotPreviewUrl('');
+      setScreenshotPreviewError(null);
+      setScreenshotPreviewLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadScreenshotPreview = async () => {
+      setScreenshotPreviewLoading(true);
+      setScreenshotPreviewError(null);
+      try {
+        const params = new URLSearchParams({
+          screenshot_id: selectedScreenshot.id,
+          expires_in: '900',
+        });
+        const response = await authFetch(`${SITE_AUDIT_SCREENSHOT_PREVIEW_URL}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Screenshot preview fetch failed: ${response.status}`);
+        }
+        setScreenshotPreviewUrl(payload.url || '');
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Screenshot preview fetch failed', error);
+        setScreenshotPreviewUrl('');
+        setScreenshotPreviewError(error.message || 'Unable to load screenshot preview.');
+      } finally {
+        if (!controller.signal.aborted) setScreenshotPreviewLoading(false);
+      }
+    };
+
+    loadScreenshotPreview();
+    return () => controller.abort();
+  }, [selectedScreenshot?.id]);
 
   useEffect(() => {
     setWebsiteSchemaHistory(readWebsiteSchemaHistory(selectedPropertyId));
@@ -2926,6 +3214,14 @@ const DashboardApp = ({
     () => JSON.stringify(websiteManagerDraft) !== JSON.stringify(websiteManagerDoc),
     [websiteManagerDraft, websiteManagerDoc]
   );
+  const heatmapSiteDirty = useMemo(
+    () => JSON.stringify(normalizeHeatmapSiteConfig(heatmapSiteDraft)) !== JSON.stringify(normalizeHeatmapSiteConfig(heatmapSiteDoc)),
+    [heatmapSiteDraft, heatmapSiteDoc]
+  );
+  const manualTrackerSnippet = useMemo(
+    () => buildManualTrackerSnippet(heatmapSiteDraft.siteKey),
+    [heatmapSiteDraft.siteKey]
+  );
   const websiteManagerPublishReady = useMemo(() => (
     websiteManagerEditable &&
     canEditWebsiteManager &&
@@ -2962,6 +3258,40 @@ const DashboardApp = ({
         [field]: value
       }
     }));
+  };
+
+  const updateHeatmapSiteField = (field, value) => {
+    setHeatmapSiteNotice(null);
+    setHeatmapSiteError(null);
+    setHeatmapSiteDraft((current) => ({
+      ...current,
+      [field]: value
+    }));
+  };
+
+  const updateHeatmapFeatureFlag = (field, value) => {
+    setHeatmapSiteNotice(null);
+    setHeatmapSiteError(null);
+    setHeatmapSiteDraft((current) => ({
+      ...current,
+      featureFlags: {
+        ...current.featureFlags,
+        [field]: value
+      }
+    }));
+  };
+
+  const updateHeatmapLayer = (field, value) => {
+    setHeatmapLayers((current) => ({
+      ...current,
+      [field]: value
+    }));
+  };
+
+  const resetHeatmapSiteDraft = () => {
+    setHeatmapSiteDraft(heatmapSiteDoc);
+    setHeatmapSiteNotice('Unsaved tracking setup changes were discarded.');
+    setHeatmapSiteError(null);
   };
 
   const updateWebsiteSchemaGroupLabel = (groupId, value) => {
@@ -3219,6 +3549,100 @@ const DashboardApp = ({
     }
   };
 
+  const persistHeatmapSiteDraft = async () => {
+    if (!selectedPropertyId) {
+      setHeatmapSiteError('No property is currently available for this account.');
+      return;
+    }
+    if (!canEditWebsiteManager) {
+      setHeatmapSiteError('Your current role can view tracking setup, but cannot edit it.');
+      return;
+    }
+
+    setHeatmapSiteSaving(true);
+    setHeatmapSiteError(null);
+    setHeatmapSiteNotice(null);
+
+    try {
+      if (!HEATMAP_SITES_URL) {
+        throw new Error('Tracking site endpoint is not configured.');
+      }
+      const normalizedDraft = normalizeHeatmapSiteConfig(heatmapSiteDraft);
+      const fallbackDomain = getHostnameFromUrl(websiteManagerDraft.websiteUrl);
+      const allowedDomains = normalizedDraft.allowedDomains.length ? normalizedDraft.allowedDomains : (fallbackDomain ? [fallbackDomain] : []);
+      if (normalizedDraft.trackingEnabled && allowedDomains.length === 0) {
+        throw new Error('Add at least one allowed domain before enabling tracking.');
+      }
+      const response = await authFetch(HEATMAP_SITES_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
+          id: normalizedDraft.id || undefined,
+          name: normalizedDraft.name || selectedProperty?.name || selectedPropertyLabel,
+          siteKey: normalizedDraft.siteKey || undefined,
+          allowedDomains,
+          trackingEnabled: normalizedDraft.trackingEnabled,
+          samplingRate: normalizedDraft.samplingRate,
+          featureFlags: normalizedDraft.featureFlags,
+          screenshotCaptureFrequency: normalizedDraft.screenshotCaptureFrequency,
+          consentMode: normalizedDraft.consentMode,
+          respectDnt: normalizedDraft.respectDnt,
+          screenshotMinIntervalHours: normalizedDraft.screenshotMinIntervalHours,
+          rawEventRetentionDays: normalizedDraft.rawEventRetentionDays,
+          aggregateRetentionDays: normalizedDraft.aggregateRetentionDays,
+          notes: normalizedDraft.notes,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Tracking site save failed: ${response.status}`);
+      }
+      const savedSite = normalizeHeatmapSiteConfig(payload.site);
+      setHeatmapSiteDoc(savedSite);
+      setHeatmapSiteDraft(savedSite);
+      setHeatmapSiteNotice(savedSite.siteKey ? 'Tracking setup saved and site key is ready.' : 'Tracking setup saved.');
+    } catch (error) {
+      console.error('Tracking site save failed', error);
+      setHeatmapSiteError(error.message || 'Unable to save tracking site setup.');
+    } finally {
+      setHeatmapSiteSaving(false);
+    }
+  };
+
+  const runSiteAudit = async () => {
+    if (!selectedPropertyId) {
+      setHeatmapPanelError('No property is currently available for this account.');
+      return;
+    }
+    if (!SITE_AUDIT_RUN_URL) {
+      setHeatmapPanelError('Site audit run endpoint is not configured.');
+      return;
+    }
+
+    setSiteAuditRunning(true);
+    setHeatmapPanelError(null);
+    try {
+      const params = new URLSearchParams({ property_id: selectedPropertyId });
+      if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
+      const response = await authFetch(`${SITE_AUDIT_RUN_URL}?${params.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property_id: selectedPropertyId, siteKey: heatmapSiteDraft.siteKey || undefined }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Site audit run failed: ${response.status}`);
+      }
+      setSiteAuditSummaryData(payload);
+    } catch (error) {
+      console.error('Site audit run failed', error);
+      setHeatmapPanelError(error.message || 'Unable to run the site audit.');
+    } finally {
+      setSiteAuditRunning(false);
+    }
+  };
+
   const toggleReportingAdminMode = () => {
     if (!canEditReportingLayout) {
       setReportingLayoutError('Your current role can view reports, but cannot change reporting layout.');
@@ -3430,6 +3854,43 @@ const DashboardApp = ({
   const localFalconReports = localFalconData?.Reports || [];
   const localFalconLocation = localFalconData?.Location || null;
   const localFalconLatestReport = localFalconReports[0] || null;
+  const heatmapPageOptions = heatmapPagesData?.pages || [];
+  const auditPageOptions = siteAuditPagesData?.pages || [];
+  const selectedAuditPage = useMemo(() => (
+    auditPageOptions.find((page) => (page.path || '/') === selectedHeatmapPath) || auditPageOptions[0] || null
+  ), [auditPageOptions, selectedHeatmapPath]);
+  const selectedScreenshot = useMemo(() => {
+    const screenshots = Array.isArray(selectedAuditPage?.screenshots) ? selectedAuditPage.screenshots : [];
+    return screenshots.find((item) => item.deviceType === selectedHeatmapDevice) || screenshots[0] || null;
+  }, [selectedAuditPage, selectedHeatmapDevice]);
+  const heatmapTotals = heatmapSummaryData?.totals || {};
+  const heatmapPoints = useMemo(() => (
+    (heatmapSummaryData?.points || [])
+      .filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice)
+  ), [heatmapSummaryData, selectedHeatmapDevice]);
+  const heatmapClickAnomalies = useMemo(() => {
+    const clickPoints = heatmapPoints.filter((point) => point.type === 'click');
+    const deadClicks = clickPoints.filter((point) => !point.targetHref && !point.targetLabel).length;
+    const clusterMap = new Map();
+    clickPoints.forEach((point) => {
+      const x = Math.round(Number(point.xPct || 0) * 25);
+      const y = Math.round(Number(point.yPct || 0) * 25);
+      const key = `${point.sessionKey || 'unknown'}:${point.targetLabel || point.targetId || point.targetTag || 'unknown'}:${x}:${y}`;
+      clusterMap.set(key, (clusterMap.get(key) || 0) + 1);
+    });
+    const rageClusters = Array.from(clusterMap.values()).filter((count) => count >= 3).length;
+    return { deadClicks, rageClusters };
+  }, [heatmapPoints]);
+  const heatmapTopTargets = heatmapSummaryData?.topTargets || [];
+  const latestAudit = siteAuditSummaryData?.audit || null;
+  const auditPageResult = useMemo(() => {
+    const pages = Array.isArray(latestAudit?.pages) ? latestAudit.pages : [];
+    return pages.find((page) => (page.path || '/') === selectedHeatmapPath) || pages[0] || null;
+  }, [latestAudit, selectedHeatmapPath]);
+  const auditIssues = auditPageResult?.issues || latestAudit?.issues || [];
+  const auditRecommendations = auditPageResult?.recommendations || latestAudit?.recommendations || [];
+  const auditStaleDates = auditPageResult?.staleDateStrings || latestAudit?.stale_date_findings || latestAudit?.staleDateFindings || [];
+  const auditBrokenLinks = auditPageResult?.suspiciousLinks || latestAudit?.broken_links || latestAudit?.brokenLinks || [];
   const reportingPanelSummaries = useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
@@ -3439,7 +3900,8 @@ const DashboardApp = ({
     ga4: ga4Loading ? 'Loading analytics metrics' : ga4Blocked ? 'GA4 access required' : `${formatNumber(ga4Sessions)} sessions | ${formatNumber(ga4EventTotal)} tracked events`,
     opiniion: reputationLoading ? 'Loading reputation metrics' : `${formatNumber(reputationReviewCount)} reviews | ${formatNumber(reputationAverageRating, 2)} avg rating`,
     'local-falcon': localFalconLoading ? 'Loading local SEO metrics' : localFalconStatusMessage ? 'Local Falcon mapping needed' : `${formatNumber(localFalconOverview?.avgSolv, 2)} SoLV | ${formatNumber(localFalconOverview?.scanCount)} scans`,
-    'meta-ads': metaAdsLoading ? 'Loading paid social metrics' : `${formatNumber(metaAdsOverview?.clicks)} clicks | ${formatCurrency(metaAdsOverview?.spend)} spend`
+    'meta-ads': metaAdsLoading ? 'Loading paid social metrics' : `${formatNumber(metaAdsOverview?.clicks)} clicks | ${formatCurrency(metaAdsOverview?.spend)} spend`,
+    'heatmaps-audit': heatmapSummaryLoading ? 'Loading website experience data' : `${formatNumber(heatmapTotals.sessions)} sessions | ${formatNumber(heatmapTotals.clicks)} clicks`
   }), [
     blendedRoi,
     blendedRoas,
@@ -3456,6 +3918,9 @@ const DashboardApp = ({
     marketingSpendBreakdown.length,
     metaAdsLoading,
     metaAdsOverview,
+    heatmapSummaryLoading,
+    heatmapTotals.clicks,
+    heatmapTotals.sessions,
     reputationAverageRating,
     reputationLoading,
     reputationReviewCount,
@@ -4959,6 +5424,81 @@ const DashboardApp = ({
     </div>
   );
 
+  const renderHeatmapAuditPanel = () => (
+    <section id="reporting-panel-heatmaps-audit" className="reports-panel">
+      <div className="reports-panel__eyebrow">Website Experience</div>
+      <div className="reports-panel__title">Heatmaps + Site Audit</div>
+      {heatmapPanelError && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{heatmapPanelError}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.9rem', marginBottom: '1rem' }}>
+        <label className="website-manager-field">
+          <span className="website-manager-field__label">Page</span>
+          <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
+            {heatmapPageOptions.map((page) => <option key={page.path || page.id} value={page.path || '/'}>{page.title || page.path || '/'}</option>)}
+            {heatmapPageOptions.length === 0 && <option value="">No pages tracked yet</option>}
+          </select>
+        </label>
+        <div className="website-manager-field">
+          <span className="website-manager-field__label">Visible layers</span>
+          <div className="website-manager-field__input" style={{ display: 'flex', alignItems: 'center', color: 'var(--white)' }}>
+            {Object.values(heatmapLayers).filter(Boolean).length || 0} active
+          </div>
+        </div>
+        <label className="website-manager-field">
+          <span className="website-manager-field__label">Device</span>
+          <select className="website-manager-field__input" value={selectedHeatmapDevice} onChange={(event) => setSelectedHeatmapDevice(event.target.value)}>
+            {HEATMAP_DEVICE_OPTIONS.map((device) => <option key={device} value={device}>{device}</option>)}
+          </select>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'end' }}>
+          <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading}>
+            {siteAuditRunning ? 'Running…' : 'Run Audit'}
+          </button>
+        </div>
+      </div>
+
+      <div className="reports-panel__grid reports-panel__grid--three">
+        <div className="reports-stat"><span>Sessions Tracked</span><strong>{heatmapSummaryLoading ? '…' : formatNumber(heatmapTotals.sessions)}</strong><small>{formatNumber(heatmapTotals.events)} events in range</small></div>
+        <div className="reports-stat"><span>Clicks</span><strong>{heatmapSummaryLoading ? '…' : formatNumber(heatmapTotals.clicks)}</strong><small>{formatNumber(heatmapTotals.ctaClicks)} CTA clicks</small></div>
+        <div className="reports-stat"><span>Average Scroll</span><strong>{heatmapSummaryLoading ? '…' : formatPercent(heatmapTotals.avgScrollDepthPct, 0)}</strong><small>Top CTA: {heatmapTopTargets[0]?.label || 'Pending'}</small></div>
+      </div>
+
+      <div className="reports-panel__grid" style={{ gridTemplateColumns: 'minmax(280px, 1.35fr) minmax(260px, 0.9fr)', alignItems: 'start' }}>
+        <div>
+          <HeatmapRenderer
+            points={heatmapPoints}
+            totals={heatmapTotals}
+            deviceType={selectedHeatmapDevice}
+            screenshotUrl={screenshotPreviewUrl}
+            screenshot={selectedScreenshot}
+            loading={screenshotPreviewLoading || heatmapSummaryLoading}
+            error={screenshotPreviewError}
+            activeLayers={heatmapLayers}
+            onLayerChange={updateHeatmapLayer}
+            formatNumber={formatNumber}
+          />
+          <div className="reports-list" style={{ marginTop: '1rem' }}>
+            <div className="reports-list__row"><div><strong>Rage click clusters</strong><small>Repeated clicks in the same session, element, and page area.</small></div><div>{formatNumber(heatmapClickAnomalies.rageClusters)}</div></div>
+            <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
+            {heatmapTopTargets.slice(0, 6).map((item) => <div key={item.label} className="reports-list__row"><div><strong>{item.label}</strong><small>Top clicked element</small></div><div>{formatNumber(item.clicks)}</div></div>)}
+            {heatmapTopTargets.length === 0 && <div className="reports-empty">No clicked elements have been collected for this page and date range yet.</div>}
+          </div>
+        </div>
+        <div className="reports-list">
+          <div className="reports-list__row"><div><strong>Audit score</strong><small>Latest deterministic site audit</small></div><div>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}</div></div>
+          <div className="reports-list__row"><div><strong>Screenshot</strong><small>{selectedScreenshot ? `${selectedScreenshot.deviceType} | ${selectedScreenshot.width || '—'}x${selectedScreenshot.height || '—'}` : 'No screenshot stored yet'}</small></div><div>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : '—'}</div></div>
+          <div className="reports-list__row"><div><strong>CTA / urgency</strong><small>{auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0} CTA-like elements detected</small></div><div>{latestAudit?.urgency_score != null ? latestAudit.urgency_score : '—'}</div></div>
+          <div className="reports-list__row"><div><strong>Broken/internal links</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : 0)} suspicious links</small></div><div>{latestAudit?.link_score != null ? latestAudit.link_score : '—'}</div></div>
+          <div className="reports-list__row"><div><strong>Last captured / audited</strong><small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : 'No page capture yet'}</small></div><div>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : '—'}</div></div>
+          <div className="reports-list__row"><div><strong>Stale date findings</strong><small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'None detected'}</small></div><div>{formatNumber((auditStaleDates || []).length)}</div></div>
+          {(auditIssues || []).slice(0, 4).map((item, index) => <div key={`issue-${index}`} className="reports-list__row"><div><strong>Issue</strong><small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest audit finding'}</small></div><div>Fix</div></div>)}
+          {(auditRecommendations || []).slice(0, 4).map((item, index) => <div key={`recommendation-${index}`} className="reports-list__row"><div><strong>Recommendation</strong><small>{typeof item === 'string' ? item : item.recommendation || item.text || 'Review recommendation'}</small></div><div>Improve</div></div>)}
+          {!latestAudit && <div className="reports-empty">Run an audit after page snapshots are collected to populate recommendations.</div>}
+        </div>
+      </div>
+    </section>
+  );
+
   const renderReports = () => (
     <div className="reports-view">
       <div className="reports-shell">
@@ -5159,6 +5699,8 @@ const DashboardApp = ({
                 </div>
               </section>
             )}
+
+            {activeReportingPanels.some((panel) => panel.id === 'heatmaps-audit') && renderHeatmapAuditPanel()}
 
             {activeReportingPanels.some((panel) => panel.id === 'google-ads') && (
               <section id="reporting-panel-google-ads" className="reports-panel">
@@ -5503,6 +6045,11 @@ const DashboardApp = ({
           {websiteManagerError || websiteManagerNotice}
         </div>
       )}
+      {(heatmapSiteError || heatmapSiteNotice) && (
+        <div className={`website-manager-banner ${heatmapSiteError ? 'website-manager-banner--error' : 'website-manager-banner--success'}`}>
+          {heatmapSiteError || heatmapSiteNotice}
+        </div>
+      )}
 
       {!canEditWebsiteManager && (
         <div className="website-manager-banner">
@@ -5579,6 +6126,196 @@ const DashboardApp = ({
                 ? 'These fields can be maintained here and later pushed into WordPress templates or database values.'
                 : 'Set the platform to WordPress custom before using this tab as a content source. Entrata properties stay informational only.'}
             </span>
+          </div>
+
+          <div className="website-manager-section-head">
+            <div>
+              <div className="website-manager-panel__eyebrow">Tracking setup</div>
+              <h3 className="website-manager-panel__title">Heatmap and audit snippet configuration</h3>
+            </div>
+          </div>
+
+          <div className="website-manager-form-grid">
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Tracking site name</span>
+              <input
+                type="text"
+                value={heatmapSiteDraft.name}
+                onChange={(event) => updateHeatmapSiteField('name', event.target.value)}
+                className="website-manager-field__input"
+                placeholder={selectedPropertyLabel}
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              />
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Heatmap/audit site key</span>
+              <input
+                type="text"
+                value={heatmapSiteDraft.siteKey || (heatmapSiteDraft.id ? 'Generated after save' : '')}
+                onChange={(event) => updateHeatmapSiteField('siteKey', event.target.value)}
+                className="website-manager-field__input"
+                placeholder="Generated when saved"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.siteKey}
+              />
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Sampling rate</span>
+              <select
+                value={String(heatmapSiteDraft.samplingRate)}
+                onChange={(event) => updateHeatmapSiteField('samplingRate', Number(event.target.value))}
+                className="website-manager-field__input"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              >
+                <option value="0.1">10%</option>
+                <option value="0.25">25%</option>
+                <option value="0.5">50%</option>
+                <option value="1">100%</option>
+              </select>
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Screenshot capture</span>
+              <select
+                value={heatmapSiteDraft.screenshotCaptureFrequency}
+                onChange={(event) => updateHeatmapSiteField('screenshotCaptureFrequency', event.target.value)}
+                className="website-manager-field__input"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.featureFlags.screenshots}
+              >
+                <option value="manual">Manual / disabled</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Consent mode</span>
+              <select
+                value={heatmapSiteDraft.consentMode}
+                onChange={(event) => updateHeatmapSiteField('consentMode', event.target.value)}
+                className="website-manager-field__input"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              >
+                <option value="opt_out">Opt-out unless denied</option>
+                <option value="required">Require explicit opt-in</option>
+                <option value="disabled">Disable consent checks</option>
+              </select>
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Screenshot minimum interval</span>
+              <input
+                type="number"
+                min="1"
+                max="720"
+                value={heatmapSiteDraft.screenshotMinIntervalHours}
+                onChange={(event) => updateHeatmapSiteField('screenshotMinIntervalHours', Number(event.target.value))}
+                className="website-manager-field__input"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.featureFlags.screenshots}
+              />
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Raw event retention</span>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={heatmapSiteDraft.rawEventRetentionDays}
+                onChange={(event) => updateHeatmapSiteField('rawEventRetentionDays', Number(event.target.value))}
+                className="website-manager-field__input"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              />
+            </label>
+            <label className="website-manager-field">
+              <span className="website-manager-field__label">Aggregate retention</span>
+              <input
+                type="number"
+                min="30"
+                max="3650"
+                value={heatmapSiteDraft.aggregateRetentionDays}
+                onChange={(event) => updateHeatmapSiteField('aggregateRetentionDays', Number(event.target.value))}
+                className="website-manager-field__input"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              />
+            </label>
+            <label className="website-manager-field website-manager-field--wide">
+              <span className="website-manager-field__label">Allowed domains</span>
+              <textarea
+                value={toDomainText(heatmapSiteDraft.allowedDomains)}
+                onChange={(event) => updateHeatmapSiteField('allowedDomains', parseDomainText(event.target.value))}
+                className="website-manager-field__input website-manager-field__input--textarea"
+                placeholder="example.com"
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              />
+            </label>
+          </div>
+
+          <div className="website-manager-checklist">
+            <label className="website-manager-checklist__item">
+              <input
+                type="checkbox"
+                checked={heatmapSiteDraft.trackingEnabled}
+                onChange={(event) => updateHeatmapSiteField('trackingEnabled', event.target.checked)}
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              /> Tracking enabled
+            </label>
+            <label className="website-manager-checklist__item">
+              <input
+                type="checkbox"
+                checked={heatmapSiteDraft.featureFlags.heatmaps}
+                onChange={(event) => updateHeatmapFeatureFlag('heatmaps', event.target.checked)}
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              /> Behavioral heatmaps
+            </label>
+            <label className="website-manager-checklist__item">
+              <input
+                type="checkbox"
+                checked={heatmapSiteDraft.featureFlags.pageSnapshots}
+                onChange={(event) => updateHeatmapFeatureFlag('pageSnapshots', event.target.checked)}
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              /> Page audit snapshots
+            </label>
+            <label className="website-manager-checklist__item">
+              <input
+                type="checkbox"
+                checked={heatmapSiteDraft.featureFlags.screenshots}
+                onChange={(event) => updateHeatmapFeatureFlag('screenshots', event.target.checked)}
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              /> Screenshot capture
+            </label>
+            <label className="website-manager-checklist__item">
+              <input
+                type="checkbox"
+                checked={heatmapSiteDraft.respectDnt}
+                onChange={(event) => updateHeatmapSiteField('respectDnt', event.target.checked)}
+                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+              /> Respect Do Not Track
+            </label>
+          </div>
+
+          <label className="website-manager-field website-manager-field--wide">
+            <span className="website-manager-field__label">Manual snippet for non-WordPress / Entrata / other platforms</span>
+            <textarea
+              value={manualTrackerSnippet || 'Save tracking setup to generate a site key and snippet.'}
+              readOnly
+              className="website-manager-field__input website-manager-field__input--textarea"
+              rows="3"
+            />
+          </label>
+
+          <div className="website-manager-actions">
+            <button
+              type="button"
+              className="website-manager-button website-manager-button--ghost"
+              onClick={resetHeatmapSiteDraft}
+              disabled={!heatmapSiteDirty || heatmapSiteSaving || !canEditWebsiteManager}
+            >
+              Reset Tracking
+            </button>
+            <button
+              type="button"
+              className="website-manager-button website-manager-button--primary"
+              onClick={persistHeatmapSiteDraft}
+              disabled={heatmapSiteSaving || !canEditWebsiteManager || (!heatmapSiteDirty && Boolean(heatmapSiteDraft.siteKey))}
+            >
+              {heatmapSiteSaving ? 'Saving…' : heatmapSiteDraft.siteKey ? 'Save Tracking Setup' : 'Generate Tracking Site'}
+            </button>
           </div>
 
           <div className="website-manager-section-head">

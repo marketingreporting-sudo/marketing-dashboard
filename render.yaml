@@ -8,6 +8,13 @@ services:
     rootDir: functions
     buildCommand: pip install -r requirements-render.txt
     startCommand: gunicorn render_wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 8 --timeout 120
+    envVars:
+      - key: PUBLIC_WRITE_RATE_LIMIT_SITE_AUDIT_SCREENSHOT_UPLOAD_URL_PER_IP
+        value: "10"
+      - key: PUBLIC_WRITE_RATE_LIMIT_SITE_AUDIT_SCREENSHOT_UPLOAD_URL_PER_SITE
+        value: "60"
+      - key: PUBLIC_WRITE_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
   # These legacy daily Entrata fetch jobs are default-property canaries.
   # Portfolio-wide daily data comes from run_daily_entrata_refresh.
   - type: cron
@@ -122,3 +129,17 @@ services:
     buildCommand: pip install -r requirements-render.txt
     startCommand: python render_cron.py weekly_site_audit
     schedule: "0 10 * * 1"
+  - type: cron
+    name: data-analysis-maintain-site-tracking
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python render_cron.py maintain_site_tracking
+    schedule: "15 9 * * *"
+  - type: cron
+    name: data-analysis-capture-site-screenshots
+    env: python
+    rootDir: functions
+    buildCommand: pip install -r requirements-render.txt && python -m playwright install chromium
+    startCommand: python render_cron.py capture_site_screenshots
+    schedule: "35 9 * * *"

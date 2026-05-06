@@ -23,6 +23,7 @@ if (!class_exists('Redstone_Website_Manager')) {
         const LEGACY_TOKEN_PREFIX = 'rwm:';
         const SITE_KEY_OPTION = 'redstone_website_manager_site_key';
         const SHARED_SECRET_OPTION = 'redstone_website_manager_shared_secret';
+        const TRACKING_CONFIG_OPTION = 'redstone_website_manager_tracking_config';
         const SIGNATURE_WINDOW_SECONDS = 900;
 
         /**
@@ -219,6 +220,16 @@ if (!class_exists('Redstone_Website_Manager')) {
                     'show_in_rest' => false,
                 )
             );
+            register_setting(
+                self::MENU_SLUG,
+                self::TRACKING_CONFIG_OPTION,
+                array(
+                    'type' => 'object',
+                    'sanitize_callback' => array($this, 'sanitize_tracking_config'),
+                    'default' => $this->get_default_tracking_config(),
+                    'show_in_rest' => false,
+                )
+            );
         }
 
         public function register_rest_routes() {
@@ -244,12 +255,78 @@ if (!class_exists('Redstone_Website_Manager')) {
             return trim(is_scalar($value) ? (string) $value : '');
         }
 
+        public function get_default_tracking_config() {
+            return array(
+                'siteKey' => '',
+                'trackerUrl' => '',
+                'trackingEnabled' => false,
+                'samplingRate' => 0.10,
+                'featureFlags' => array(
+                    'heatmaps' => true,
+                    'pageSnapshots' => true,
+                    'screenshots' => false,
+                ),
+                'screenshotCaptureFrequency' => 'manual',
+                'consentMode' => 'opt_out',
+                'respectDnt' => true,
+                'screenshotMinIntervalHours' => 24,
+                'rawEventRetentionDays' => 90,
+                'aggregateRetentionDays' => 730,
+            );
+        }
+
+        public function sanitize_tracking_config($value) {
+            $input = is_array($value) ? $value : array();
+            $defaults = $this->get_default_tracking_config();
+            $flags = isset($input['featureFlags']) && is_array($input['featureFlags']) ? $input['featureFlags'] : array();
+            $frequency = isset($input['screenshotCaptureFrequency']) ? sanitize_key($input['screenshotCaptureFrequency']) : 'manual';
+            if (!in_array($frequency, array('manual', 'daily', 'weekly'), true)) {
+                $frequency = 'manual';
+            }
+            $consent_mode = isset($input['consentMode']) ? sanitize_key($input['consentMode']) : 'opt_out';
+            if (!in_array($consent_mode, array('opt_out', 'required', 'disabled'), true)) {
+                $consent_mode = 'opt_out';
+            }
+            $sampling_rate = isset($input['samplingRate']) ? (float) $input['samplingRate'] : 0.10;
+            $screenshot_min_interval = isset($input['screenshotMinIntervalHours']) ? absint($input['screenshotMinIntervalHours']) : 24;
+            $raw_retention = isset($input['rawEventRetentionDays']) ? absint($input['rawEventRetentionDays']) : 90;
+            $aggregate_retention = isset($input['aggregateRetentionDays']) ? absint($input['aggregateRetentionDays']) : 730;
+
+            return array(
+                'siteKey' => isset($input['siteKey']) ? sanitize_text_field($input['siteKey']) : '',
+                'trackerUrl' => isset($input['trackerUrl']) ? esc_url_raw($input['trackerUrl']) : '',
+                'trackingEnabled' => !empty($input['trackingEnabled']),
+                'samplingRate' => max(0, min(1, $sampling_rate)),
+                'featureFlags' => array(
+                    'heatmaps' => array_key_exists('heatmaps', $flags) ? !empty($flags['heatmaps']) : $defaults['featureFlags']['heatmaps'],
+                    'pageSnapshots' => array_key_exists('pageSnapshots', $flags) ? !empty($flags['pageSnapshots']) : $defaults['featureFlags']['pageSnapshots'],
+                    'screenshots' => array_key_exists('screenshots', $flags) ? !empty($flags['screenshots']) : $defaults['featureFlags']['screenshots'],
+                ),
+                'screenshotCaptureFrequency' => $frequency,
+                'consentMode' => $consent_mode,
+                'respectDnt' => array_key_exists('respectDnt', $input) ? !empty($input['respectDnt']) : $defaults['respectDnt'],
+                'screenshotMinIntervalHours' => max(1, min(720, $screenshot_min_interval)),
+                'rawEventRetentionDays' => max(1, min(365, $raw_retention)),
+                'aggregateRetentionDays' => max(30, min(3650, $aggregate_retention)),
+            );
+        }
+
+        public function get_tracking_config() {
+            $stored = get_option(self::TRACKING_CONFIG_OPTION, array());
+            if (!is_array($stored)) {
+                $stored = array();
+            }
+
+            return $this->sanitize_tracking_config(wp_parse_args($stored, $this->get_default_tracking_config()));
+        }
+
         public function handle_rest_get(WP_REST_Request $request) {
             return rest_ensure_response(
                 array(
                     'content' => $this->get_content(),
                     'schema' => $this->get_flat_schema(),
                     'schema_groups' => $this->get_schema(),
+                    'tracking_config' => $this->get_tracking_config(),
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
@@ -277,6 +354,9 @@ if (!class_exists('Redstone_Website_Manager')) {
             if (is_array($schema)) {
                 update_option(self::SCHEMA_OPTION_KEY, $schema, false);
             }
+            if (isset($payload['tracking_config']) && is_array($payload['tracking_config'])) {
+                update_option(self::TRACKING_CONFIG_OPTION, $this->sanitize_tracking_config($payload['tracking_config']), false);
+            }
 
             $normalized = $this->sanitize_payload($payload);
             update_option(self::OPTION_KEY, $normalized, false);
@@ -289,6 +369,7 @@ if (!class_exists('Redstone_Website_Manager')) {
                     'content' => $normalized,
                     'schema' => $this->get_flat_schema(),
                     'schema_groups' => $this->get_schema(),
+                    'tracking_config' => $this->get_tracking_config(),
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
@@ -379,7 +460,7 @@ if (!class_exists('Redstone_Website_Manager')) {
             }
 
             foreach ($input as $key => $raw) {
-                if ($key === '__schema' || $key === 'schema') {
+                if ($key === '__schema' || $key === 'schema' || $key === 'tracking_config') {
                     continue;
                 }
 
@@ -502,6 +583,7 @@ if (!class_exists('Redstone_Website_Manager')) {
                 array(
                     '__schema',
                     'schema',
+                    'tracking_config',
                     'property_name',
                     'website_url',
                     'pricing_summary',
@@ -667,6 +749,7 @@ if (!class_exists('Redstone_Website_Manager')) {
 
             $content = $this->get_content();
             $schema = $this->get_schema();
+            $tracking_config = $this->get_tracking_config();
             ?>
             <div class="wrap">
                 <h1>Redstone Website Editor</h1>
@@ -707,6 +790,156 @@ if (!class_exists('Redstone_Website_Manager')) {
                                         autocomplete="new-password"
                                     />
                                     <p class="description">Configure the same secret in Render via <code>WORDPRESS_SITE_SECRETS_JSON</code>.</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h2>Redstone Analytics Tracking</h2>
+                    <table class="form-table" role="presentation">
+                        <tbody>
+                            <tr>
+                                <th scope="row">Tracking Enabled</th>
+                                <td>
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[trackingEnabled]'); ?>"
+                                            value="1"
+                                            <?php checked(!empty($tracking_config['trackingEnabled'])); ?>
+                                        />
+                                        Inject the Redstone heatmap and audit tracker on public pages.
+                                    </label>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="redstone_tracking_site_key">Heatmap/Audit Site Key</label>
+                                </th>
+                                <td>
+                                    <input
+                                        class="regular-text"
+                                        type="text"
+                                        id="redstone_tracking_site_key"
+                                        name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[siteKey]'); ?>"
+                                        value="<?php echo esc_attr($tracking_config['siteKey']); ?>"
+                                    />
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="redstone_tracking_tracker_url">Tracker URL</label>
+                                </th>
+                                <td>
+                                    <input
+                                        class="regular-text"
+                                        type="url"
+                                        id="redstone_tracking_tracker_url"
+                                        name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[trackerUrl]'); ?>"
+                                        value="<?php echo esc_attr($tracking_config['trackerUrl']); ?>"
+                                    />
+                                    <p class="description">Usually managed by the Redstone dashboard publish flow.</p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="redstone_tracking_sampling_rate">Sampling Rate</label>
+                                </th>
+                                <td>
+                                    <input
+                                        class="small-text"
+                                        type="number"
+                                        min="0"
+                                        max="1"
+                                        step="0.01"
+                                        id="redstone_tracking_sampling_rate"
+                                        name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[samplingRate]'); ?>"
+                                        value="<?php echo esc_attr($tracking_config['samplingRate']); ?>"
+                                    />
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Feature Flags</th>
+                                <td>
+                                    <?php foreach (array('heatmaps' => 'Behavioral heatmaps', 'pageSnapshots' => 'Page audit snapshots', 'screenshots' => 'Screenshot capture') as $flag_key => $flag_label) : ?>
+                                        <label style="display:block;margin:0 0 6px;">
+                                            <input
+                                                type="hidden"
+                                                name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[featureFlags][' . $flag_key . ']'); ?>"
+                                                value="0"
+                                            />
+                                            <input
+                                                type="checkbox"
+                                                name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[featureFlags][' . $flag_key . ']'); ?>"
+                                                value="1"
+                                                <?php checked(!empty($tracking_config['featureFlags'][$flag_key])); ?>
+                                            />
+                                            <?php echo esc_html($flag_label); ?>
+                                        </label>
+                                    <?php endforeach; ?>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="redstone_tracking_capture_frequency">Screenshot Frequency</label>
+                                </th>
+                                <td>
+                                    <select
+                                        id="redstone_tracking_capture_frequency"
+                                        name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[screenshotCaptureFrequency]'); ?>"
+                                    >
+                                        <?php foreach (array('manual' => 'Manual / disabled', 'daily' => 'Daily', 'weekly' => 'Weekly') as $frequency => $label) : ?>
+                                            <option value="<?php echo esc_attr($frequency); ?>" <?php selected($tracking_config['screenshotCaptureFrequency'], $frequency); ?>>
+                                                <?php echo esc_html($label); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="redstone_tracking_consent_mode">Consent Mode</label>
+                                </th>
+                                <td>
+                                    <select
+                                        id="redstone_tracking_consent_mode"
+                                        name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[consentMode]'); ?>"
+                                    >
+                                        <?php foreach (array('opt_out' => 'Opt-out unless denied', 'required' => 'Require explicit opt-in', 'disabled' => 'Disable consent checks') as $mode => $label) : ?>
+                                            <option value="<?php echo esc_attr($mode); ?>" <?php selected($tracking_config['consentMode'], $mode); ?>>
+                                                <?php echo esc_html($label); ?>
+                                            </option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">Privacy Guardrails</th>
+                                <td>
+                                    <label style="display:block;margin:0 0 6px;">
+                                        <input
+                                            type="hidden"
+                                            name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[respectDnt]'); ?>"
+                                            value="0"
+                                        />
+                                        <input
+                                            type="checkbox"
+                                            name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[respectDnt]'); ?>"
+                                            value="1"
+                                            <?php checked(!empty($tracking_config['respectDnt'])); ?>
+                                        />
+                                        Respect browser Do Not Track
+                                    </label>
+                                    <label for="redstone_tracking_screenshot_min_interval">Screenshot minimum interval hours</label>
+                                    <input
+                                        class="small-text"
+                                        type="number"
+                                        min="1"
+                                        max="720"
+                                        id="redstone_tracking_screenshot_min_interval"
+                                        name="<?php echo esc_attr(self::TRACKING_CONFIG_OPTION . '[screenshotMinIntervalHours]'); ?>"
+                                        value="<?php echo esc_attr($tracking_config['screenshotMinIntervalHours']); ?>"
+                                    />
                                 </td>
                             </tr>
                         </tbody>
@@ -780,13 +1013,61 @@ if (!class_exists('Redstone_Website_Manager')) {
             ob_start(array($this, 'replace_tokens_in_html'));
         }
 
+        private function build_tracking_script_tag() {
+            $config = $this->get_tracking_config();
+            if (empty($config['trackingEnabled']) || empty($config['siteKey']) || empty($config['trackerUrl'])) {
+                return '';
+            }
+
+            $flags = isset($config['featureFlags']) && is_array($config['featureFlags']) ? $config['featureFlags'] : array();
+            if (empty($flags['heatmaps']) && empty($flags['pageSnapshots']) && empty($flags['screenshots'])) {
+                return '';
+            }
+
+            $src = add_query_arg(
+                array(
+                    'site_key' => $config['siteKey'],
+                ),
+                $config['trackerUrl']
+            );
+
+            return sprintf(
+                '<script async id="redstone-tracker" data-redstone-tracker="1" data-redstone-site-key="%1$s" data-redstone-sampling-rate="%2$s" data-redstone-capture-frequency="%3$s" data-redstone-consent-mode="%4$s" data-redstone-respect-dnt="%5$s" src="%6$s"></script>',
+                esc_attr($config['siteKey']),
+                esc_attr($config['samplingRate']),
+                esc_attr($config['screenshotCaptureFrequency']),
+                esc_attr($config['consentMode']),
+                !empty($config['respectDnt']) ? '1' : '0',
+                esc_url($src)
+            );
+        }
+
+        private function inject_tracking_script($html) {
+            $script = $this->build_tracking_script_tag();
+            if ($script === '') {
+                return $html;
+            }
+            if (stripos($html, 'data-redstone-tracker') !== false || stripos($html, 'id="redstone-tracker"') !== false || stripos($html, '/api/heatmaps/tracker.js') !== false) {
+                return $html;
+            }
+            if (stripos($html, '</head>') !== false) {
+                return preg_replace('/<\/head>/i', $script . "\n</head>", $html, 1);
+            }
+
+            return $html . "\n" . $script;
+        }
+
         /**
          * @param string $html
          * @return string
          */
         public function replace_tokens_in_html($html) {
-            if (!is_string($html) || (strpos($html, self::TOKEN_PREFIX) === false && strpos($html, self::LEGACY_TOKEN_PREFIX) === false)) {
+            if (!is_string($html)) {
                 return $html;
+            }
+
+            if (strpos($html, self::TOKEN_PREFIX) === false && strpos($html, self::LEGACY_TOKEN_PREFIX) === false) {
+                return $this->inject_tracking_script($html);
             }
 
             $content = $this->get_content();
@@ -838,7 +1119,7 @@ if (!class_exists('Redstone_Website_Manager')) {
                 $html
             );
 
-            return $html;
+            return $this->inject_tracking_script($html);
         }
     }
 }

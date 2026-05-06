@@ -1,5 +1,9 @@
 import os
 
+import json
+import re
+from time import time
+
 from flask import Flask, jsonify, make_response, request
 
 from render_auth import (
@@ -37,6 +41,21 @@ from render_supabase_admin_access import (
     update_user_access_summary,
 )
 from render_supabase_reporting import get_property_reporting_overview_summary
+from render_supabase_heatmaps import (
+    collect_site_page_snapshot_payload,
+    collect_heatmap_payload,
+    create_site_screenshot_upload_url_payload,
+    get_heatmap_pages_summary,
+    get_heatmap_summary,
+    get_heatmap_tracker_payload,
+    get_site_audit_pages_summary,
+    get_site_audit_summary,
+    get_site_screenshot_preview_summary,
+    list_heatmap_sites_summary,
+    run_site_audit_summary,
+    save_site_screenshot_metadata_payload,
+    save_heatmap_site_summary,
+)
 from render_supabase_roi import get_supabase_roi_pipeline_status_summary
 from render_supabase_sync_state import get_supabase_sync_health_summary, get_supabase_sync_state_summary
 from render_supabase_validation import (
@@ -48,6 +67,7 @@ from render_supabase_validation import (
 def create_app() -> Flask:
     app = Flask(__name__)
     install_render_storage_overrides()
+    public_write_rate_limits: dict[tuple[str, str], list[float]] = {}
 
     @app.after_request
     def apply_cors_headers(response):
@@ -60,6 +80,37 @@ def create_app() -> Flask:
         response = make_response(jsonify(payload), status_code)
         return response
 
+    def get_request_json_payload() -> dict:
+        payload = request.get_json(silent=True)
+        if isinstance(payload, dict):
+            return payload
+        if request.data:
+            try:
+                parsed = json.loads(request.data.decode("utf-8"))
+                return parsed if isinstance(parsed, dict) else {}
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                return {}
+        return {}
+
+    def enforce_public_write_rate_limit(bucket: str, site_key: str | None = None):
+        limit_window_seconds = int(os.environ.get("PUBLIC_WRITE_RATE_LIMIT_WINDOW_SECONDS", "60"))
+        bucket_env_prefix = re.sub(r"[^A-Za-z0-9]+", "_", bucket).upper()
+        ip_limit = int(os.environ.get(f"PUBLIC_WRITE_RATE_LIMIT_{bucket_env_prefix}_PER_IP", os.environ.get("PUBLIC_WRITE_RATE_LIMIT_PER_IP", "120")))
+        site_limit = int(os.environ.get(f"PUBLIC_WRITE_RATE_LIMIT_{bucket_env_prefix}_PER_SITE", os.environ.get("PUBLIC_WRITE_RATE_LIMIT_PER_SITE", "600")))
+        now = time()
+        ip_address = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+        keys = [("ip", f"{bucket}:{ip_address}", ip_limit)]
+        if site_key:
+            keys.append(("site", f"{bucket}:{site_key}", site_limit))
+
+        for key_type, key_value, limit in keys:
+            key = (key_type, key_value)
+            recent = [item for item in public_write_rate_limits.get(key, []) if now - item < limit_window_seconds]
+            if len(recent) >= limit:
+                raise PermissionError(f"Public write rate limit exceeded for {key_type}.")
+            recent.append(now)
+            public_write_rate_limits[key] = recent
+
     def get_authenticated_request_context():
         access_token, user = require_authenticated_user(request.headers.get("Authorization"))
         return access_token, user
@@ -69,6 +120,16 @@ def create_app() -> Flask:
         if not user_has_property_permission(access_token, property_id, permission):
             raise RenderPermissionError(
                 f"Authenticated user does not have '{permission}' access for property {property_id}."
+            )
+        return access_token, user
+
+    def require_any_property_permission(property_id: str, permissions: tuple[str, ...]):
+        access_token, user = get_authenticated_request_context()
+        allowed = any(user_has_property_permission(access_token, property_id, permission) for permission in permissions)
+        if not allowed:
+            readable_permissions = ", ".join(f"'{permission}'" for permission in permissions)
+            raise RenderPermissionError(
+                f"Authenticated user does not have any of {readable_permissions} access for property {property_id}."
             )
         return access_token, user
 
@@ -491,6 +552,372 @@ def create_app() -> Flask:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 500
         return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/heatmaps/tracker.js", methods=["GET", "OPTIONS"])
+    def heatmap_tracker_script():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        site_key = request.args.get("site_key") or request.args.get("siteKey") or ""
+        if not site_key:
+            return make_response("/* Missing required query parameter: site_key */", 400)
+
+        base_url = (
+            os.environ.get("HEATMAP_COLLECTOR_BASE_URL")
+            or os.environ.get("RENDER_EXTERNAL_URL")
+            or request.host_url.rstrip("/")
+        )
+        collector_url = f"{base_url.rstrip('/')}/api/heatmaps/collect"
+        try:
+            script, _site = get_heatmap_tracker_payload(str(site_key), collector_url)
+        except LookupError as error:
+            return make_response(f"/* {str(error)} */", 404)
+        except Exception as error:
+            return make_response(f"/* Failed to build tracker: {str(error)} */", 500)
+
+        response = make_response(script or "/* Heatmap tracking is disabled for this site. */", 200)
+        response.headers["Content-Type"] = "application/javascript; charset=utf-8"
+        response.headers["Cache-Control"] = "public, max-age=300"
+        return response
+
+    @app.route("/api/heatmaps/collect", methods=["POST", "OPTIONS"])
+    def heatmap_collect():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        payload = get_request_json_payload()
+        try:
+            enforce_public_write_rate_limit(
+                "heatmaps_collect",
+                payload.get("siteKey") or payload.get("site_key"),
+            )
+            result = collect_heatmap_payload(
+                payload,
+                origin=request.headers.get("Origin"),
+                referrer=request.headers.get("Referer"),
+            )
+            return build_cors_json_response(result)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=400)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=404)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=500)
+
+    @app.route("/api/site-audit/page-snapshot", methods=["POST", "OPTIONS"])
+    def site_audit_page_snapshot():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        payload = get_request_json_payload()
+        try:
+            enforce_public_write_rate_limit(
+                "site_audit_page_snapshot",
+                payload.get("siteKey") or payload.get("site_key"),
+            )
+            result = collect_site_page_snapshot_payload(
+                payload,
+                origin=request.headers.get("Origin"),
+                referrer=request.headers.get("Referer"),
+            )
+            return build_cors_json_response(result)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=400)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=404)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=500)
+
+    @app.route("/api/site-audit/screenshot", methods=["POST", "OPTIONS"])
+    def site_audit_screenshot():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        payload = get_request_json_payload()
+        try:
+            enforce_public_write_rate_limit(
+                "site_audit_screenshot",
+                payload.get("siteKey") or payload.get("site_key"),
+            )
+            result = save_site_screenshot_metadata_payload(
+                payload,
+                origin=request.headers.get("Origin"),
+                referrer=request.headers.get("Referer"),
+            )
+            return build_cors_json_response(result)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=400)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=404)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=500)
+
+    @app.route("/api/site-audit/screenshot-upload-url", methods=["POST", "OPTIONS"])
+    def site_audit_screenshot_upload_url():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        payload = get_request_json_payload()
+        try:
+            enforce_public_write_rate_limit(
+                "site_audit_screenshot_upload_url",
+                payload.get("siteKey") or payload.get("site_key"),
+            )
+            result = create_site_screenshot_upload_url_payload(
+                payload,
+                origin=request.headers.get("Origin"),
+                referrer=request.headers.get("Referer"),
+            )
+            return build_cors_json_response(result)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=400)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=404)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=500)
+
+    @app.route("/api/site-audit/screenshot-preview", methods=["GET", "POST", "OPTIONS"])
+    def site_audit_screenshot_preview():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        screenshot_id = request.args.get("screenshot_id") or request.args.get("screenshotId") or req_json.get("screenshot_id") or req_json.get("screenshotId")
+        if not screenshot_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: screenshot_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = get_authenticated_request_context()
+            preview = get_site_screenshot_preview_summary(
+                str(screenshot_id),
+                access_token=access_token,
+                expires_in=int(request.args.get("expires_in") or req_json.get("expiresIn") or req_json.get("expires_in") or 900),
+            )
+            property_id = str(preview.get("screenshot", {}).get("propertyId") or "")
+            if not property_id:
+                return build_cors_json_response({"status": "error", "error": "Screenshot is missing property scope."}, status_code=404)
+            if not any(user_has_property_permission(access_token, property_id, permission) for permission in ("analytics.view", "reports.view")):
+                raise RenderPermissionError(
+                    f"Authenticated user does not have analytics.view or reports.view access for property {property_id}."
+                )
+            return build_cors_json_response(preview)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=400)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=404)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=500)
+
+    @app.route("/api/heatmaps/summary", methods=["GET", "POST", "OPTIONS"])
+    def heatmap_summary():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = get_heatmap_summary(
+                str(property_id),
+                start_date_value=request.args.get("start_date") or req_json.get("start_date"),
+                end_date_value=request.args.get("end_date") or req_json.get("end_date"),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                path=request.args.get("path") or req_json.get("path"),
+                event_type=request.args.get("event_type") or req_json.get("event_type") or req_json.get("eventType"),
+                device_type=request.args.get("device_type") or request.args.get("deviceType") or req_json.get("device_type") or req_json.get("deviceType"),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/heatmaps/pages", methods=["GET", "POST", "OPTIONS"])
+    def heatmap_pages():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = get_heatmap_pages_summary(
+                str(property_id),
+                start_date_value=request.args.get("start_date") or req_json.get("start_date"),
+                end_date_value=request.args.get("end_date") or req_json.get("end_date"),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/site-audit/pages", methods=["GET", "POST", "OPTIONS"])
+    def site_audit_pages():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = get_site_audit_pages_summary(
+                str(property_id),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/site-audit/run", methods=["POST", "OPTIONS"])
+    def site_audit_run():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = run_site_audit_summary(
+                str(property_id),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/site-audit/summary", methods=["GET", "POST", "OPTIONS"])
+    def site_audit_summary():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = get_site_audit_summary(
+                str(property_id),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/admin/heatmap-sites", methods=["GET", "POST", "OPTIONS"])
+    def admin_heatmap_sites():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            if request.method == "POST":
+                access_token, _user = require_any_property_permission(
+                    str(property_id),
+                    ("website_manager.edit", "reports.layout.edit"),
+                )
+                payload = save_heatmap_site_summary(str(property_id), req_json, access_token=access_token)
+            else:
+                access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+                payload = list_heatmap_sites_summary(str(property_id), access_token=access_token)
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
 
     @app.route("/api/entrata/backfill", methods=["POST", "OPTIONS"])
     def staged_entrata_backfill():

@@ -516,6 +516,63 @@ def _fetch_property_row(property_id: str, *, access_token: str | None = None) ->
     return rows[0] if rows else None
 
 
+def _normalize_tracking_feature_flags(value: Any) -> dict[str, bool]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "heatmaps": bool(source.get("heatmaps", True)),
+        "pageSnapshots": bool(source.get("pageSnapshots", source.get("page_snapshots", True))),
+        "screenshots": bool(source.get("screenshots", False)),
+    }
+
+
+def _normalize_tracking_consent_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in {"opt_out", "required", "disabled"} else "opt_out"
+
+
+def _bounded_tracking_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(maximum, number))
+
+
+def _fetch_primary_heatmap_site(property_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+    rows = _fetch_rows(
+        "property_heatmap_sites",
+        [
+            ("select", "id,site_key,name,allowed_domains,tracking_enabled,sampling_rate,feature_flags,screenshot_capture_frequency,consent_mode,respect_dnt,screenshot_min_interval_hours,raw_event_retention_days,aggregate_retention_days"),
+            ("property_id", f"eq.{property_id}"),
+            ("order", "created_at.asc"),
+            ("limit", "1"),
+        ],
+        access_token=access_token,
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "id": row.get("id"),
+        "siteKey": row.get("site_key") or "",
+        "name": row.get("name") or "",
+        "allowedDomains": row.get("allowed_domains") if isinstance(row.get("allowed_domains"), list) else [],
+        "trackingEnabled": bool(row.get("tracking_enabled")),
+        "samplingRate": float(row.get("sampling_rate") or 0.10),
+        "featureFlags": _normalize_tracking_feature_flags(row.get("feature_flags")),
+        "screenshotCaptureFrequency": row.get("screenshot_capture_frequency") or "manual",
+        "consentMode": _normalize_tracking_consent_mode(row.get("consent_mode")),
+        "respectDnt": row.get("respect_dnt") is not False,
+        "screenshotMinIntervalHours": _bounded_tracking_int(row.get("screenshot_min_interval_hours"), 24, 1, 720),
+        "rawEventRetentionDays": _bounded_tracking_int(row.get("raw_event_retention_days"), 90, 1, 365),
+        "aggregateRetentionDays": _bounded_tracking_int(row.get("aggregate_retention_days"), 730, 30, 3650),
+        "trackerUrl": (
+            os.environ.get("HEATMAP_TRACKER_PUBLIC_URL")
+            or (f"{os.environ.get('RENDER_EXTERNAL_URL', '').rstrip('/')}/api/heatmaps/tracker.js" if os.environ.get("RENDER_EXTERNAL_URL") else "")
+        ),
+    }
+
+
 def _shape_website_manager_row(row: dict[str, Any] | None, property_id: str) -> dict[str, Any]:
     safe_row = row or {}
     content_values, schema = _extract_schema_from_content(safe_row.get("content"), safe_row)
@@ -746,7 +803,7 @@ def _truncate_preview(value: str, limit: int = 180) -> str:
     return normalized[: limit - 3] + "..."
 
 
-def _build_wordpress_payload(record: dict[str, Any]) -> dict[str, Any]:
+def _build_wordpress_payload(record: dict[str, Any], tracking_config: dict[str, Any] | None = None) -> dict[str, Any]:
     content = record.get("content") if isinstance(record.get("content"), dict) else {}
     derived = record.get("derivedContent") if isinstance(record.get("derivedContent"), dict) else {}
     schema = record.get("schema") if isinstance(record.get("schema"), dict) else WEBSITE_MANAGER_DEFAULT_SCHEMA
@@ -763,6 +820,20 @@ def _build_wordpress_payload(record: dict[str, Any]) -> dict[str, Any]:
         "website_url": record.get("websiteUrl") or "",
         "__schema": schema,
     }
+    if tracking_config and tracking_config.get("siteKey"):
+        payload["tracking_config"] = {
+            "siteKey": tracking_config.get("siteKey") or "",
+            "trackingEnabled": bool(tracking_config.get("trackingEnabled")),
+            "samplingRate": float(tracking_config.get("samplingRate") or 0.10),
+            "featureFlags": _normalize_tracking_feature_flags(tracking_config.get("featureFlags")),
+            "screenshotCaptureFrequency": tracking_config.get("screenshotCaptureFrequency") or "manual",
+            "consentMode": _normalize_tracking_consent_mode(tracking_config.get("consentMode")),
+            "respectDnt": tracking_config.get("respectDnt") is not False,
+            "screenshotMinIntervalHours": _bounded_tracking_int(tracking_config.get("screenshotMinIntervalHours"), 24, 1, 720),
+            "rawEventRetentionDays": _bounded_tracking_int(tracking_config.get("rawEventRetentionDays"), 90, 1, 365),
+            "aggregateRetentionDays": _bounded_tracking_int(tracking_config.get("aggregateRetentionDays"), 730, 30, 3650),
+            "trackerUrl": tracking_config.get("trackerUrl") or "",
+        }
     for source_key, raw_value in content.items():
         if source_key == WEBSITE_MANAGER_SCHEMA_META_KEY:
             continue
@@ -795,7 +866,8 @@ def publish_website_manager_summary(property_id: str, access_token: str | None =
         }
 
     target_url = urljoin(website_url.rstrip("/") + "/", "wp-json/redstone-site-manager/v1/content")
-    payload = _build_wordpress_payload(record)
+    tracking_config = _fetch_primary_heatmap_site(property_id, access_token=access_token)
+    payload = _build_wordpress_payload(record, tracking_config)
     body = json.dumps(payload).encode("utf-8")
     timestamp = str(int(datetime.now(tz=UTC).timestamp()))
     secret = _load_wordpress_secret(site_key)
