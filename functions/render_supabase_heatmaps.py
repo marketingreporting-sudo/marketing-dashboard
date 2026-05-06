@@ -4,6 +4,8 @@ import json
 import re
 import hashlib
 import tempfile
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -983,7 +985,17 @@ def capture_site_screenshots(
 
     with tempfile.TemporaryDirectory(prefix="redstone-site-shots-") as tmpdir:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            try:
+                browser = playwright.chromium.launch(headless=True)
+            except Exception as launch_error:
+                error_text = str(launch_error)
+                if "Executable doesn't exist" not in error_text and "playwright install" not in error_text:
+                    raise
+                subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "chromium"],
+                    check=True,
+                )
+                browser = playwright.chromium.launch(headless=True)
             try:
                 for site in sites:
                     should_capture, skip_reason = _should_capture_site_screenshots(site)
