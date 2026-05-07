@@ -2786,7 +2786,7 @@ const DashboardApp = ({
     return leadItems.filter((lead) => !isGuestCardLead(lead) && !isRenewalLead(lead));
   }, [leadItems]);
 
-  const totalLeads = canonicalLeadItems.length;
+  const totalLeads = allCanonicalLeadItems.length;
   const leadCohortIds = useMemo(() => {
     const ids = new Set();
     canonicalLeadItems.forEach((lead) => {
@@ -2945,17 +2945,17 @@ const DashboardApp = ({
   // Lead status breakdown
   const leadStatusBreakdown = useMemo(() => {
     const statuses = {};
-    canonicalLeadItems.forEach(l => {
+    allCanonicalLeadItems.forEach(l => {
       const s = l.status || 'Unknown';
       statuses[s] = (statuses[s] || 0) + 1;
     });
     return statuses;
-  }, [canonicalLeadItems]);
+  }, [allCanonicalLeadItems]);
 
   // Lead sources breakdown
   const leadSourceBreakdown = useMemo(() => {
     const sources = {};
-    canonicalLeadItems.forEach(l => {
+    allCanonicalLeadItems.forEach(l => {
       const s = l.leadSource || l.internetListingService || 'Unknown';
       sources[s] = (sources[s] || 0) + 1;
     });
@@ -2964,7 +2964,7 @@ const DashboardApp = ({
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
       .map(([name, value]) => ({ name: name.length > 20 ? name.slice(0, 20) + '…' : name, value }));
-  }, [canonicalLeadItems]);
+  }, [allCanonicalLeadItems]);
 
   // Marketing cost from invoices
   const totalPerformanceMarketingCost = useMemo(() => {
@@ -3189,7 +3189,7 @@ const DashboardApp = ({
   const applicationToLeaseConversion = totalApplications > 0 ? ((totalLeases / totalApplications) * 100).toFixed(1) : '0.0';
   const blendedRoi = roiTotals.marketingSpend > 0 ? ((roiTotals.netEffectiveRevenue - roiTotals.marketingSpend) / roiTotals.marketingSpend) : null;
   const blendedRoas = roiTotals.marketingSpend > 0 ? (roiTotals.netEffectiveRevenue / roiTotals.marketingSpend) : null;
-  const roiCostPerLease = attributedLeaseCount > 0 && roiTotals.marketingSpend > 0 ? (roiTotals.marketingSpend / attributedLeaseCount).toFixed(2) : '—';
+  const roiCostPerLease = totalLeases > 0 && roiTotals.marketingSpend > 0 ? (roiTotals.marketingSpend / totalLeases).toFixed(2) : '—';
   const selectedPropertyLabel = useMemo(() => {
     if (selectedProperty) {
       const location = [selectedProperty.city, selectedProperty.state].filter(Boolean).join(', ');
@@ -5354,7 +5354,7 @@ const DashboardApp = ({
           {roiLoading ? '…' : blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          ROAS: {blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'} | Cost / Attributed Lease: {roiCostPerLease !== '—' ? `$${roiCostPerLease}` : '—'}
+          ROAS: {blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'} | Cost / Lease: {roiCostPerLease !== '—' ? `$${roiCostPerLease}` : '—'}
         </div>
       </div>
 
@@ -5366,6 +5366,19 @@ const DashboardApp = ({
         <div className="card-value">{roiLoading ? '…' : attributedLeaseCount.toLocaleString()}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Match rate: {attributionMatchRate}% | Unattributed: {unattributedLeaseCount.toLocaleString()}
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <TrendingUp size={16} style={{ opacity: 0.6 }} />
+          <div className="card-title">ROAS</div>
+        </div>
+        <div className="card-value">
+          {roiLoading ? '…' : blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}
+        </div>
+        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
+          Net revenue: {roiTotals.netEffectiveRevenue > 0 ? `$${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'} | Spend: {roiTotals.marketingSpend > 0 ? `$${roiTotals.marketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
         </div>
       </div>
 
