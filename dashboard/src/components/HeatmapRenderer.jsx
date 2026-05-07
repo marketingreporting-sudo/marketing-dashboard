@@ -17,6 +17,13 @@ const EVENT_TO_LAYER = {
 
 const clampPercent = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
+const parsePercent = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return clampPercent(parsed);
+};
+
 const getViewportLabel = (deviceType) => {
   if (deviceType === 'mobile') return 'Mobile viewport';
   if (deviceType === 'tablet') return 'Tablet viewport';
@@ -29,8 +36,10 @@ const aggregatePoints = (points, activeLayers, gridSize = 24) => {
     const layer = EVENT_TO_LAYER[point.type] || point.type;
     if (!activeLayers[layer] || layer === 'scroll') return;
     if (point.xPct == null || point.yPct == null) return;
-    const xPct = clampPercent(point.xPct);
-    const yPct = clampPercent(point.yPct);
+    const xPct = parsePercent(point.xPct);
+    const yPct = parsePercent(point.yPct);
+    if (xPct == null || yPct == null) return;
+    if (xPct <= 0.001 && yPct <= 0.001 && !point.targetLabel && !point.targetHref) return;
     const gridX = Math.min(gridSize - 1, Math.floor(xPct * gridSize));
     const gridY = Math.min(gridSize - 1, Math.floor(yPct * gridSize));
     const key = `${layer}:${gridX}:${gridY}`;
@@ -88,6 +97,8 @@ export default function HeatmapRenderer({
   const pageAspectRatio = screenshotWidth > 0 && screenshotHeight > 0
     ? `${screenshotWidth} / ${screenshotHeight}`
     : '16 / 36';
+  const pageWidthPercent = deviceType === 'mobile' ? '44%' : deviceType === 'tablet' ? '64%' : '100%';
+  const pageMinWidth = deviceType === 'mobile' ? 320 : deviceType === 'tablet' ? 620 : 960;
   const showScreenshot = hasScreenshot && imageLoaded && !imageFailed;
   const previewStatus = loading
     ? 'Loading screenshot...'
@@ -122,6 +133,9 @@ export default function HeatmapRenderer({
       <div
         style={{
           position: 'relative',
+          width: '100%',
+          minHeight: 420,
+          maxHeight: 680,
           aspectRatio: '16 / 9',
           border: '1px solid var(--panel-border)',
           borderRadius: 8,
@@ -154,7 +168,7 @@ export default function HeatmapRenderer({
             position: 'absolute',
             inset: '34px 0 0',
             overflowY: 'auto',
-            overflowX: 'hidden',
+            overflowX: 'auto',
             scrollbarColor: 'rgba(255,255,255,0.32) transparent',
             background: 'rgba(14,30,35,0.82)',
           }}
@@ -162,9 +176,12 @@ export default function HeatmapRenderer({
           <div
             style={{
               position: 'relative',
-              width: '100%',
+              width: pageWidthPercent,
+              minWidth: pageMinWidth,
+              maxWidth: '100%',
               minHeight: '100%',
               aspectRatio: pageAspectRatio,
+              margin: '0 auto',
               background: showScreenshot
                 ? 'rgba(10,20,24,0.42)'
                 : 'linear-gradient(180deg, rgba(230,213,184,0.10), rgba(255,255,255,0.03))',
