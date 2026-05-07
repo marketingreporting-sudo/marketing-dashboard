@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 const LAYER_META = {
   click: { label: 'Clicks', color: '255, 91, 91' },
@@ -17,10 +17,10 @@ const EVENT_TO_LAYER = {
 
 const clampPercent = (value) => Math.max(0, Math.min(1, Number(value) || 0));
 
-const getAspectRatio = (deviceType) => {
-  if (deviceType === 'mobile') return '9 / 16';
-  if (deviceType === 'tablet') return '3 / 4';
-  return '16 / 10';
+const getViewportLabel = (deviceType) => {
+  if (deviceType === 'mobile') return 'Mobile viewport';
+  if (deviceType === 'tablet') return 'Tablet viewport';
+  return 'Desktop viewport';
 };
 
 const aggregatePoints = (points, activeLayers, gridSize = 24) => {
@@ -80,15 +80,29 @@ export default function HeatmapRenderer({
   const aggregateCells = useMemo(() => aggregatePoints(points, layers), [points, layers]);
   const maxScroll = clampPercent(totals.maxScrollDepthPct);
   const hasScreenshot = Boolean(screenshotUrl);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const hasData = aggregateCells.length > 0 || (layers.scroll && maxScroll > 0);
   const screenshotWidth = Number(screenshot?.width || 0);
   const screenshotHeight = Number(screenshot?.height || 0);
-  const aspectRatio = screenshotWidth > 0 && screenshotHeight > 0
+  const pageAspectRatio = screenshotWidth > 0 && screenshotHeight > 0
     ? `${screenshotWidth} / ${screenshotHeight}`
-    : getAspectRatio(deviceType);
-  const backgroundStyle = hasScreenshot
-    ? 'linear-gradient(180deg, rgba(11,14,18,0.18), rgba(11,14,18,0.30))'
-    : 'linear-gradient(180deg, rgba(230,213,184,0.10), rgba(255,255,255,0.03))';
+    : '16 / 36';
+  const showScreenshot = hasScreenshot && imageLoaded && !imageFailed;
+  const previewStatus = loading
+    ? 'Loading screenshot...'
+    : showScreenshot
+      ? 'Screenshot loaded'
+      : hasScreenshot && imageFailed
+        ? 'Screenshot image failed to load'
+        : screenshot
+          ? `Screenshot preview unavailable${error ? `: ${error}` : ''}`
+          : 'Blank page frame';
+
+  useEffect(() => {
+    setImageLoaded(false);
+    setImageFailed(false);
+  }, [screenshotUrl]);
 
   return (
     <div>
@@ -108,76 +122,156 @@ export default function HeatmapRenderer({
       <div
         style={{
           position: 'relative',
-          minHeight: deviceType === 'mobile' ? 420 : 340,
-          maxHeight: 760,
-          aspectRatio,
+          aspectRatio: '16 / 9',
           border: '1px solid var(--panel-border)',
           borderRadius: 8,
           overflow: 'hidden',
-          background: backgroundStyle,
+          background: 'linear-gradient(180deg, rgba(8,18,22,0.96), rgba(18,39,45,0.96))',
+          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.03)',
         }}
       >
-        {hasScreenshot && (
-          <img
-            src={screenshotUrl}
-            alt=""
-            aria-hidden="true"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'fill',
-              opacity: 0.82,
-              pointerEvents: 'none',
-            }}
-          />
-        )}
-        <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: '64px 1fr 80px', opacity: 0.68, pointerEvents: 'none' }}>
-          <div style={{ borderBottom: '1px solid rgba(255,255,255,0.12)', padding: '1rem', color: 'var(--primary-tan)', fontSize: '0.8rem' }}>
-            {loading ? 'Loading screenshot background...' : hasScreenshot ? 'Latest screenshot background' : screenshot ? `Screenshot preview unavailable${error ? `: ${error}` : ''}` : 'Blank page frame'}
-          </div>
-          <div style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }} />
-          <div />
+        <div
+          style={{
+            height: 34,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '0.75rem',
+            padding: '0 0.75rem',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            background: 'rgba(6,14,17,0.78)',
+            color: 'var(--primary-tan)',
+            fontSize: '0.75rem',
+          }}
+        >
+          <span>{getViewportLabel(deviceType)}</span>
+          <span style={{ color: 'rgba(255,255,255,0.72)' }}>
+            {previewStatus}
+          </span>
         </div>
-        {layers.scroll && maxScroll > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: '34px 0 0',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            scrollbarColor: 'rgba(255,255,255,0.32) transparent',
+            background: 'rgba(14,30,35,0.82)',
+          }}
+        >
           <div
             style={{
-              position: 'absolute',
-              inset: 0,
-              background: `linear-gradient(180deg, rgba(71,190,125,0.32) 0%, rgba(238,196,94,0.30) ${Math.round(maxScroll * 100)}%, rgba(211,84,84,0.18) 100%)`,
-              mixBlendMode: 'screen',
+              position: 'relative',
+              width: '100%',
+              minHeight: '100%',
+              aspectRatio: pageAspectRatio,
+              background: showScreenshot
+                ? 'rgba(10,20,24,0.42)'
+                : 'linear-gradient(180deg, rgba(230,213,184,0.10), rgba(255,255,255,0.03))',
             }}
-          />
-        )}
-        {aggregateCells.map((cell) => {
-          const rgb = LAYER_META[cell.layer]?.color || '255, 210, 95';
-          const size = 18 + Math.round(cell.intensity * 42);
-          return (
-            <span
-              key={cell.key}
-              title={`${LAYER_META[cell.layer]?.label || cell.layer}: ${cell.count} events${cell.label ? ` | ${cell.label}` : ''}`}
-              style={{
-                position: 'absolute',
-                left: `${cell.xPct * 100}%`,
-                top: `${cell.yPct * 100}%`,
-                width: size,
-                height: size,
-                transform: 'translate(-50%, -50%)',
-                borderRadius: '50%',
-                background: `rgba(${rgb}, ${0.18 + cell.intensity * 0.46})`,
-                boxShadow: `0 0 ${18 + cell.intensity * 32}px rgba(${rgb}, ${0.30 + cell.intensity * 0.28})`,
-                border: `1px solid rgba(${rgb}, 0.34)`,
-              }}
-            />
-          );
-        })}
-        {!loading && !hasData && (
-          <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--primary-tan)', padding: '2rem', textAlign: 'center' }}>
-            No heatmap events for the selected page, device, and date range yet.
+          >
+            {hasScreenshot && (
+              <img
+                src={screenshotUrl}
+                alt=""
+                aria-hidden="true"
+                onLoad={() => {
+                  setImageLoaded(true);
+                  setImageFailed(false);
+                }}
+                onError={() => {
+                  setImageLoaded(false);
+                  setImageFailed(true);
+                }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'fill',
+                  opacity: showScreenshot ? 0.86 : 0,
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }} />
+            {layers.scroll && maxScroll > 0 && (
+              <>
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: 0,
+                    height: `${Math.max(2, maxScroll * 100)}%`,
+                    background: 'linear-gradient(180deg, rgba(71,190,125,0.28), rgba(238,196,94,0.22))',
+                    mixBlendMode: showScreenshot ? 'multiply' : 'screen',
+                    pointerEvents: 'none',
+                  }}
+                />
+                <div
+                  title={`Maximum scroll depth: ${Math.round(maxScroll * 100)}%`}
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    top: `${maxScroll * 100}%`,
+                    height: 2,
+                    background: 'rgba(255,214,99,0.9)',
+                    boxShadow: '0 0 16px rgba(255,214,99,0.55)',
+                    pointerEvents: 'none',
+                  }}
+                />
+              </>
+            )}
+            {aggregateCells.map((cell) => {
+              const rgb = LAYER_META[cell.layer]?.color || '255, 210, 95';
+              const size = 18 + Math.round(cell.intensity * 42);
+              return (
+                <span
+                  key={cell.key}
+                  title={`${LAYER_META[cell.layer]?.label || cell.layer}: ${cell.count} events${cell.label ? ` | ${cell.label}` : ''}`}
+                  style={{
+                    position: 'absolute',
+                    left: `${cell.xPct * 100}%`,
+                    top: `${cell.yPct * 100}%`,
+                    width: size,
+                    height: size,
+                    transform: 'translate(-50%, -50%)',
+                    borderRadius: '50%',
+                    background: `rgba(${rgb}, ${0.20 + cell.intensity * 0.48})`,
+                    boxShadow: `0 0 ${18 + cell.intensity * 34}px rgba(${rgb}, ${0.34 + cell.intensity * 0.28})`,
+                    border: `1px solid rgba(${rgb}, 0.38)`,
+                    pointerEvents: 'none',
+                  }}
+                />
+              );
+            })}
+            {!loading && !hasData && (
+              <div style={{ position: 'sticky', top: '34%', display: 'grid', placeItems: 'center', color: 'var(--primary-tan)', padding: '2rem', textAlign: 'center', pointerEvents: 'none' }}>
+                No heatmap events for the selected page, device, and date range yet.
+              </div>
+            )}
           </div>
-        )}
-        <div style={{ position: 'absolute', left: 12, right: 12, bottom: 12, display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.75rem', color: 'var(--white)', opacity: 0.78 }}>
+        </div>
+        <div
+          style={{
+            position: 'absolute',
+            left: 12,
+            right: 12,
+            bottom: 10,
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            padding: '0.35rem 0.5rem',
+            borderRadius: 6,
+            fontSize: '0.72rem',
+            color: 'var(--white)',
+            background: 'rgba(6,14,17,0.66)',
+            opacity: 0.88,
+            pointerEvents: 'none',
+          }}
+        >
           <span>{deviceType}</span>
           <span>{formatNumber(aggregateCells.length)} cells | {Math.round(maxScroll * 100)}% max scroll</span>
         </div>
