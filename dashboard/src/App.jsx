@@ -5253,6 +5253,19 @@ const DashboardApp = ({
 
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <DollarSign size={16} style={{ opacity: 0.6 }} />
+          <div className="card-title">Cost Per Lead</div>
+        </div>
+        <div className="card-value">
+          {loading ? '…' : costPerLead !== '—' ? `$${costPerLead}` : 'No spend'}
+        </div>
+        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
+          Leads: {totalLeads.toLocaleString()} | Paid media: {totalPerformanceMarketingCost > 0 ? `$${totalPerformanceMarketingCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <FileCheck size={16} style={{ opacity: 0.6 }} />
           <div className="card-title">Applications Completed</div>
         </div>
@@ -5309,17 +5322,6 @@ const DashboardApp = ({
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {totalLeases.toLocaleString()}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Home size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Attributed Leases</div>
-        </div>
-        <div className="card-value">{roiLoading ? '…' : attributedLeaseCount.toLocaleString()}</div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Match rate: {attributionMatchRate}% | Unattributed: {unattributedLeaseCount.toLocaleString()}
         </div>
       </div>
 
