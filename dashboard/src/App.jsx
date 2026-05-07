@@ -4242,31 +4242,6 @@ const DashboardApp = ({
           )}
         </div>
 
-        <div className="property-info-panel">
-          <div className="property-info-panel__eyebrow">Range Summary</div>
-          <div className="property-info-panel__title">Lead and lease activity</div>
-          <div className="property-info-metrics">
-            <div className="property-info-metrics__row"><span>Leads</span><strong>{loading ? '…' : formatNumber(totalLeads)}</strong></div>
-            <div className="property-info-metrics__row"><span>Applications</span><strong>{loading ? '…' : formatNumber(totalApplications)}</strong></div>
-            <div className="property-info-metrics__row"><span>Leases</span><strong>{loading ? '…' : formatNumber(totalLeases)}</strong></div>
-            <div className="property-info-metrics__row"><span>Lead to app</span><strong>{applicationConversion}%</strong></div>
-            <div className="property-info-metrics__row"><span>Lead to lease</span><strong>{leaseConversion}%</strong></div>
-            <div className="property-info-metrics__row"><span>Attributed lease rate</span><strong>{attributionMatchRate}%</strong></div>
-          </div>
-        </div>
-
-        <div className="property-info-panel">
-          <div className="property-info-panel__eyebrow">Spend Summary</div>
-          <div className="property-info-panel__title">Marketing cost and revenue</div>
-          <div className="property-info-metrics">
-            <div className="property-info-metrics__row"><span>Total marketing</span><strong>{formatCurrency(totalBlendedMarketingSpend)}</strong></div>
-            <div className="property-info-metrics__row"><span>Paid media</span><strong>{formatCurrency(totalPerformanceMarketingCost)}</strong></div>
-            <div className="property-info-metrics__row"><span>Net revenue</span><strong>{formatCurrency(roiTotals.netEffectiveRevenue)}</strong></div>
-            <div className="property-info-metrics__row"><span>Gross lease value</span><strong>{formatCurrency(roiTotals.grossLeaseValue)}</strong></div>
-            <div className="property-info-metrics__row"><span>Live ROI</span><strong>{blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'}</strong></div>
-            <div className="property-info-metrics__row"><span>Cost per lease</span><strong>{costPerLease !== '—' ? `$${costPerLease}` : '—'}</strong></div>
-          </div>
-        </div>
       </div>
     </div>
   );
