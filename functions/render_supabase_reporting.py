@@ -52,6 +52,7 @@ def _shape_child_payload(row: dict[str, Any]) -> dict[str, Any]:
         {
             "_date": row.get("activity_date"),
             "_parentId": row.get("property_snapshot_id"),
+            "_propertyId": row.get("property_id"),
             "_firestorePath": row.get("firestore_path"),
         }
     )
@@ -82,6 +83,17 @@ def _shape_roi_daily_row(row: dict[str, Any]) -> dict[str, Any]:
         }
     )
     return payload
+
+
+def _sort_activity_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        rows,
+        key=lambda row: (
+            str(row.get("activity_date") or ""),
+            str(row.get("property_id") or ""),
+            str(row.get("id") or row.get("firestore_path") or ""),
+        ),
+    )
 
 
 def get_property_reporting_overview_payload(
@@ -116,7 +128,7 @@ def get_property_reporting_overview_payload(
     leads_rows = _fetch_json(
         "property_leads",
         [
-            ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+            ("select", "property_snapshot_id,property_id,activity_date,raw_data,firestore_path"),
             ("property_id", f"eq.{property_id}"),
             ("activity_date", f"gte.{start_date.isoformat()}"),
             ("activity_date", f"lte.{end_date.isoformat()}"),
@@ -127,7 +139,7 @@ def get_property_reporting_overview_payload(
     events_rows = _fetch_json(
         "property_events",
         [
-            ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+            ("select", "property_snapshot_id,property_id,activity_date,raw_data,firestore_path"),
             ("property_id", f"eq.{property_id}"),
             ("activity_date", f"gte.{start_date.isoformat()}"),
             ("activity_date", f"lte.{end_date.isoformat()}"),
@@ -138,7 +150,7 @@ def get_property_reporting_overview_payload(
     invoice_rows = _fetch_json(
         "property_invoices",
         [
-            ("select", "property_snapshot_id,activity_date,raw_data,firestore_path"),
+            ("select", "property_snapshot_id,property_id,activity_date,raw_data,firestore_path"),
             ("property_id", f"eq.{property_id}"),
             ("activity_date", f"gte.{invoice_start.isoformat()}"),
             ("activity_date", f"lte.{invoice_end.isoformat()}"),
@@ -235,3 +247,90 @@ def get_property_reporting_overview_summary(
 
     payload["status"] = "ok"
     return payload
+
+
+def get_multi_property_reporting_overview_summary(
+    property_ids: list[str],
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    normalized_property_ids = [str(property_id) for property_id in property_ids if str(property_id).strip()]
+    if not normalized_property_ids:
+        return {
+            "status": "error",
+            "message": "No property IDs were supplied for aggregation.",
+            "staging_only": True,
+        }
+
+    try:
+        payloads = [
+            get_property_reporting_overview_payload(property_id, start_date_value, end_date_value, access_token)
+            for property_id in normalized_property_ids
+        ]
+    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+        return {
+            "status": "error",
+            "message": str(error),
+            "staging_only": True,
+        }
+
+    first_payload = payloads[0]
+    aggregated_parent_docs = _sort_activity_rows([
+        doc
+        for payload in payloads
+        for doc in payload.get("parent_docs", [])
+    ])
+    aggregated_lead_items = _sort_activity_rows([
+        item
+        for payload in payloads
+        for item in payload.get("lead_items", [])
+    ])
+    aggregated_event_items = _sort_activity_rows([
+        item
+        for payload in payloads
+        for item in payload.get("event_items", [])
+    ])
+    aggregated_invoice_items = _sort_activity_rows([
+        item
+        for payload in payloads
+        for item in payload.get("invoice_items", [])
+    ])
+    aggregated_roi_daily_items = _sort_activity_rows([
+        item
+        for payload in payloads
+        for item in payload.get("roi_daily_items", [])
+    ])
+    latest_availability_date = max(
+        (payload.get("latest_availability_date") for payload in payloads if payload.get("latest_availability_date")),
+        default=None,
+    )
+
+    return {
+        "status": "ok",
+        "property_id": "all",
+        "property_ids": normalized_property_ids,
+        "property_count": len(normalized_property_ids),
+        "range": first_payload.get("range", {}),
+        "parent_docs": aggregated_parent_docs,
+        "lead_items": aggregated_lead_items,
+        "event_items": aggregated_event_items,
+        "invoice_items": aggregated_invoice_items,
+        "availability_items": [],
+        "latest_availability_date": latest_availability_date,
+        "specials_snapshot": None,
+        "availability_pricing_snapshot": None,
+        "roi_daily_items": aggregated_roi_daily_items,
+        "counts": {
+            "parent_docs": len(aggregated_parent_docs),
+            "lead_items": len(aggregated_lead_items),
+            "event_items": len(aggregated_event_items),
+            "invoice_items": len(aggregated_invoice_items),
+            "availability_items": 0,
+            "roi_daily_items": len(aggregated_roi_daily_items),
+            "properties": len(normalized_property_ids),
+        },
+        "source": "supabase",
+        "aggregated": True,
+        "staging_only": True,
+    }

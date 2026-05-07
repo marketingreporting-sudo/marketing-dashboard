@@ -40,7 +40,10 @@ from render_supabase_admin_access import (
     list_access_admin_summary,
     update_user_access_summary,
 )
-from render_supabase_reporting import get_property_reporting_overview_summary
+from render_supabase_reporting import (
+    get_multi_property_reporting_overview_summary,
+    get_property_reporting_overview_summary,
+)
 from render_supabase_heatmaps import (
     collect_site_page_snapshot_payload,
     collect_heatmap_payload,
@@ -978,6 +981,7 @@ def create_app() -> Flask:
 
         req_json = request.get_json(silent=True) or {}
         property_id = request.args.get("property_id") or req_json.get("property_id")
+        property_ids_value = request.args.get("property_ids") or req_json.get("property_ids")
         start_date = request.args.get("start_date") or req_json.get("start_date")
         end_date = request.args.get("end_date") or req_json.get("end_date")
         if not property_id:
@@ -995,7 +999,26 @@ def create_app() -> Flask:
         except RenderAuthError as error:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
 
-        payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
+        if str(property_id) == "all":
+            try:
+                require_platform_permission("properties.view_all")
+            except RenderAuthError as error:
+                return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+
+            if isinstance(property_ids_value, str):
+                try:
+                    decoded = json.loads(property_ids_value)
+                    property_ids = decoded if isinstance(decoded, list) else [item.strip() for item in property_ids_value.split(",") if item.strip()]
+                except json.JSONDecodeError:
+                    property_ids = [item.strip() for item in property_ids_value.split(",") if item.strip()]
+            elif isinstance(property_ids_value, list):
+                property_ids = property_ids_value
+            else:
+                property_ids = []
+
+            payload = get_multi_property_reporting_overview_summary(property_ids, start_date, end_date, access_token)
+        else:
+            payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
         status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 

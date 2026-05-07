@@ -121,6 +121,7 @@ const LEASE_EVENT_TYPE_IDS = new Set([13]);
 const STATUS_CHANGE_EVENT_TYPE_ID = 21;
 const REPORTING_LAYOUT_STORAGE_KEY = 'reportingLayoutAdminEnabled';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dashboardSidebarCollapsed';
+const ALL_PROPERTIES_OPTION = '__all__';
 const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
 const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
 const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
@@ -756,6 +757,11 @@ const isActiveAdvertisingInvoice = (invoice) => {
   return ACTIVE_ADVERTISING_PATTERNS.some((pattern) => searchSpace.includes(pattern));
 };
 
+const getScopedStableKey = (propertyId, fallbackValue) => {
+  const scope = propertyId != null && propertyId !== '' ? `${propertyId}:` : '';
+  return `${scope}${String(fallbackValue)}`;
+};
+
 const getApplicationKey = (event) => {
   const candidates = [
     event.leaseIntervalId,
@@ -766,8 +772,8 @@ const getApplicationKey = (event) => {
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return String(stableId);
-  return JSON.stringify(event);
+  if (stableId) return getScopedStableKey(event?._propertyId, stableId);
+  return getScopedStableKey(event?._propertyId, JSON.stringify(event));
 };
 
 const getLeaseKey = (event) => {
@@ -779,8 +785,8 @@ const getLeaseKey = (event) => {
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return String(stableId);
-  return JSON.stringify(event);
+  if (stableId) return getScopedStableKey(event?._propertyId, stableId);
+  return getScopedStableKey(event?._propertyId, JSON.stringify(event));
 };
 
 const getLeadKey = (lead) => {
@@ -796,8 +802,8 @@ const getLeadKey = (lead) => {
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return String(stableId);
-  return JSON.stringify(lead);
+  if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
+  return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
 };
 
 const getLeadCohortIdentifiers = (lead) => {
@@ -813,7 +819,7 @@ const getLeadCohortIdentifiers = (lead) => {
     lead.leadID
   ]
     .filter((value) => value != null && value !== '')
-    .map((value) => String(value));
+    .map((value) => getScopedStableKey(lead?._propertyId, value));
 };
 
 const getAvailabilityStatus = (unit) => {
@@ -1078,8 +1084,8 @@ const getLifecycleApplicationKey = (lead) => {
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return String(stableId);
-  return JSON.stringify(lead);
+  if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
+  return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
 };
 
 const getLifecycleLeaseKey = (lead) => {
@@ -1097,8 +1103,8 @@ const getLifecycleLeaseKey = (lead) => {
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return String(stableId);
-  return JSON.stringify(lead);
+  if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
+  return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
 };
 
 const countLifecycleRecords = (records, dateKeys, getKey, start, end) => {
@@ -1497,18 +1503,28 @@ const DashboardApp = ({
     () => [GA4_DASHBOARD_URL, GOOGLE_ADS_DASHBOARD_URL, META_ADS_DASHBOARD_URL, REPUTATION_DASHBOARD_URL].every(isRenderAdapterUrl),
     []
   );
+  const isAllPropertiesSelected = selectedPropertyId === ALL_PROPERTIES_OPTION;
+  const allPropertiesSupportedTabs = useMemo(() => new Set(['dashboard']), []);
   const selectedProperty = useMemo(() => {
+    if (isAllPropertiesSelected) return null;
     const base = availableProperties.find((property) => property.propertyId === selectedPropertyId) || null;
     if (!base) return null;
     return {
       ...base,
       opiniionSkip: OPINIION_SKIPPED_PROPERTY_IDS.has(selectedPropertyId),
     };
-  }, [availableProperties, selectedPropertyId]);
-  const currentPropertyPermissionSet = useMemo(
-    () => new Set(propertyAccessById[selectedPropertyId]?.permissions || []),
-    [propertyAccessById, selectedPropertyId]
-  );
+  }, [availableProperties, isAllPropertiesSelected, selectedPropertyId]);
+  const currentPropertyPermissionSet = useMemo(() => {
+    if (!isAllPropertiesSelected) {
+      return new Set(propertyAccessById[selectedPropertyId]?.permissions || []);
+    }
+
+    const permissionSet = new Set();
+    availableProperties.forEach((property) => {
+      (propertyAccessById[property.propertyId]?.permissions || []).forEach((permission) => permissionSet.add(permission));
+    });
+    return permissionSet;
+  }, [availableProperties, isAllPropertiesSelected, propertyAccessById, selectedPropertyId]);
   const displayName = profile?.full_name || currentUser?.user_metadata?.full_name || currentUser?.email || 'Account';
   const accountAvatarUrl = profile?.avatar_url || accountDraft.avatarUrl || '';
   const accountInitials = useMemo(() => getInitials(displayName), [displayName]);
@@ -1528,6 +1544,8 @@ const DashboardApp = ({
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
   const canViewAuditCommandCenter = currentPropertyPermissionSet.has(TAB_PERMISSIONS.audit);
   const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
+  const canUseAllProperties = canManageUsers && availableProperties.length > 1;
+  const propertyScopedSelectionId = isAllPropertiesSelected ? null : selectedPropertyId;
   const canApplyDraftCustomRange = Boolean(draftCustomRange.start && draftCustomRange.end);
   const hasUnappliedCustomRange = draftDateRange === 'custom' && (
     dateRange !== 'custom' ||
@@ -1587,11 +1605,20 @@ const DashboardApp = ({
     }
 
     const allowedIds = new Set(availableProperties.map((property) => property.propertyId));
+    if (canUseAllProperties) {
+      allowedIds.add(ALL_PROPERTIES_OPTION);
+    }
     const nextPropertyId = defaultPropertyId || availableProperties[0]?.propertyId || null;
     if (!selectedPropertyId || !allowedIds.has(selectedPropertyId)) {
       setSelectedPropertyId(nextPropertyId);
     }
-  }, [availableProperties, defaultPropertyId, selectedPropertyId]);
+  }, [availableProperties, canUseAllProperties, defaultPropertyId, selectedPropertyId]);
+
+  useEffect(() => {
+    if (!isAllPropertiesSelected) return;
+    if (allPropertiesSupportedTabs.has(activeTab)) return;
+    setSelectedPropertyId(defaultPropertyId || availableProperties[0]?.propertyId || null);
+  }, [activeTab, allPropertiesSupportedTabs, availableProperties, defaultPropertyId, isAllPropertiesSelected]);
 
   useEffect(() => {
     const preferredTab = DEFAULT_TAB_ORDER.find((tabId) => visibleNavItems.some((item) => item.id === tabId));
@@ -1929,7 +1956,7 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadPropertyOverview = async () => {
-      if (!selectedPropertyId) {
+      if (!propertyScopedSelectionId) {
         setParentDocs([]);
         setLeadItems([]);
         setEventItems([]);
@@ -1971,10 +1998,13 @@ const DashboardApp = ({
 
       try {
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: isAllPropertiesSelected ? 'all' : selectedPropertyId,
           start_date: formatDateInputValue(rangeDates.start),
           end_date: formatDateInputValue(rangeDates.end),
         });
+        if (isAllPropertiesSelected) {
+          params.set('property_ids', JSON.stringify(availableProperties.map((property) => property.propertyId)));
+        }
         const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
@@ -2020,7 +2050,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [rangeDates, selectedPropertyId, reportingUsesStagedOverview]);
+  }, [availableProperties, isAllPropertiesSelected, rangeDates, selectedPropertyId, reportingUsesStagedOverview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2049,7 +2079,7 @@ const DashboardApp = ({
       setWebsiteManagerNotice(null);
 
       try {
-        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const params = new URLSearchParams({ property_id: propertyScopedSelectionId });
         const response = await authFetch(`${WEBSITE_MANAGER_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
@@ -2077,13 +2107,13 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPropertyId, websiteManagerUsesStagedAdapter]);
+  }, [propertyScopedSelectionId, websiteManagerUsesStagedAdapter]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadHeatmapSite = async () => {
-      if (!selectedPropertyId) {
+      if (!propertyScopedSelectionId) {
         const fallback = normalizeHeatmapSiteConfig(null);
         setHeatmapSiteDoc(fallback);
         setHeatmapSiteDraft(fallback);
@@ -2106,7 +2136,7 @@ const DashboardApp = ({
       setHeatmapSiteNotice(null);
 
       try {
-        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const params = new URLSearchParams({ property_id: propertyScopedSelectionId });
         const response = await authFetch(`${HEATMAP_SITES_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
@@ -2138,14 +2168,14 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPropertyId, selectedProperty?.name, websiteManagerDoc.websiteUrl]);
+  }, [propertyScopedSelectionId, selectedProperty?.name, websiteManagerDoc.websiteUrl]);
 
   useEffect(() => {
-    if (!selectedPropertyId || !HEATMAP_PAGES_URL || !SITE_AUDIT_PAGES_URL || !SITE_AUDIT_SUMMARY_URL) {
+    if (!propertyScopedSelectionId || !HEATMAP_PAGES_URL || !SITE_AUDIT_PAGES_URL || !SITE_AUDIT_SUMMARY_URL) {
       setHeatmapPagesData(null);
       setSiteAuditPagesData(null);
       setSiteAuditSummaryData(null);
-      setHeatmapPanelError(selectedPropertyId ? 'Heatmap and audit endpoints are not fully configured.' : null);
+      setHeatmapPanelError(propertyScopedSelectionId ? 'Heatmap and audit endpoints are not fully configured.' : null);
       setHeatmapPagesLoading(false);
       setSiteAuditLoading(false);
       return;
@@ -2158,7 +2188,7 @@ const DashboardApp = ({
       setHeatmapPanelError(null);
       try {
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           start_date: formatDateInputValue(rangeDates.start),
           end_date: formatDateInputValue(rangeDates.end),
         });
@@ -2211,7 +2241,7 @@ const DashboardApp = ({
 
     loadHeatmapPanelData();
     return () => controller.abort();
-  }, [rangeDates, selectedPropertyId, heatmapSiteDraft.siteKey]);
+  }, [propertyScopedSelectionId, rangeDates, heatmapSiteDraft.siteKey]);
 
   useEffect(() => {
     const pages = heatmapPagesData?.pages || [];
@@ -2224,7 +2254,7 @@ const DashboardApp = ({
   }, [heatmapPagesData, selectedHeatmapPath]);
 
   useEffect(() => {
-    if (!selectedPropertyId || !HEATMAP_SUMMARY_URL || !selectedHeatmapPath) {
+    if (!propertyScopedSelectionId || !HEATMAP_SUMMARY_URL || !selectedHeatmapPath) {
       setHeatmapSummaryData(null);
       setHeatmapSummaryLoading(false);
       return;
@@ -2236,7 +2266,7 @@ const DashboardApp = ({
       setHeatmapPanelError(null);
       try {
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           path: selectedHeatmapPath,
           device_type: selectedHeatmapDevice,
           start_date: formatDateInputValue(rangeDates.start),
@@ -2261,7 +2291,7 @@ const DashboardApp = ({
 
     loadHeatmapSummary();
     return () => controller.abort();
-  }, [rangeDates, selectedHeatmapDevice, selectedHeatmapPath, selectedPropertyId, heatmapSiteDraft.siteKey]);
+  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
 
   useEffect(() => {
     if (!selectedScreenshot?.id || !SITE_AUDIT_SCREENSHOT_PREVIEW_URL) {
@@ -2303,14 +2333,14 @@ const DashboardApp = ({
   }, [selectedScreenshot?.id]);
 
   useEffect(() => {
-    setWebsiteSchemaHistory(readWebsiteSchemaHistory(selectedPropertyId));
-  }, [selectedPropertyId]);
+    setWebsiteSchemaHistory(readWebsiteSchemaHistory(propertyScopedSelectionId));
+  }, [propertyScopedSelectionId]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadWebsiteSchema = async () => {
-      if (!selectedPropertyId || !canManageUsers) {
+      if (!propertyScopedSelectionId || !canManageUsers) {
         const fallback = normalizeWebsiteManagerSchema(null);
         setWebsiteSchemaDoc(fallback);
         setWebsiteSchemaDraft(fallback);
@@ -2332,7 +2362,7 @@ const DashboardApp = ({
       setWebsiteSchemaNotice(null);
 
       try {
-        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const params = new URLSearchParams({ property_id: propertyScopedSelectionId });
         const response = await authFetch(`${WEBSITE_MANAGER_SCHEMA_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
@@ -2359,7 +2389,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPropertyId, canManageUsers, websiteManagerSchemaUsesStagedAdapter]);
+  }, [propertyScopedSelectionId, canManageUsers, websiteManagerSchemaUsesStagedAdapter]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2375,7 +2405,7 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadReportingLayout = async () => {
-      if (!selectedPropertyId) {
+      if (!propertyScopedSelectionId) {
         const fallback = normalizeReportingLayoutRecord(null);
         setReportingLayoutDoc(fallback);
         setReportingLayoutDraft(fallback);
@@ -2398,7 +2428,7 @@ const DashboardApp = ({
       setReportingLayoutNotice(null);
 
       try {
-        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const params = new URLSearchParams({ property_id: propertyScopedSelectionId });
         const response = await authFetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
@@ -2426,7 +2456,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedPropertyId, reportingLayoutUsesStagedAdapter]);
+  }, [propertyScopedSelectionId, reportingLayoutUsesStagedAdapter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2467,7 +2497,7 @@ const DashboardApp = ({
   }, []);
 
   useEffect(() => {
-    if (!selectedPropertyId) {
+    if (!propertyScopedSelectionId) {
       setGa4Data(null);
       setGa4Error(null);
       setGa4Loading(false);
@@ -2493,7 +2523,7 @@ const DashboardApp = ({
         }
 
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           ga4_property_id: ga4PropertyId,
           start_date: formatDateInputValue(rangeDates.start),
           end_date: formatDateInputValue(rangeDates.end)
@@ -2518,10 +2548,10 @@ const DashboardApp = ({
 
     loadGa4Data();
     return () => controller.abort();
-  }, [rangeDates, selectedPropertyId, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
 
   useEffect(() => {
-    if (!selectedPropertyId) {
+    if (!propertyScopedSelectionId) {
       setGoogleAdsData(null);
       setGoogleAdsError(null);
       setGoogleAdsLoading(false);
@@ -2547,7 +2577,7 @@ const DashboardApp = ({
         }
 
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           google_ads_customer_id: googleAdsCustomerId,
           property_name: selectedProperty?.name || '',
           start_date: formatDateInputValue(rangeDates.start),
@@ -2573,10 +2603,10 @@ const DashboardApp = ({
 
     loadGoogleAdsData();
     return () => controller.abort();
-  }, [rangeDates, selectedPropertyId, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
 
   useEffect(() => {
-    if (!selectedPropertyId) {
+    if (!propertyScopedSelectionId) {
       setMetaAdsData(null);
       setMetaAdsError(null);
       setMetaAdsLoading(false);
@@ -2602,7 +2632,7 @@ const DashboardApp = ({
         }
 
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           meta_ads_account_id: metaAdsAccountId,
           property_name: selectedProperty?.name || '',
           attribution_mode: metaAdsAttributionMode,
@@ -2635,10 +2665,10 @@ const DashboardApp = ({
 
     loadMetaAdsData();
     return () => controller.abort();
-  }, [metaAdsAttributionMode, rangeDates, selectedPropertyId, selectedProperty]);
+  }, [metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, selectedProperty]);
 
   useEffect(() => {
-    if (!selectedPropertyId) {
+    if (!propertyScopedSelectionId) {
       setReputationData(null);
       setReputationError(null);
       setReputationLoading(false);
@@ -2664,7 +2694,7 @@ const DashboardApp = ({
         }
 
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           property_name: selectedProperty?.name || '',
           property_city: selectedProperty?.city || '',
           start_date: formatDateInputValue(rangeDates.start),
@@ -2693,10 +2723,10 @@ const DashboardApp = ({
 
     loadReputationData();
     return () => controller.abort();
-  }, [rangeDates, selectedPropertyId, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
 
   useEffect(() => {
-    if (!selectedPropertyId) {
+    if (!propertyScopedSelectionId) {
       setLocalFalconData(null);
       setLocalFalconError(null);
       setLocalFalconLoading(false);
@@ -2715,7 +2745,7 @@ const DashboardApp = ({
         }
 
         const params = new URLSearchParams({
-          property_id: selectedPropertyId,
+          property_id: propertyScopedSelectionId,
           property_name: selectedProperty?.name || '',
           property_city: selectedProperty?.city || '',
           property_state: selectedProperty?.state || '',
@@ -2755,7 +2785,7 @@ const DashboardApp = ({
 
     loadLocalFalconData();
     return () => controller.abort();
-  }, [rangeDates, selectedPropertyId, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
 
   // ──────────────── COMPUTED METRICS ────────────────
   
@@ -2809,7 +2839,7 @@ const DashboardApp = ({
         event.leadID
       ]
         .filter((value) => value != null && value !== '')
-        .map((value) => String(value));
+        .map((value) => getScopedStableKey(event?._propertyId, value));
 
       return identifiers.some((id) => leadCohortIds.has(id));
     });
@@ -3145,6 +3175,9 @@ const DashboardApp = ({
   const blendedRoas = roiTotals.marketingSpend > 0 ? (roiTotals.netEffectiveRevenue / roiTotals.marketingSpend) : null;
   const roiCostPerLease = totalLeases > 0 && roiTotals.marketingSpend > 0 ? (roiTotals.marketingSpend / totalLeases).toFixed(2) : '—';
   const selectedPropertyLabel = useMemo(() => {
+    if (isAllPropertiesSelected) {
+      return 'All Properties';
+    }
     if (selectedProperty) {
       const location = [selectedProperty.city, selectedProperty.state].filter(Boolean).join(', ');
       return location ? `${selectedProperty.name} (${location})` : selectedProperty.name;
@@ -3152,7 +3185,7 @@ const DashboardApp = ({
 
     const propertyId = parentDocs[0]?.property_id;
     return propertyId ? `Property ${propertyId}` : 'Live Property Data';
-  }, [selectedProperty, parentDocs]);
+  }, [isAllPropertiesSelected, selectedProperty, parentDocs]);
   const reportingSourceBadge = useMemo(() => {
     if (reportingDataSource === 'staged') {
       return { label: 'Data source: Staged Render', className: 'reports-chip reports-chip--staged' };
@@ -4068,7 +4101,7 @@ const DashboardApp = ({
         </div>
         <div className="property-info-pill-row">
           <div className="property-info-pill">Entrata ID {selectedPropertyId}</div>
-          <div className="property-info-pill">Specials synced {specialItems.length}</div>
+          <div className="property-info-pill">Specials synced {formatNumber(specialItems.length)}</div>
           <div className="property-info-pill">
             Availability snapshot {latestAvailabilityDate ? formatReadableDate(latestAvailabilityDate) : 'Not loaded'}
           </div>
@@ -4078,16 +4111,16 @@ const DashboardApp = ({
       <div className="property-info-grid">
         <div className="property-info-card">
           <div className="property-info-card__label">Current Specials</div>
-          <div className="property-info-card__value">{propertyInfoLoading ? '…' : specialItems.length}</div>
+          <div className="property-info-card__value">{propertyInfoLoading ? '…' : formatNumber(specialItems.length)}</div>
           <div className="property-info-card__meta">
             Last synced {getSnapshotTimestampLabel(specialsSnapshot?.last_synced_at)}
           </div>
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Available Units</div>
-          <div className="property-info-card__value">{propertyInfoLoading ? '…' : availabilitySummary.availableCount}</div>
+          <div className="property-info-card__value">{propertyInfoLoading ? '…' : formatNumber(availabilitySummary.availableCount)}</div>
           <div className="property-info-card__meta">
-            {availabilitySummary.unitCount} units across {availabilitySummary.floorplanCount} floorplans
+            {formatNumber(availabilitySummary.unitCount)} units across {formatNumber(availabilitySummary.floorplanCount)} floorplans
           </div>
         </div>
         <div className="property-info-card">
@@ -4101,7 +4134,7 @@ const DashboardApp = ({
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Funnel Snapshot</div>
-          <div className="property-info-card__value">{loading ? '…' : `${totalLeads} / ${totalApplications} / ${totalLeases}`}</div>
+          <div className="property-info-card__value">{loading ? '…' : `${formatNumber(totalLeads)} / ${formatNumber(totalApplications)} / ${formatNumber(totalLeases)}`}</div>
           <div className="property-info-card__meta">Leads / apps / leases in selected range</div>
         </div>
       </div>
@@ -4213,9 +4246,9 @@ const DashboardApp = ({
           <div className="property-info-panel__eyebrow">Range Summary</div>
           <div className="property-info-panel__title">Lead and lease activity</div>
           <div className="property-info-metrics">
-            <div className="property-info-metrics__row"><span>Leads</span><strong>{loading ? '…' : totalLeads}</strong></div>
-            <div className="property-info-metrics__row"><span>Applications</span><strong>{loading ? '…' : totalApplications}</strong></div>
-            <div className="property-info-metrics__row"><span>Leases</span><strong>{loading ? '…' : totalLeases}</strong></div>
+            <div className="property-info-metrics__row"><span>Leads</span><strong>{loading ? '…' : formatNumber(totalLeads)}</strong></div>
+            <div className="property-info-metrics__row"><span>Applications</span><strong>{loading ? '…' : formatNumber(totalApplications)}</strong></div>
+            <div className="property-info-metrics__row"><span>Leases</span><strong>{loading ? '…' : formatNumber(totalLeases)}</strong></div>
             <div className="property-info-metrics__row"><span>Lead to app</span><strong>{applicationConversion}%</strong></div>
             <div className="property-info-metrics__row"><span>Lead to lease</span><strong>{leaseConversion}%</strong></div>
             <div className="property-info-metrics__row"><span>Attributed lease rate</span><strong>{attributionMatchRate}%</strong></div>
@@ -5245,22 +5278,9 @@ const DashboardApp = ({
           <Users size={16} style={{ opacity: 0.6 }} />
         <div className="card-title">Total Leads</div>
         </div>
-        <div className="card-value">{loading ? '…' : totalLeads.toLocaleString()}</div>
+        <div className="card-value">{loading ? '…' : formatNumber(totalLeads)}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Apps: {totalApplications.toLocaleString()} | Leases: {totalLeases.toLocaleString()}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <DollarSign size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Cost Per Lead</div>
-        </div>
-        <div className="card-value">
-          {loading ? '…' : costPerLead !== '—' ? `$${costPerLead}` : 'No spend'}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Leads: {totalLeads.toLocaleString()} | Paid media: {totalPerformanceMarketingCost > 0 ? `$${totalPerformanceMarketingCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+          Apps: {formatNumber(totalApplications)} | Leases: {formatNumber(totalLeases)}
         </div>
       </div>
 
@@ -5269,7 +5289,7 @@ const DashboardApp = ({
           <FileCheck size={16} style={{ opacity: 0.6 }} />
           <div className="card-title">Applications Completed</div>
         </div>
-        <div className="card-value">{loading ? '…' : totalApplications.toLocaleString()}</div>
+        <div className="card-value">{loading ? '…' : formatNumber(totalApplications)}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Lead-to-completed-app: {applicationConversion}% | {funnelMetricSource}
         </div>
@@ -5280,22 +5300,9 @@ const DashboardApp = ({
           <Home size={16} style={{ opacity: 0.6 }} />
           <div className="card-title">Leases Approved</div>
         </div>
-        <div className="card-value">{loading ? '…' : totalLeases.toLocaleString()}</div>
+        <div className="card-value">{loading ? '…' : formatNumber(totalLeases)}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           App-to-approved-lease: {applicationToLeaseConversion}% | Lead-to-lease: {leaseConversion}%
-        </div>
-      </div>
-
-      <div className="card" style={{ background: 'var(--pop-red)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <DollarSign size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Marketing Cost</div>
-        </div>
-        <div className="card-value">
-          {loading ? '…' : totalBlendedMarketingSpend > 0 ? `$${totalBlendedMarketingSpend.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}` : 'No data'}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Paid media: {totalPerformanceMarketingCost > 0 ? `$${totalPerformanceMarketingCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'} | CPL: {costPerLead !== '—' ? `$${costPerLead}` : '—'}
         </div>
       </div>
 
@@ -5308,7 +5315,33 @@ const DashboardApp = ({
           {loading ? '…' : `${leaseConversion}%`}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Leads: {totalLeads.toLocaleString()} | Leases: {totalLeases.toLocaleString()}
+          Leads: {formatNumber(totalLeads)} | Leases: {formatNumber(totalLeases)}
+        </div>
+      </div>
+
+      <div className="card" style={{ background: 'var(--pop-red)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <DollarSign size={16} style={{ opacity: 0.6 }} />
+          <div className="card-title">Marketing Cost</div>
+        </div>
+        <div className="card-value">
+          {loading ? '…' : totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data'}
+        </div>
+        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
+          Paid media: {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'} | CPL: {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <DollarSign size={16} style={{ opacity: 0.6 }} />
+          <div className="card-title">Cost Per Lead</div>
+        </div>
+        <div className="card-value">
+          {loading ? '…' : costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend'}
+        </div>
+        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
+          Leads: {formatNumber(totalLeads)} | Paid media: {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'}
         </div>
       </div>
 
@@ -5318,10 +5351,10 @@ const DashboardApp = ({
           <div className="card-title">Cost Per Lease</div>
         </div>
         <div className="card-value">
-          {roiLoading ? '…' : roiCostPerLease !== '—' ? `$${roiCostPerLease}` : 'No spend'}
+          {roiLoading ? '…' : roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease, 2) : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {totalLeases.toLocaleString()}
+          ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {formatNumber(totalLeases)}
         </div>
       </div>
 
@@ -5334,7 +5367,7 @@ const DashboardApp = ({
           {roiLoading ? '…' : blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Net revenue: {roiTotals.netEffectiveRevenue > 0 ? `$${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'} | Spend: {roiTotals.marketingSpend > 0 ? `$${roiTotals.marketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+          Net revenue: {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend: {roiTotals.marketingSpend > 0 ? formatCurrency(roiTotals.marketingSpend) : '—'}
         </div>
       </div>
 
@@ -8005,6 +8038,9 @@ const DashboardApp = ({
                   onChange={(e) => setSelectedPropertyId(e.target.value)}
                   className="property-selector__select"
                 >
+                  {canUseAllProperties && activeTab === 'dashboard' && (
+                    <option value={ALL_PROPERTIES_OPTION}>All Properties</option>
+                  )}
                   {availableProperties.map((property) => (
                     <option key={property.propertyId} value={property.propertyId}>
                       {property.name}
