@@ -3,6 +3,7 @@ export const TAB_PERMISSIONS = {
   'website manager': 'website_manager.view',
   'property info': 'property_info.view',
   reports: 'reports.view',
+  audit: 'properties.view_all',
   analytics: 'analytics.view',
   reputation: 'reputation.view',
   tasks: 'tasks.view',
@@ -12,6 +13,7 @@ export const TAB_PERMISSIONS = {
 export const DEFAULT_TAB_ORDER = [
   'dashboard',
   'reports',
+  'audit',
   'analytics',
   'reputation',
   'website manager',

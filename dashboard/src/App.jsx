@@ -14,6 +14,7 @@ import {
   REPORTING_LAYOUT_URL,
   REPUTATION_DASHBOARD_URL,
   ROI_PIPELINE_STATUS_URL,
+  SITE_AUDIT_PORTFOLIO_URL,
   SITE_AUDIT_PAGES_URL,
   SITE_AUDIT_RUN_URL,
   SITE_AUDIT_SCREENSHOT_PREVIEW_URL,
@@ -158,6 +159,7 @@ const NAV_ITEMS = [
   { id: 'website manager', label: 'Website Editor', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
   { id: 'property info', label: 'Property Info', icon: Home, permission: TAB_PERMISSIONS['property info'] },
   { id: 'reports', label: 'Reports', icon: FileText, permission: TAB_PERMISSIONS.reports },
+  { id: 'audit', label: 'Audit', icon: AlertTriangle, permission: TAB_PERMISSIONS.audit },
   { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
   { id: 'reputation', label: 'Reputation', icon: MessageSquareText, permission: TAB_PERMISSIONS.reputation },
   { id: 'tasks', label: 'Tasks', icon: ClipboardList, permission: TAB_PERMISSIONS.tasks },
@@ -1377,6 +1379,9 @@ const DashboardApp = ({
   const [heatmapSummaryData, setHeatmapSummaryData] = useState(null);
   const [siteAuditPagesData, setSiteAuditPagesData] = useState(null);
   const [siteAuditSummaryData, setSiteAuditSummaryData] = useState(null);
+  const [portfolioAuditLoading, setPortfolioAuditLoading] = useState(false);
+  const [portfolioAuditError, setPortfolioAuditError] = useState(null);
+  const [portfolioAuditProperties, setPortfolioAuditProperties] = useState([]);
   const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState('');
   const [screenshotPreviewLoading, setScreenshotPreviewLoading] = useState(false);
   const [screenshotPreviewError, setScreenshotPreviewError] = useState(null);
@@ -1520,6 +1525,7 @@ const DashboardApp = ({
   );
   const canEditReportingLayout = currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
+  const canViewAuditCommandCenter = currentPropertyPermissionSet.has(TAB_PERMISSIONS.audit);
   const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
   const canApplyDraftCustomRange = Boolean(draftCustomRange.start && draftCustomRange.end);
   const hasUnappliedCustomRange = draftDateRange === 'custom' && (
@@ -1666,6 +1672,36 @@ const DashboardApp = ({
     if (!canManageUsers || activeTab !== 'admin') return;
     loadAdminAccess();
   }, [activeTab, canManageUsers, loadAdminAccess]);
+
+  const loadPortfolioAudit = useCallback(async () => {
+    if (!SITE_AUDIT_PORTFOLIO_URL) {
+      setPortfolioAuditProperties([]);
+      setPortfolioAuditError('Portfolio audit endpoint is not configured.');
+      return;
+    }
+
+    setPortfolioAuditLoading(true);
+    setPortfolioAuditError(null);
+
+    try {
+      const response = await authFetch(SITE_AUDIT_PORTFOLIO_URL);
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Portfolio audit load failed: ${response.status}`);
+      }
+      setPortfolioAuditProperties(Array.isArray(payload.properties) ? payload.properties : []);
+    } catch (error) {
+      setPortfolioAuditProperties([]);
+      setPortfolioAuditError(error.message || 'Unable to load portfolio audit data.');
+    } finally {
+      setPortfolioAuditLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canViewAuditCommandCenter || activeTab !== 'audit') return;
+    loadPortfolioAudit();
+  }, [activeTab, canViewAuditCommandCenter, loadPortfolioAudit]);
 
   useEffect(() => {
     setTaskDraft((current) => {
@@ -3891,6 +3927,24 @@ const DashboardApp = ({
   const auditRecommendations = auditPageResult?.recommendations || latestAudit?.recommendations || [];
   const auditStaleDates = auditPageResult?.staleDateStrings || latestAudit?.stale_date_findings || latestAudit?.staleDateFindings || [];
   const auditBrokenLinks = auditPageResult?.suspiciousLinks || latestAudit?.broken_links || latestAudit?.brokenLinks || [];
+  const selectedPortfolioAudit = useMemo(
+    () => portfolioAuditProperties.find((property) => property.propertyId === selectedPropertyId) || portfolioAuditProperties[0] || null,
+    [portfolioAuditProperties, selectedPropertyId]
+  );
+  const portfolioAuditSummary = useMemo(() => {
+    const totalProperties = portfolioAuditProperties.length;
+    const missingAudits = portfolioAuditProperties.filter((property) => !property.hasAudit).length;
+    const urgentProperties = portfolioAuditProperties.filter((property) => Number(property.performanceScore ?? 101) < 70).length;
+    const brokenLinkProperties = portfolioAuditProperties.filter((property) => Number(property.brokenLinkCount || 0) > 0).length;
+    const staleDateProperties = portfolioAuditProperties.filter((property) => Number(property.staleDateCount || 0) > 0).length;
+    return {
+      totalProperties,
+      missingAudits,
+      urgentProperties,
+      brokenLinkProperties,
+      staleDateProperties,
+    };
+  }, [portfolioAuditProperties]);
   const reportingPanelSummaries = useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
@@ -5497,6 +5551,189 @@ const DashboardApp = ({
         </div>
       </div>
     </section>
+  );
+
+  const renderAuditCommandCenter = () => (
+    <div className="audit-view">
+      <div className="audit-shell">
+        <div className="audit-hero">
+          <div>
+            <div className="reports-kicker">Internal Command Center</div>
+            <div className="reports-headline">Website audit priorities across every property.</div>
+            <div className="reports-subhead">
+              Rank sites by audit score, scan CTA and urgency gaps, catch stale dates, flag broken links, and decide where the web team should focus next.
+            </div>
+          </div>
+          <div className="reports-chip-row">
+            <div className="reports-chip">All properties</div>
+            <div className="reports-chip">{portfolioAuditSummary.urgentProperties} below 70</div>
+            <div className="reports-chip">{portfolioAuditSummary.missingAudits} awaiting first audit</div>
+          </div>
+        </div>
+
+        <div className="audit-kpi-grid">
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Properties tracked</div>
+            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.totalProperties)}</div>
+            <div className="reports-kpi-card__meta">Every property visible in this internal-only queue</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Needs urgent cleanup</div>
+            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.urgentProperties)}</div>
+            <div className="reports-kpi-card__meta">Properties with audit scores below 70</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Broken link risk</div>
+            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.brokenLinkProperties)}</div>
+            <div className="reports-kpi-card__meta">Properties with suspicious internal links</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Outdated date risk</div>
+            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.staleDateProperties)}</div>
+            <div className="reports-kpi-card__meta">Properties with stale or expiring date copy</div>
+          </div>
+        </div>
+
+        <div className="audit-workspace">
+          <section className="reports-panel">
+            <div className="reports-panel__eyebrow">Priority Queue</div>
+            <div className="reports-panel__title">Lowest scores rise to the top</div>
+            {portfolioAuditError && <div className="reports-empty">{portfolioAuditError}</div>}
+            {!portfolioAuditError && (
+              <div className="audit-leaderboard">
+                {portfolioAuditLoading && <div className="reports-empty">Loading portfolio audit data…</div>}
+                {!portfolioAuditLoading && portfolioAuditProperties.map((property, index) => {
+                  const isActive = property.propertyId === selectedPortfolioAudit?.propertyId;
+                  const scoreLabel = property.performanceScore != null ? Math.round(property.performanceScore) : '—';
+                  const issueSummary = [
+                    `${formatNumber(property.issueCount)} issues`,
+                    `${formatNumber(property.brokenLinkCount)} broken links`,
+                    `${formatNumber(property.staleDateCount)} stale dates`,
+                    `${formatNumber(property.ctaMissingPageCount)} CTA gaps`,
+                  ].join(' | ');
+
+                  return (
+                    <button
+                      key={property.propertyId}
+                      type="button"
+                      className={`audit-leaderboard__row ${isActive ? 'is-active' : ''}`}
+                      onClick={() => setSelectedPropertyId(property.propertyId)}
+                    >
+                      <div className="audit-leaderboard__rank">{String(index + 1).padStart(2, '0')}</div>
+                      <div className="audit-leaderboard__content">
+                        <div className="audit-leaderboard__topline">
+                          <strong>{property.propertyName}</strong>
+                          <span>{[property.city, property.state].filter(Boolean).join(', ') || 'Location pending'}</span>
+                        </div>
+                        <div className="audit-leaderboard__meta">{property.summary || property.topIssue}</div>
+                        <div className="audit-leaderboard__signals">{issueSummary}</div>
+                      </div>
+                      <div className="audit-leaderboard__score">
+                        <strong>{scoreLabel}</strong>
+                        <span>{property.hasAudit ? 'audit score' : 'needs audit'}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {!portfolioAuditLoading && portfolioAuditProperties.length === 0 && (
+                  <div className="reports-empty">No portfolio audit records are available yet.</div>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="reports-panel">
+            <div className="reports-panel__eyebrow">Selected Property</div>
+            <div className="reports-panel__title">
+              {selectedPortfolioAudit?.propertyName || selectedPropertyLabel || 'Choose a property'}
+            </div>
+            <div className="audit-detail-toolbar">
+              <label className="website-manager-field">
+                <span className="website-manager-field__label">Audit page</span>
+                <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
+                  {auditPageOptions.map((page) => <option key={page.path || page.id} value={page.path || '/'}>{page.title || page.path || '/'}</option>)}
+                  {auditPageOptions.length === 0 && <option value="">No audit pages captured yet</option>}
+                </select>
+              </label>
+              <label className="website-manager-field">
+                <span className="website-manager-field__label">Screenshot device</span>
+                <select className="website-manager-field__input" value={selectedHeatmapDevice} onChange={(event) => setSelectedHeatmapDevice(event.target.value)}>
+                  {HEATMAP_DEVICE_OPTIONS.map((device) => <option key={device} value={device}>{device}</option>)}
+                </select>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'end' }}>
+                <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading || !selectedPropertyId}>
+                  {siteAuditRunning ? 'Running…' : 'Run Audit'}
+                </button>
+              </div>
+            </div>
+
+            <div className="reports-panel__grid reports-panel__grid--three">
+              <div className="reports-stat"><span>Audit Score</span><strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—'}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'}</small></div>
+              <div className="reports-stat"><span>Urgency / CTA</span><strong>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</strong><small>{auditPageResult?.ctaCount ?? selectedPortfolioAudit?.ctaMissingPageCount ?? 0} CTA gaps surfaced</small></div>
+              <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
+            </div>
+
+            <div className="audit-detail-grid">
+              <div className="audit-screenshot-card">
+                {screenshotPreviewUrl ? (
+                  <img src={screenshotPreviewUrl} alt={`${selectedPortfolioAudit?.propertyName || selectedPropertyLabel} site screenshot`} className="audit-screenshot-card__image" />
+                ) : (
+                  <div className="audit-screenshot-card__empty">No screenshot preview stored for this page and device yet.</div>
+                )}
+                <div className="audit-screenshot-card__meta">
+                  <strong>Screenshot</strong>
+                  <span>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No capture yet'}</span>
+                </div>
+              </div>
+
+              <div className="audit-focus-list">
+                <div className="reports-list__row">
+                  <div>
+                    <strong>Call to action</strong>
+                    <small>{auditPageResult?.ctaCount ?? 0} CTA-like elements detected on the selected page.</small>
+                  </div>
+                  <div>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</div>
+                </div>
+                <div className="reports-list__row">
+                  <div>
+                    <strong>Outdated dates</strong>
+                    <small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'No stale dates flagged yet.'}</small>
+                  </div>
+                  <div>{formatNumber((auditStaleDates || []).length || selectedPortfolioAudit?.staleDateCount || 0)}</div>
+                </div>
+                <div className="reports-list__row">
+                  <div>
+                    <strong>Broken links</strong>
+                    <small>{Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected in the latest audit.'}</small>
+                  </div>
+                  <div>{formatNumber((auditBrokenLinks || []).length || selectedPortfolioAudit?.brokenLinkCount || 0)}</div>
+                </div>
+                <div className="reports-list__row">
+                  <div>
+                    <strong>Value add</strong>
+                    <small>{(auditRecommendations || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.recommendation || item.text || '')).filter(Boolean).join(' | ') || 'Run a fresh audit to generate recommendations for stronger leasing value.'}</small>
+                  </div>
+                  <div>{formatNumber((auditRecommendations || []).length || selectedPortfolioAudit?.recommendationCount || 0)}</div>
+                </div>
+                {(auditIssues || []).slice(0, 4).map((item, index) => (
+                  <div key={`audit-command-issue-${index}`} className="reports-list__row">
+                    <div>
+                      <strong>Issue</strong>
+                      <small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding'}</small>
+                    </div>
+                    <div>Fix</div>
+                  </div>
+                ))}
+                {!latestAudit && !siteAuditLoading && (
+                  <div className="reports-empty">Select a property from the queue, then run an audit if this property has not been scored yet.</div>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   );
 
   const renderReports = () => (
@@ -7636,11 +7873,13 @@ const DashboardApp = ({
       {/* Main Content */}
       <div className="main-content">
         <div className="header">
-          {activeTab === 'admin' ? (
+          {activeTab === 'admin' || activeTab === 'audit' ? (
             <div className="property-selector property-selector--admin">
-              <span className="property-selector__label">Access scope</span>
+              <span className="property-selector__label">{activeTab === 'audit' ? 'Portfolio scope' : 'Access scope'}</span>
               <div className="property-selector__admin-summary">
-                Manage user invites, global roles, and property assignments.
+                {activeTab === 'audit'
+                  ? 'Cross-property audit command center for internal triage and design follow-up.'
+                  : 'Manage user invites, global roles, and property assignments.'}
               </div>
             </div>
           ) : (
@@ -7703,7 +7942,7 @@ const DashboardApp = ({
         <div className="content-body">
           <div className="dashboard-title-row">
             <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
-            {activeTab !== 'website manager' && activeTab !== 'admin' && (
+            {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (
               <div className="global-date-controls">
                 <div className="global-date-controls__picker">
                   <div className="global-date-controls__label">Date range</div>
@@ -7761,6 +8000,7 @@ const DashboardApp = ({
           {activeTab === 'website manager' && renderWebsiteManager()}
           {activeTab === 'property info' && renderPropertyInfo()}
           {activeTab === 'reports' && renderReports()}
+          {activeTab === 'audit' && renderAuditCommandCenter()}
           {activeTab === 'analytics' && renderAnalytics()}
           {activeTab === 'reputation' && renderReputation()}
           {activeTab === 'tasks' && renderTasks()}

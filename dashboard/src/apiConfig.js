@@ -113,6 +113,11 @@ export const SITE_AUDIT_SUMMARY_URL = resolveApiUrl(
   '/api/site-audit/summary'
 );
 
+export const SITE_AUDIT_PORTFOLIO_URL = resolveApiUrl(
+  import.meta.env.VITE_SITE_AUDIT_PORTFOLIO_URL || '',
+  '/api/site-audit/portfolio'
+);
+
 export const SITE_AUDIT_SCREENSHOT_URL = resolveApiUrl(
   import.meta.env.VITE_SITE_AUDIT_SCREENSHOT_URL || '',
   '/api/site-audit/screenshot'

@@ -48,6 +48,7 @@ from render_supabase_heatmaps import (
     get_heatmap_pages_summary,
     get_heatmap_summary,
     get_heatmap_tracker_payload,
+    list_site_audit_portfolio_summary,
     get_site_audit_pages_summary,
     get_site_audit_summary,
     get_site_screenshot_preview_summary,
@@ -874,6 +875,25 @@ def create_app() -> Flask:
                 site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
                 access_token=access_token,
             )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/site-audit/portfolio", methods=["GET", "POST", "OPTIONS"])
+    def site_audit_portfolio():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            access_token, _user = require_platform_permission("properties.view_all")
+            payload = list_site_audit_portfolio_summary(access_token=access_token)
             return build_cors_json_response(payload)
         except RenderPermissionError as error:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)

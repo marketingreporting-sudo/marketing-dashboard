@@ -2068,6 +2068,119 @@ def get_site_audit_summary(
     }
 
 
+def list_site_audit_portfolio_summary(
+    *,
+    access_token: str,
+) -> dict[str, Any]:
+    property_rows = _fetch_json(
+        "properties",
+        [
+            ("select", "id,name,city,state,portfolio,org_slug"),
+            ("order", "name.asc"),
+        ],
+        headers=_supabase_anon_headers(access_token),
+    )
+    audit_rows = _fetch_json(
+        "property_site_audits",
+        [
+            (
+                "select",
+                "property_id,audited_at,status,page_count,performance_score,urgency_score,freshness_score,link_score,summary,issues,recommendations,broken_links,stale_date_findings,performance_notes",
+            ),
+            ("order", "audited_at.desc"),
+            ("limit", "5000"),
+        ],
+        headers=_supabase_anon_headers(access_token),
+    )
+
+    latest_audit_by_property: dict[str, dict[str, Any]] = {}
+    for row in audit_rows or []:
+        property_id = _normalize_text(row.get("property_id"), 120)
+        if property_id and property_id not in latest_audit_by_property:
+            latest_audit_by_property[property_id] = row
+
+    summaries = []
+    for property_row in property_rows or []:
+        property_id = _normalize_text(property_row.get("id"), 120)
+        audit_row = latest_audit_by_property.get(property_id)
+        issues = audit_row.get("issues") if isinstance(audit_row, dict) and isinstance(audit_row.get("issues"), list) else []
+        recommendations = (
+            audit_row.get("recommendations")
+            if isinstance(audit_row, dict) and isinstance(audit_row.get("recommendations"), list)
+            else []
+        )
+        broken_links = (
+            audit_row.get("broken_links")
+            if isinstance(audit_row, dict) and isinstance(audit_row.get("broken_links"), list)
+            else []
+        )
+        stale_dates = (
+            audit_row.get("stale_date_findings")
+            if isinstance(audit_row, dict) and isinstance(audit_row.get("stale_date_findings"), list)
+            else []
+        )
+        performance_notes = (
+            audit_row.get("performance_notes")
+            if isinstance(audit_row, dict) and isinstance(audit_row.get("performance_notes"), list)
+            else []
+        )
+        screenshot_pages = sum(
+            1
+            for note in performance_notes
+            if isinstance(note, dict) and int(note.get("screenshotCount") or 0) > 0
+        )
+        cta_missing_pages = sum(
+            1 for note in performance_notes if isinstance(note, dict) and int(note.get("ctaCount") or 0) <= 0
+        )
+        summary = {
+            "propertyId": property_id,
+            "propertyName": property_row.get("name") or f"Property {property_id}",
+            "city": property_row.get("city") or "",
+            "state": property_row.get("state") or "",
+            "portfolio": property_row.get("portfolio") or "",
+            "orgSlug": property_row.get("org_slug") or "",
+            "hasAudit": bool(audit_row),
+            "auditStatus": audit_row.get("status") if isinstance(audit_row, dict) else "not_started",
+            "auditedAt": audit_row.get("audited_at") if isinstance(audit_row, dict) else None,
+            "pageCount": int(audit_row.get("page_count") or 0) if isinstance(audit_row, dict) else 0,
+            "performanceScore": _to_float(audit_row.get("performance_score")) if isinstance(audit_row, dict) else None,
+            "urgencyScore": _to_float(audit_row.get("urgency_score")) if isinstance(audit_row, dict) else None,
+            "freshnessScore": _to_float(audit_row.get("freshness_score")) if isinstance(audit_row, dict) else None,
+            "linkScore": _to_float(audit_row.get("link_score")) if isinstance(audit_row, dict) else None,
+            "issueCount": len(issues),
+            "recommendationCount": len(recommendations),
+            "brokenLinkCount": len(broken_links),
+            "staleDateCount": len(stale_dates),
+            "screenshotPageCount": screenshot_pages,
+            "ctaMissingPageCount": cta_missing_pages,
+            "summary": audit_row.get("summary") if isinstance(audit_row, dict) else "No audit has been run yet.",
+            "topIssue": (
+                issues[0].get("issue")
+                if issues and isinstance(issues[0], dict)
+                else issues[0] if issues else "Run an audit to generate property findings."
+            ),
+        }
+        summaries.append(summary)
+
+    def _sort_key(item: dict[str, Any]) -> tuple[float, int, int, str]:
+        score = item.get("performanceScore")
+        normalized_score = float(score) if score is not None else -1.0
+        return (
+            normalized_score,
+            -int(item.get("issueCount") or 0),
+            -int(item.get("brokenLinkCount") or 0),
+            str(item.get("propertyName") or ""),
+        )
+
+    ranked = sorted(summaries, key=_sort_key)
+    return {
+        "status": "ok",
+        "count": len(ranked),
+        "properties": ranked,
+        "staging_only": True,
+    }
+
+
 def build_tracker_script(
     property_id: str,
     site_key: str,
