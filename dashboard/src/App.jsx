@@ -8050,7 +8050,7 @@ const DashboardApp = ({
   );
 
   return (
-    <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''}`}>
+    <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${activeTab === 'reports' ? 'dashboard-container--reports' : ''}`}>
       {renderAccountPanel()}
       {showLoader && (
         <div className="loading-overlay" aria-live="polite" aria-busy="true">
@@ -8096,8 +8096,8 @@ const DashboardApp = ({
       </div>
 
       {/* Main Content */}
-      <div className="main-content">
-        <div className="header">
+      <div className={`main-content ${activeTab === 'reports' ? 'main-content--reports' : ''}`}>
+        <div className={`header ${activeTab === 'reports' ? 'header--reports' : ''}`}>
           {activeTab === 'admin' || activeTab === 'audit' ? (
             <div className="property-selector property-selector--admin">
               <span className="property-selector__label">{activeTab === 'audit' ? 'Portfolio scope' : 'Access scope'}</span>
@@ -8164,7 +8164,7 @@ const DashboardApp = ({
           </div>
         </div>
 
-        <div className="content-body">
+        <div className={`content-body ${activeTab === 'reports' ? 'content-body--reports' : ''}`}>
           <div className="dashboard-title-row">
             <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
             {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (
