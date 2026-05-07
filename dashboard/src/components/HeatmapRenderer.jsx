@@ -87,7 +87,7 @@ export default function HeatmapRenderer({
     ? `${screenshotWidth} / ${screenshotHeight}`
     : getAspectRatio(deviceType);
   const backgroundStyle = hasScreenshot
-    ? `linear-gradient(180deg, rgba(11,14,18,0.18), rgba(11,14,18,0.30)), url("${screenshotUrl}") center top / 100% 100% no-repeat`
+    ? 'linear-gradient(180deg, rgba(11,14,18,0.18), rgba(11,14,18,0.30))'
     : 'linear-gradient(180deg, rgba(230,213,184,0.10), rgba(255,255,255,0.03))';
 
   return (
@@ -117,6 +117,22 @@ export default function HeatmapRenderer({
           background: backgroundStyle,
         }}
       >
+        {hasScreenshot && (
+          <img
+            src={screenshotUrl}
+            alt=""
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'fill',
+              opacity: 0.82,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         <div style={{ position: 'absolute', inset: 0, display: 'grid', gridTemplateRows: '64px 1fr 80px', opacity: 0.68, pointerEvents: 'none' }}>
           <div style={{ borderBottom: '1px solid rgba(255,255,255,0.12)', padding: '1rem', color: 'var(--primary-tan)', fontSize: '0.8rem' }}>
             {loading ? 'Loading screenshot background...' : hasScreenshot ? 'Latest screenshot background' : screenshot ? `Screenshot preview unavailable${error ? `: ${error}` : ''}` : 'Blank page frame'}

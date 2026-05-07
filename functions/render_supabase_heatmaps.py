@@ -289,6 +289,20 @@ def _storage_api_url(path: str) -> str:
     return f"{_require_env('SUPABASE_URL').rstrip('/')}/storage/v1/{path.lstrip('/')}"
 
 
+def _resolve_storage_signed_url(value: Any) -> str:
+    signed_path = _normalize_text(value, 4096)
+    if not signed_path:
+        return ""
+    if signed_path.startswith("http://") or signed_path.startswith("https://"):
+        return signed_path
+    base_url = _require_env("SUPABASE_URL").rstrip("/")
+    if signed_path.startswith("/storage/v1/"):
+        return f"{base_url}{signed_path}"
+    if signed_path.startswith("storage/v1/"):
+        return f"{base_url}/{signed_path}"
+    return _storage_api_url(signed_path)
+
+
 def _create_signed_upload_url(bucket: str, storage_path: str, *, upsert: bool = True) -> dict[str, Any]:
     request = Request(
         _storage_api_url(f"object/upload/sign/{quote(bucket, safe='')}/{quote(storage_path, safe='/')}"),
@@ -1756,7 +1770,7 @@ def get_site_screenshot_preview_summary(
     signed_path = signed.get("signedURL") or signed.get("signedUrl") or signed.get("signed_url") or signed.get("url")
     if not signed_path:
         raise RuntimeError("Supabase did not return a signed screenshot preview URL.")
-    preview_url = signed_path if str(signed_path).startswith("http") else _storage_api_url(str(signed_path).lstrip("/storage/v1/"))
+    preview_url = _resolve_storage_signed_url(signed_path)
 
     return {
         "status": "ok",
