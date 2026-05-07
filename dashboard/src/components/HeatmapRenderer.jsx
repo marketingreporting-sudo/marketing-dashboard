@@ -30,6 +30,12 @@ const getViewportLabel = (deviceType) => {
   return 'Desktop viewport';
 };
 
+const ZOOM_OPTIONS = [
+  { key: 'fit', label: 'Fit width' },
+  { key: '100', label: '100%' },
+  { key: '150', label: '150%' },
+];
+
 const aggregatePoints = (points, activeLayers, gridSize = 24) => {
   const cells = new Map();
   points.forEach((point) => {
@@ -89,6 +95,7 @@ export default function HeatmapRenderer({
   const aggregateCells = useMemo(() => aggregatePoints(points, layers), [points, layers]);
   const maxScroll = clampPercent(totals.maxScrollDepthPct);
   const hasScreenshot = Boolean(screenshotUrl);
+  const [zoomMode, setZoomMode] = useState('fit');
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const hasData = aggregateCells.length > 0 || (layers.scroll && maxScroll > 0);
@@ -99,6 +106,19 @@ export default function HeatmapRenderer({
     : '16 / 36';
   const pageWidthPercent = deviceType === 'mobile' ? '44%' : deviceType === 'tablet' ? '64%' : '100%';
   const pageMinWidth = deviceType === 'mobile' ? 320 : deviceType === 'tablet' ? 620 : 960;
+  const nativePreviewWidth = Math.max(pageMinWidth, screenshotWidth || pageMinWidth);
+  const pageSurfaceStyle = zoomMode === 'fit'
+    ? {
+        width: pageWidthPercent,
+        minWidth: pageMinWidth,
+        maxWidth: '100%',
+        margin: '0 auto',
+      }
+    : {
+        width: `${Math.round(nativePreviewWidth * (zoomMode === '150' ? 1.5 : 1))}px`,
+        maxWidth: 'none',
+        margin: '0 auto',
+      };
   const showScreenshot = hasScreenshot && imageLoaded && !imageFailed;
   const previewStatus = loading
     ? 'Loading screenshot...'
@@ -117,18 +137,45 @@ export default function HeatmapRenderer({
 
   return (
     <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        {Object.entries(LAYER_META).map(([layer, meta]) => (
-          <label key={layer} className="website-manager-pill" style={{ cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={Boolean(layers[layer])}
-              onChange={(event) => onLayerChange?.(layer, event.target.checked)}
-              style={{ marginRight: 6 }}
-            />
-            {meta.label}
-          </label>
-        ))}
+      <div className="heatmap-renderer-toolbar">
+        <div className="heatmap-layer-control" aria-label="Heatmap layers">
+          {Object.entries(LAYER_META).map(([layer, meta]) => (
+            <button
+              key={layer}
+              type="button"
+              className={`heatmap-layer-toggle${layers[layer] ? ' is-active' : ''}`}
+              aria-pressed={Boolean(layers[layer])}
+              onClick={() => onLayerChange?.(layer, !layers[layer])}
+              style={{ '--layer-rgb': meta.color }}
+            >
+              <span className="heatmap-layer-toggle__dot" aria-hidden="true" />
+              <span>{meta.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="heatmap-zoom-control" aria-label="Preview zoom">
+          {ZOOM_OPTIONS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`heatmap-zoom-toggle${zoomMode === option.key ? ' is-active' : ''}`}
+              aria-pressed={zoomMode === option.key}
+              onClick={() => setZoomMode(option.key)}
+            >
+              {option.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="heatmap-zoom-toggle"
+            disabled={!screenshotUrl}
+            onClick={() => {
+              if (screenshotUrl) window.open(screenshotUrl, '_blank', 'noopener,noreferrer');
+            }}
+          >
+            Open preview
+          </button>
+        </div>
       </div>
       <div
         style={{
@@ -176,12 +223,9 @@ export default function HeatmapRenderer({
           <div
             style={{
               position: 'relative',
-              width: pageWidthPercent,
-              minWidth: pageMinWidth,
-              maxWidth: '100%',
+              ...pageSurfaceStyle,
               minHeight: '100%',
               aspectRatio: pageAspectRatio,
-              margin: '0 auto',
               background: showScreenshot
                 ? 'rgba(10,20,24,0.42)'
                 : 'linear-gradient(180deg, rgba(230,213,184,0.10), rgba(255,255,255,0.03))',

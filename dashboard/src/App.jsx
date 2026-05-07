@@ -5478,6 +5478,48 @@ const DashboardApp = ({
     </div>
   );
 
+  const getAuditItemText = (item, fallback = 'Review latest audit finding') => {
+    if (typeof item === 'string') return item;
+    if (!item || typeof item !== 'object') return fallback;
+    return item.issue || item.recommendation || item.text || item.message || item.url || fallback;
+  };
+
+  const getAuditStatus = ({ score, issueCount = 0, warnCount = 0, healthyWhenZero = false }) => {
+    if (issueCount > 0) return { label: 'Issue found', tone: 'danger' };
+    if (healthyWhenZero && issueCount === 0 && warnCount === 0) return { label: 'Healthy', tone: 'healthy' };
+    if (score == null) return { label: 'Needs review', tone: 'warning' };
+    const numericScore = Number(score);
+    if (!Number.isFinite(numericScore)) return { label: 'Needs review', tone: 'warning' };
+    if (numericScore >= 90) return { label: 'Healthy', tone: 'healthy' };
+    if (numericScore >= 70) return { label: 'Needs review', tone: 'warning' };
+    return { label: 'Issue found', tone: 'danger' };
+  };
+
+  const renderAuditActionCard = ({ title, status, count, finding, details = [] }) => {
+    const safeDetails = (details || []).map((item) => getAuditItemText(item)).filter(Boolean);
+    return (
+      <details className="heatmap-audit-card">
+        <summary>
+          <div>
+            <div className="heatmap-audit-card__title-row">
+              <strong>{title}</strong>
+              <span className={`heatmap-audit-badge heatmap-audit-badge--${status.tone}`}>{status.label}</span>
+            </div>
+            <small>{finding}</small>
+          </div>
+          <div className="heatmap-audit-card__count">{count}</div>
+        </summary>
+        <div className="heatmap-audit-card__details">
+          {safeDetails.length > 0 ? (
+            safeDetails.slice(0, 5).map((item, index) => <p key={`${title}-detail-${index}`}>{item}</p>)
+          ) : (
+            <p>No additional details for this check.</p>
+          )}
+        </div>
+      </details>
+    );
+  };
+
   const renderHeatmapAuditPanel = () => (
     <section id="reporting-panel-heatmaps-audit" className="reports-panel">
       <div className="reports-panel__eyebrow">Website Experience</div>
@@ -5517,8 +5559,15 @@ const DashboardApp = ({
         <div className="reports-stat"><span>Average Scroll</span><strong>{heatmapSummaryLoading ? '…' : formatPercent(heatmapTotals.avgScrollDepthPct, 0)}</strong><small>Top CTA: {heatmapTopTargets[0]?.label || 'Pending'}</small></div>
       </div>
 
-      <div className="reports-panel__grid" style={{ gridTemplateColumns: 'minmax(280px, 1.35fr) minmax(260px, 0.9fr)', alignItems: 'start' }}>
-        <div>
+      <div className="heatmap-audit-layout">
+        <div className="heatmap-audit-preview">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Page preview</strong>
+              <small>{selectedHeatmapPath || '/'} · {selectedHeatmapDevice}</small>
+            </div>
+            <span>{screenshotPreviewLoading ? 'Loading screenshot' : selectedScreenshot ? 'Screenshot available' : 'No screenshot yet'}</span>
+          </div>
           <HeatmapRenderer
             points={heatmapPoints}
             totals={heatmapTotals}
@@ -5531,23 +5580,73 @@ const DashboardApp = ({
             onLayerChange={updateHeatmapLayer}
             formatNumber={formatNumber}
           />
-          <div className="reports-list" style={{ marginTop: '1rem' }}>
-            <div className="reports-list__row"><div><strong>Rage click clusters</strong><small>Repeated clicks in the same session, element, and page area.</small></div><div>{formatNumber(heatmapClickAnomalies.rageClusters)}</div></div>
-            <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
-            {heatmapTopTargets.slice(0, 6).map((item) => <div key={item.label} className="reports-list__row"><div><strong>{item.label}</strong><small>Top clicked element</small></div><div>{formatNumber(item.clicks)}</div></div>)}
-            {heatmapTopTargets.length === 0 && <div className="reports-empty">No clicked elements have been collected for this page and date range yet.</div>}
+        </div>
+        <div className="reports-list heatmap-audit-rail">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Audit summary</strong>
+              <small>{latestAudit?.audited_at ? `Last audited ${getSnapshotTimestampLabel(latestAudit.audited_at)}` : 'Audit pending'}</small>
+            </div>
+          </div>
+          {renderAuditActionCard({
+            title: 'Audit score',
+            status: getAuditStatus({ score: auditPageResult?.score ?? latestAudit?.performance_score, issueCount: (auditIssues || []).length }),
+            count: siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—',
+            finding: latestAudit ? 'Latest deterministic site audit score.' : 'Run an audit to generate a score.',
+            details: auditIssues.length ? auditIssues : auditRecommendations,
+          })}
+          <div className="reports-list__row"><div><strong>Screenshot</strong><small>{selectedScreenshot ? `${selectedScreenshot.deviceType} | ${selectedScreenshot.width || '—'}x${selectedScreenshot.height || '—'}` : 'No screenshot stored yet'}</small></div><div>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : '—'}</div></div>
+          {renderAuditActionCard({
+            title: 'CTA / urgency',
+            status: getAuditStatus({
+              score: latestAudit?.urgency_score,
+              issueCount: (auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0) > 0 ? 0 : 1,
+            }),
+            count: auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0,
+            finding: `${auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0} CTA-like elements detected.`,
+            details: selectedAuditPage?.ctas || auditRecommendations,
+          })}
+          {renderAuditActionCard({
+            title: 'Broken/internal links',
+            status: getAuditStatus({ score: latestAudit?.link_score, issueCount: Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : 0, healthyWhenZero: true }),
+            count: formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : 0),
+            finding: Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected.',
+            details: auditBrokenLinks,
+          })}
+          <div className="reports-list__row"><div><strong>Last captured / audited</strong><small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : 'No page capture yet'}</small></div><div>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : '—'}</div></div>
+          {renderAuditActionCard({
+            title: 'Stale date findings',
+            status: getAuditStatus({ issueCount: (auditStaleDates || []).length, healthyWhenZero: true }),
+            count: formatNumber((auditStaleDates || []).length),
+            finding: (auditStaleDates || []).length ? 'Potential stale or expired dates found.' : 'None detected.',
+            details: auditStaleDates,
+          })}
+          {renderAuditActionCard({
+            title: 'Recommendations',
+            status: getAuditStatus({ warnCount: (auditRecommendations || []).length, score: (auditRecommendations || []).length ? 75 : 100 }),
+            count: formatNumber((auditRecommendations || []).length),
+            finding: (auditRecommendations || []).length ? 'Suggested improvements are available.' : 'No recommendations generated for this page.',
+            details: auditRecommendations,
+          })}
+          {!latestAudit && <div className="reports-empty">Run an audit after page snapshots are collected to populate recommendations.</div>}
+        </div>
+      </div>
+
+      <div className="heatmap-audit-interactions">
+        <div className="heatmap-audit-section-heading">
+          <div>
+            <strong>Click and engagement signals</strong>
+            <small>Rage clicks, dead clicks, and the top clicked elements for the selected page.</small>
           </div>
         </div>
-        <div className="reports-list">
-          <div className="reports-list__row"><div><strong>Audit score</strong><small>Latest deterministic site audit</small></div><div>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}</div></div>
-          <div className="reports-list__row"><div><strong>Screenshot</strong><small>{selectedScreenshot ? `${selectedScreenshot.deviceType} | ${selectedScreenshot.width || '—'}x${selectedScreenshot.height || '—'}` : 'No screenshot stored yet'}</small></div><div>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : '—'}</div></div>
-          <div className="reports-list__row"><div><strong>CTA / urgency</strong><small>{auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0} CTA-like elements detected</small></div><div>{latestAudit?.urgency_score != null ? latestAudit.urgency_score : '—'}</div></div>
-          <div className="reports-list__row"><div><strong>Broken/internal links</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : 0)} suspicious links</small></div><div>{latestAudit?.link_score != null ? latestAudit.link_score : '—'}</div></div>
-          <div className="reports-list__row"><div><strong>Last captured / audited</strong><small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : 'No page capture yet'}</small></div><div>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : '—'}</div></div>
-          <div className="reports-list__row"><div><strong>Stale date findings</strong><small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'None detected'}</small></div><div>{formatNumber((auditStaleDates || []).length)}</div></div>
-          {(auditIssues || []).slice(0, 4).map((item, index) => <div key={`issue-${index}`} className="reports-list__row"><div><strong>Issue</strong><small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest audit finding'}</small></div><div>Fix</div></div>)}
-          {(auditRecommendations || []).slice(0, 4).map((item, index) => <div key={`recommendation-${index}`} className="reports-list__row"><div><strong>Recommendation</strong><small>{typeof item === 'string' ? item : item.recommendation || item.text || 'Review recommendation'}</small></div><div>Improve</div></div>)}
-          {!latestAudit && <div className="reports-empty">Run an audit after page snapshots are collected to populate recommendations.</div>}
+        <div className="heatmap-audit-interaction-grid">
+          <div className="reports-list__row"><div><strong>Rage click clusters</strong><small>Repeated clicks in the same session, element, and page area.</small></div><div>{formatNumber(heatmapClickAnomalies.rageClusters)}</div></div>
+          <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
+          <div className="heatmap-audit-top-clicks">
+            <div className="heatmap-audit-list-heading">Top clicked elements</div>
+            {heatmapTopTargets.slice(0, 6).map((item) => <div key={item.label} className="reports-list__row"><div><strong>{item.label}</strong><small>Top clicked element</small></div><div>{formatNumber(item.clicks)}</div></div>)}
+            {heatmapTopTargets.length === 0 && <div className="heatmap-audit-compact-empty">No clicked elements collected yet for this page and date range.</div>}
+          </div>
         </div>
       </div>
     </section>
