@@ -1,5 +1,6 @@
 import os
 
+import datetime
 import json
 import re
 from time import time
@@ -16,12 +17,17 @@ from render_auth import (
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
 from render_runtime import (
     build_local_falcon_location_match_summary,
+    configure_historical_backfill,
+    configure_historical_lease_attribution,
     fetch_and_store_ga4_dashboard,
     fetch_and_store_google_ads_dashboard,
     fetch_and_store_local_falcon_dashboard,
     fetch_and_store_meta_ads_dashboard,
     fetch_and_store_reputation_dashboard,
+    get_sync_state,
     install_render_storage_overrides,
+    process_historical_backfill_batch,
+    process_historical_lease_attribution_batch,
     run_named_cron_job,
     trigger_entrata_backfill,
 )
@@ -95,6 +101,13 @@ def create_app() -> Flask:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 return {}
         return {}
+
+    def parse_property_ids_from_value(value):
+        if isinstance(value, str):
+            return [int(item.strip()) for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [int(item) for item in value]
+        return None
 
     def enforce_public_write_rate_limit(bucket: str, site_key: str | None = None):
         limit_window_seconds = int(os.environ.get("PUBLIC_WRITE_RATE_LIMIT_WINDOW_SECONDS", "60"))
@@ -968,6 +981,120 @@ def create_app() -> Flask:
         try:
             payload = trigger_entrata_backfill(days=days, start_from=start_from, property_ids=property_ids)
             return build_cors_json_response(payload)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/entrata/historical-backfill", methods=["GET", "POST", "OPTIONS"])
+    def staged_historical_entrata_backfill():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        req_json = get_request_json_payload()
+        if request.method == "GET":
+            return build_cors_json_response(
+                {
+                    "status": "ok",
+                    "job": "entrata_historical_backfill",
+                    "state": get_sync_state("entrata_historical_backfill"),
+                    "staging_only": True,
+                }
+            )
+
+        try:
+            current_date = request.args.get("current_date") or req_json.get("current_date")
+            end_date = request.args.get("end_date") or req_json.get("end_date")
+            batch_size = request.args.get("batch_size") or req_json.get("batch_size")
+            delay_seconds = request.args.get("delay_seconds") or req_json.get("delay_seconds")
+            active = request.args.get("active") or req_json.get("active")
+            run_immediately = request.args.get("run_immediately") or req_json.get("run_immediately")
+            property_ids = parse_property_ids_from_value(request.args.get("property_ids") or req_json.get("property_ids"))
+
+            state = configure_historical_backfill(
+                current_date=datetime.date.fromisoformat(current_date) if current_date else None,
+                end_date=datetime.date.fromisoformat(end_date) if end_date else None,
+                property_ids=property_ids,
+                batch_size=int(batch_size) if batch_size not in (None, "") else None,
+                delay_seconds=float(delay_seconds) if delay_seconds not in (None, "") else None,
+                active=str(active).lower() not in {"false", "0", "no"} if active is not None else True,
+            )
+            result = process_historical_backfill_batch() if str(run_immediately).lower() in {"true", "1", "yes"} else None
+            return build_cors_json_response(
+                {
+                    "status": "ok",
+                    "job": "entrata_historical_backfill",
+                    "state": state,
+                    "result": result,
+                    "staging_only": True,
+                }
+            )
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/entrata/historical-lease-attribution", methods=["GET", "POST", "OPTIONS"])
+    def staged_historical_lease_attribution():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        req_json = get_request_json_payload()
+        if request.method == "GET":
+            return build_cors_json_response(
+                {
+                    "status": "ok",
+                    "job": "entrata_historical_lease_attribution",
+                    "state": get_sync_state("entrata_historical_lease_attribution"),
+                    "staging_only": True,
+                }
+            )
+
+        try:
+            start_date = request.args.get("start_date") or req_json.get("start_date")
+            end_date = request.args.get("end_date") or req_json.get("end_date")
+            batch_size = request.args.get("batch_size") or req_json.get("batch_size")
+            delay_seconds = request.args.get("delay_seconds") or req_json.get("delay_seconds")
+            lead_lookback_days = request.args.get("lead_lookback_days") or req_json.get("lead_lookback_days")
+            active = request.args.get("active") or req_json.get("active")
+            run_immediately = request.args.get("run_immediately") or req_json.get("run_immediately")
+            property_ids = parse_property_ids_from_value(request.args.get("property_ids") or req_json.get("property_ids"))
+
+            state = configure_historical_lease_attribution(
+                start_date=datetime.date.fromisoformat(start_date) if start_date else None,
+                end_date=datetime.date.fromisoformat(end_date) if end_date else None,
+                property_ids=property_ids,
+                batch_size=int(batch_size) if batch_size not in (None, "") else None,
+                delay_seconds=float(delay_seconds) if delay_seconds not in (None, "") else None,
+                lead_lookback_days=int(lead_lookback_days) if lead_lookback_days not in (None, "") else None,
+                active=str(active).lower() not in {"false", "0", "no"} if active is not None else True,
+            )
+            result = process_historical_lease_attribution_batch() if str(run_immediately).lower() in {"true", "1", "yes"} else None
+            return build_cors_json_response(
+                {
+                    "status": "ok",
+                    "job": "entrata_historical_lease_attribution",
+                    "state": state,
+                    "result": result,
+                    "staging_only": True,
+                }
+            )
         except Exception as error:
             return build_cors_json_response(
                 {"status": "error", "error": str(error), "staging_only": True},

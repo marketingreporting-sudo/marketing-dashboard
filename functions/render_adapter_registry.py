@@ -373,6 +373,13 @@ CRON_JOB_SPECS = (
         render_command="python render_cron.py run_historical_entrata_backfill",
     ),
     CronJobSpec(
+        name="run_historical_lease_attribution",
+        schedule="10-59/15 * * * * UTC",
+        firebase_handler="render_only",
+        purpose="Slowly backfill normalized lease attribution across properties for a configured historical window.",
+        render_command="python render_cron.py run_historical_lease_attribution",
+    ),
+    CronJobSpec(
         name="run_daily_entrata_refresh",
         schedule="45 * * * * UTC",
         firebase_handler="run_daily_entrata_refresh_scheduled",

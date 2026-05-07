@@ -1045,6 +1045,95 @@ def set_sync_state(name: str, patch: dict[str, Any], *, replace: bool = False) -
     return _normalize_sync_state_row(_upsert_row("sync_state", row, "id"))
 
 
+def _coerce_property_ids(property_ids: list[int] | list[str] | None) -> list[int]:
+    if not property_ids:
+        return legacy.get_automation_property_ids()
+    normalized: list[int] = []
+    for property_id in property_ids:
+        try:
+            normalized.append(int(property_id))
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def _coerce_delay_seconds(value: Any, fallback: float = 2.0) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed >= 0 else fallback
+
+
+def configure_historical_backfill(
+    *,
+    current_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
+    property_ids: list[int] | list[str] | None = None,
+    batch_size: int | None = None,
+    delay_seconds: float | None = None,
+    active: bool = True,
+) -> dict[str, Any]:
+    newest_date = current_date or legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_START_DATE)
+    oldest_date = end_date or legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_END_DATE)
+    if newest_date is None or oldest_date is None:
+        raise ValueError("Historical backfill dates must be ISO dates.")
+    if newest_date < oldest_date:
+        raise ValueError("Historical backfill current_date must be on or after end_date.")
+
+    state = {
+        "active": active,
+        "completed": False,
+        "current_date": legacy.serialize_date(newest_date),
+        "end_date": legacy.serialize_date(oldest_date),
+        "next_property_index": 0,
+        "batch_size": max(int(batch_size or legacy.HISTORICAL_BACKFILL_BATCH_SIZE), 1),
+        "delay_seconds": _coerce_delay_seconds(delay_seconds, 2.0),
+        "property_ids": _coerce_property_ids(property_ids),
+        "last_processed_at": None,
+        "last_processed_count": 0,
+        "last_error_count": 0,
+        "last_summary": None,
+    }
+    return set_sync_state("entrata_historical_backfill", state, replace=True)
+
+
+def configure_historical_lease_attribution(
+    *,
+    start_date: datetime.date | None = None,
+    end_date: datetime.date | None = None,
+    property_ids: list[int] | list[str] | None = None,
+    batch_size: int | None = None,
+    delay_seconds: float | None = None,
+    lead_lookback_days: int | None = None,
+    active: bool = True,
+) -> dict[str, Any]:
+    report_start_date = start_date or legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_END_DATE)
+    report_end_date = end_date or legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_START_DATE)
+    if report_start_date is None or report_end_date is None:
+        raise ValueError("Historical lease attribution dates must be ISO dates.")
+    if report_start_date > report_end_date:
+        raise ValueError("Historical lease attribution start_date must be on or before end_date.")
+
+    state = {
+        "active": active,
+        "completed": False,
+        "start_date": legacy.serialize_date(report_start_date),
+        "end_date": legacy.serialize_date(report_end_date),
+        "next_property_index": 0,
+        "batch_size": max(int(batch_size or legacy.HISTORICAL_BACKFILL_BATCH_SIZE), 1),
+        "delay_seconds": _coerce_delay_seconds(delay_seconds, 2.0),
+        "lead_lookback_days": max(int(lead_lookback_days or legacy.LEASE_ATTRIBUTION_LEAD_LOOKBACK_DAYS), 1),
+        "property_ids": _coerce_property_ids(property_ids),
+        "last_processed_at": None,
+        "last_processed_count": 0,
+        "last_error_count": 0,
+        "last_summary": None,
+        "last_results": [],
+    }
+    return set_sync_state("entrata_historical_lease_attribution", state, replace=True)
+
+
 def build_retry_doc_id(job_type: str, property_id: int, date_id: str) -> str:
     return legacy.build_retry_doc_id(job_type, property_id, date_id)
 
@@ -1244,13 +1333,14 @@ def process_historical_backfill_batch() -> str:
     if not state.get("active", True):
         return "Historical backfill paused."
 
-    property_ids = legacy.get_automation_property_ids()
+    property_ids = _coerce_property_ids(state.get("property_ids") if state else None)
     if not property_ids:
         return "No property IDs configured."
 
     current_date = legacy.parse_iso_date(state.get("current_date")) or start_date
     property_index = int(state.get("next_property_index", 0))
     batch_size = max(int(state.get("batch_size", legacy.HISTORICAL_BACKFILL_BATCH_SIZE)), 1)
+    delay_seconds = _coerce_delay_seconds(state.get("delay_seconds"), 2.0)
     processed = 0
     errors = 0
 
@@ -1271,7 +1361,7 @@ def process_historical_backfill_batch() -> str:
         if property_index >= len(property_ids):
             property_index = 0
             current_date -= datetime.timedelta(days=1)
-        time.sleep(2)
+        time.sleep(delay_seconds)
 
     completed = current_date < end_date
     set_sync_state(
@@ -1297,6 +1387,95 @@ def process_historical_backfill_batch() -> str:
         f"Historical backfill processed={processed}, errors={errors}, "
         f"current_date={legacy.serialize_date(current_date) if not completed else None}, "
         f"next_property_index={property_index}, completed={completed}"
+    )
+
+
+def process_historical_lease_attribution_batch() -> str:
+    state = get_sync_state("entrata_historical_lease_attribution")
+    start_date = legacy.parse_iso_date(state.get("start_date") if state else None)
+    if start_date is None:
+        start_date = legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_END_DATE)
+    end_date = legacy.parse_iso_date(state.get("end_date") if state else None)
+    if end_date is None:
+        end_date = legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_START_DATE)
+    if start_date is None or end_date is None:
+        raise ValueError("Historical lease attribution dates must be ISO dates.")
+    if start_date > end_date:
+        raise ValueError("Historical lease attribution start_date must be on or before end_date.")
+
+    if not state:
+        state = {
+            "active": True,
+            "completed": False,
+            "start_date": legacy.serialize_date(start_date),
+            "end_date": legacy.serialize_date(end_date),
+            "next_property_index": 0,
+            "batch_size": legacy.HISTORICAL_BACKFILL_BATCH_SIZE,
+            "delay_seconds": 2.0,
+            "lead_lookback_days": legacy.LEASE_ATTRIBUTION_LEAD_LOOKBACK_DAYS,
+            "property_ids": legacy.get_automation_property_ids(),
+            "last_results": [],
+        }
+    if not state.get("active", True):
+        return "Historical lease attribution paused."
+
+    property_ids = _coerce_property_ids(state.get("property_ids"))
+    if not property_ids:
+        return "No property IDs configured."
+
+    property_index = int(state.get("next_property_index", 0))
+    batch_size = max(int(state.get("batch_size", legacy.HISTORICAL_BACKFILL_BATCH_SIZE)), 1)
+    delay_seconds = _coerce_delay_seconds(state.get("delay_seconds"), 2.0)
+    lead_lookback_days = max(int(state.get("lead_lookback_days", legacy.LEASE_ATTRIBUTION_LEAD_LOOKBACK_DAYS)), 1)
+    processed = 0
+    errors = 0
+    results: list[dict[str, Any]] = []
+
+    while processed < batch_size and property_index < len(property_ids):
+        property_id = property_ids[property_index]
+
+        try:
+            print(
+                "Historical lease attribution syncing "
+                f"property {property_id} for {legacy.serialize_date(start_date)} to {legacy.serialize_date(end_date)}"
+            )
+            results.append(
+                sync_lease_attribution_for_property(
+                    property_id,
+                    start_date,
+                    end_date,
+                    lead_lookback_days=lead_lookback_days,
+                )
+            )
+            processed += 1
+        except Exception as error:
+            errors += 1
+            results.append({"property_id": property_id, "error": str(error)})
+
+        property_index += 1
+        time.sleep(delay_seconds)
+
+    completed = property_index >= len(property_ids)
+    set_sync_state(
+        "entrata_historical_lease_attribution",
+        {
+            **state,
+            "next_property_index": 0 if completed else property_index,
+            "completed": completed,
+            "active": not completed,
+            "last_processed_at": _iso_now(),
+            "last_processed_count": processed,
+            "last_error_count": errors,
+            "last_results": results,
+            "last_summary": (
+                f"processed={processed}, errors={errors}, "
+                f"next_property_index={0 if completed else property_index}, completed={completed}"
+            ),
+        },
+    )
+    return (
+        f"Historical lease attribution processed={processed}, errors={errors}, "
+        f"next_property_index={0 if completed else property_index}, completed={completed}"
     )
 
 
@@ -1965,6 +2144,8 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
         result = process_background_backfill_batch()
     elif job_name == "run_historical_entrata_backfill":
         result = process_historical_backfill_batch()
+    elif job_name == "run_historical_lease_attribution":
+        result = process_historical_lease_attribution_batch()
     elif job_name == "run_daily_entrata_refresh":
         result = process_daily_refresh_batch()
     elif job_name == "run_entrata_retry_queue":

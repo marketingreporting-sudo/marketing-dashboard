@@ -163,6 +163,8 @@ def get_supabase_sync_state_payload(access_token: str | None = None) -> dict[str
 
     return {
         "background_backfill": sync_state_rows.get("entrata_background_backfill"),
+        "historical_backfill": sync_state_rows.get("entrata_historical_backfill"),
+        "historical_lease_attribution": sync_state_rows.get("entrata_historical_lease_attribution"),
         "daily_refresh": sync_state_rows.get("entrata_daily_refresh"),
         "retry_queue_preview": retry_queue_preview,
         "source": "supabase",
