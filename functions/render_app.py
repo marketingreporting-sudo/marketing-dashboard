@@ -1000,11 +1000,6 @@ def create_app() -> Flask:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
 
         if str(property_id) == "all":
-            try:
-                require_platform_permission("properties.view_all")
-            except RenderAuthError as error:
-                return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
-
             if isinstance(property_ids_value, str):
                 try:
                     decoded = json.loads(property_ids_value)
@@ -1016,7 +1011,24 @@ def create_app() -> Flask:
             else:
                 property_ids = []
 
-            payload = get_multi_property_reporting_overview_summary(property_ids, start_date, end_date, access_token)
+            allowed_property_ids = [
+                str(candidate)
+                for candidate in property_ids
+                if any(
+                    user_has_property_permission(access_token, str(candidate), permission)
+                    for permission in ("analytics.view", "reports.view")
+                )
+            ]
+            if not allowed_property_ids:
+                return build_cors_json_response(
+                    {
+                        "status": "error",
+                        "error": "Authenticated user does not have analytics.view or reports.view access for any requested property.",
+                    },
+                    status_code=403,
+                )
+
+            payload = get_multi_property_reporting_overview_summary(allowed_property_ids, start_date, end_date, access_token)
         else:
             payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
         status_code = 200 if payload.get("status") != "error" else 503

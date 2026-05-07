@@ -263,15 +263,24 @@ def get_multi_property_reporting_overview_summary(
             "staging_only": True,
         }
 
-    try:
-        payloads = [
-            get_property_reporting_overview_payload(property_id, start_date_value, end_date_value, access_token)
-            for property_id in normalized_property_ids
-        ]
-    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+    payloads: list[dict[str, Any]] = []
+    property_errors: list[dict[str, str]] = []
+    for property_id in normalized_property_ids:
+        try:
+            payloads.append(
+                get_property_reporting_overview_payload(property_id, start_date_value, end_date_value, access_token)
+            )
+        except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+            property_errors.append({
+                "property_id": property_id,
+                "error": str(error),
+            })
+
+    if not payloads:
         return {
             "status": "error",
-            "message": str(error),
+            "message": "Unable to load any property overview payloads for the requested aggregate.",
+            "property_errors": property_errors,
             "staging_only": True,
         }
 
@@ -311,6 +320,8 @@ def get_multi_property_reporting_overview_summary(
         "property_id": "all",
         "property_ids": normalized_property_ids,
         "property_count": len(normalized_property_ids),
+        "properties_loaded": len(payloads),
+        "properties_failed": len(property_errors),
         "range": first_payload.get("range", {}),
         "parent_docs": aggregated_parent_docs,
         "lead_items": aggregated_lead_items,
@@ -329,7 +340,10 @@ def get_multi_property_reporting_overview_summary(
             "availability_items": 0,
             "roi_daily_items": len(aggregated_roi_daily_items),
             "properties": len(normalized_property_ids),
+            "properties_loaded": len(payloads),
+            "properties_failed": len(property_errors),
         },
+        "property_errors": property_errors,
         "source": "supabase",
         "aggregated": True,
         "staging_only": True,

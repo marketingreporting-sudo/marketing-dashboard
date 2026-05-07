@@ -2816,6 +2816,10 @@ const DashboardApp = ({
     return leadItems.filter((lead) => !isGuestCardLead(lead) && !isRenewalLead(lead));
   }, [leadItems]);
 
+  const allLifecycleLeadItems = useMemo(() => {
+    return leadItems;
+  }, [leadItems]);
+
   const totalLeads = allCanonicalLeadItems.length;
   const leadCohortIds = useMemo(() => {
     const ids = new Set();
@@ -2869,16 +2873,40 @@ const DashboardApp = ({
     return Array.from(uniqueLeases.values());
   }, [cohortEventItems]);
 
+  const allUniqueApplicationEvents = useMemo(() => {
+    const uniqueApplications = new Map();
+    eventItems.forEach((event) => {
+      if (!isStartedApplicationEvent(event)) return;
+      const key = getApplicationKey(event);
+      if (!uniqueApplications.has(key)) {
+        uniqueApplications.set(key, event);
+      }
+    });
+    return Array.from(uniqueApplications.values());
+  }, [eventItems]);
+
+  const allUniqueLeaseEvents = useMemo(() => {
+    const uniqueLeases = new Map();
+    eventItems.forEach((event) => {
+      if (!isClosedLeaseEvent(event)) return;
+      const key = getLeaseKey(event);
+      if (!uniqueLeases.has(key)) {
+        uniqueLeases.set(key, event);
+      }
+    });
+    return Array.from(uniqueLeases.values());
+  }, [eventItems]);
+
   const lifecycleApplicationMetrics = useMemo(() => {
     const completed = countLifecycleRecords(
-      lifecycleLeadItems,
+      allLifecycleLeadItems,
       APPLICATION_COMPLETED_DATE_KEYS,
       getLifecycleApplicationKey,
       rangeDates.start,
       rangeDates.end
     );
     const approved = countLifecycleRecords(
-      lifecycleLeadItems,
+      allLifecycleLeadItems,
       APPLICATION_APPROVED_DATE_KEYS,
       getLifecycleApplicationKey,
       rangeDates.start,
@@ -2889,18 +2917,18 @@ const DashboardApp = ({
       completed,
       approved
     };
-  }, [lifecycleLeadItems, rangeDates]);
+  }, [allLifecycleLeadItems, rangeDates]);
 
   const lifecycleLeaseMetrics = useMemo(() => {
     const approved = countLifecycleRecords(
-      lifecycleLeadItems,
+      allLifecycleLeadItems,
       LEASE_APPROVED_DATE_KEYS,
       getLifecycleLeaseKey,
       rangeDates.start,
       rangeDates.end
     );
     const completed = countLifecycleRecords(
-      lifecycleLeadItems,
+      allLifecycleLeadItems,
       LEASE_COMPLETED_DATE_KEYS,
       getLifecycleLeaseKey,
       rangeDates.start,
@@ -2911,10 +2939,10 @@ const DashboardApp = ({
       approved,
       completed
     };
-  }, [lifecycleLeadItems, rangeDates]);
+  }, [allLifecycleLeadItems, rangeDates]);
 
-  const eventApplicationCount = uniqueApplicationEvents.length;
-  const eventLeaseCount = uniqueLeaseEvents.length;
+  const eventApplicationCount = allUniqueApplicationEvents.length;
+  const eventLeaseCount = allUniqueLeaseEvents.length;
   const totalApplications = lifecycleApplicationMetrics.completed.hasLifecycleData
     ? lifecycleApplicationMetrics.completed.count
     : eventApplicationCount;
@@ -3182,13 +3210,13 @@ const DashboardApp = ({
       }
     });
 
-    uniqueApplicationEvents.forEach((event) => {
+    allUniqueApplicationEvents.forEach((event) => {
       if (event._date && dateMap[event._date]) {
         dateMap[event._date].applications += 1;
       }
     });
 
-    uniqueLeaseEvents.forEach((event) => {
+    allUniqueLeaseEvents.forEach((event) => {
       if (event._date && dateMap[event._date]) {
         dateMap[event._date].leases += 1;
       }
@@ -3200,7 +3228,7 @@ const DashboardApp = ({
         ...d,
         label: new Date(d.date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
       }));
-  }, [parentDocs, allCanonicalLeadItems, uniqueApplicationEvents, uniqueLeaseEvents]);
+  }, [parentDocs, allCanonicalLeadItems, allUniqueApplicationEvents, allUniqueLeaseEvents]);
 
   // Conversion rates
   const attributedLeaseCount = roiTotals.attributedLeases;
