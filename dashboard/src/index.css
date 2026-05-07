@@ -660,37 +660,45 @@ h1, h2, h3 {
 
 .heatmap-audit-layout {
   display: grid;
-  grid-template-columns: minmax(520px, 1.7fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(620px, 1.85fr) minmax(320px, 0.75fr);
   gap: 1rem;
   align-items: start;
 }
 
+.heatmap-audit-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(160px, 0.5fr) auto;
+  gap: 0.9rem;
+  align-items: end;
+  margin-bottom: 0.35rem;
+}
+
 .heatmap-audit-status-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
 }
 
 .heatmap-audit-status-card {
   display: grid;
-  gap: 0.35rem;
-  padding: 0.85rem 0.95rem;
-  border-radius: 16px;
+  gap: 0.28rem;
+  padding: 0.7rem 0.75rem;
+  border-radius: 14px;
   border: 1px solid rgba(16, 33, 38, 0.08);
   background: rgba(255, 255, 255, 0.76);
 }
 
 .heatmap-audit-status-card span {
   color: rgba(16, 33, 38, 0.58);
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .heatmap-audit-status-card strong {
   color: var(--primary);
-  font-size: 1rem;
+  font-size: 0.9rem;
 }
 
 .heatmap-audit-status-card small {
@@ -706,41 +714,6 @@ h1, h2, h3 {
 .heatmap-audit-status-card.is-pending {
   border-color: rgba(238, 196, 94, 0.24);
   background: rgba(238, 196, 94, 0.08);
-}
-
-.heatmap-page-health {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 0.65rem;
-  padding: 0.75rem;
-  border-radius: 18px;
-  background: rgba(16, 33, 38, 0.04);
-  border: 1px solid rgba(16, 33, 38, 0.06);
-}
-
-.heatmap-page-health__item {
-  display: grid;
-  gap: 0.22rem;
-  min-width: 0;
-}
-
-.heatmap-page-health__item span {
-  color: rgba(16, 33, 38, 0.54);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-}
-
-.heatmap-page-health__item strong {
-  color: var(--primary);
-  font-size: 0.9rem;
-}
-
-.heatmap-page-health__item small {
-  color: rgba(16, 33, 38, 0.62);
-  font-size: 0.74rem;
-  line-height: 1.35;
 }
 
 .heatmap-coordinate-diagnostics {
@@ -941,6 +914,33 @@ h1, h2, h3 {
   border-top: 1px solid rgba(16, 33, 38, 0.08);
 }
 
+.heatmap-audit-rail-score {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 18px;
+  background: rgba(16, 33, 38, 0.9);
+  color: white;
+}
+
+.heatmap-audit-rail-score span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.heatmap-audit-rail-score strong {
+  color: white;
+  font-size: 2.2rem;
+  line-height: 0.95;
+}
+
+.heatmap-audit-rail-score small {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .heatmap-audit-category-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1063,7 +1063,6 @@ h1, h2, h3 {
   .reports-panel__grid--three,
   .reports-pipeline-grid,
   .heatmap-audit-status-grid,
-  .heatmap-page-health,
   .heatmap-coordinate-diagnostics__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1074,6 +1073,10 @@ h1, h2, h3 {
 
   .heatmap-audit-layout {
     grid-template-columns: 1fr;
+  }
+
+  .heatmap-audit-controls {
+    grid-template-columns: 1fr 1fr;
   }
 
   .reports-minimap {
@@ -1090,8 +1093,11 @@ h1, h2, h3 {
   .reports-panel__grid--three,
   .reports-pipeline-grid,
   .heatmap-audit-status-grid,
-  .heatmap-page-health,
   .heatmap-coordinate-diagnostics__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmap-audit-controls {
     grid-template-columns: 1fr;
   }
 

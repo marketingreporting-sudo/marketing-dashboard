@@ -5604,7 +5604,7 @@ const DashboardApp = ({
       <div className="reports-panel__title">Heatmaps + Site Audit</div>
       {heatmapPanelError && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{heatmapPanelError}</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.9rem', marginBottom: '1rem' }}>
+      <div className="heatmap-audit-controls">
         <label className="website-manager-field">
           <span className="website-manager-field__label">Page</span>
           <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
@@ -5612,12 +5612,6 @@ const DashboardApp = ({
             {heatmapPageOptions.length === 0 && <option value="">No pages tracked yet</option>}
           </select>
         </label>
-        <div className="website-manager-field">
-          <span className="website-manager-field__label">Visible layers</span>
-          <div className="website-manager-field__input" style={{ display: 'flex', alignItems: 'center', color: 'var(--white)' }}>
-            {Object.values(heatmapLayers).filter(Boolean).length || 0} active
-          </div>
-        </div>
         <label className="website-manager-field">
           <span className="website-manager-field__label">Device</span>
           <select className="website-manager-field__input" value={selectedHeatmapDevice} onChange={(event) => setSelectedHeatmapDevice(event.target.value)}>
@@ -5647,33 +5641,15 @@ const DashboardApp = ({
           <strong>{heatmapSummaryLoading ? 'Loading…' : `${formatNumber(heatmapTotals.events || 0)} events`}</strong>
           <small>{Number(heatmapTotals.events || 0) > 0 ? `${formatNumber(heatmapTotals.sessions || 0)} tracked sessions in range.` : 'Audit and screenshots can be ready before visitor interaction data arrives.'}</small>
         </div>
-      </div>
-
-      <div className="heatmap-page-health">
-        <div className="heatmap-page-health__item">
-          <span>Screenshot</span>
-          <strong>{selectedScreenshot ? 'Captured' : 'Pending'}</strong>
-          <small>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No screenshot yet'}</small>
+        <div className={`heatmap-audit-status-card ${selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'is-healthy' : 'is-pending'}`}>
+          <span>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Snapshot captured' : 'Snapshot pending'}</span>
+          <strong>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Page snapshot' : 'Waiting for snapshot'}</strong>
+          <small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : selectedAuditPage?.latestSnapshotId ? 'Snapshot record available.' : 'No page snapshot yet.'}</small>
         </div>
-        <div className="heatmap-page-health__item">
-          <span>Snapshot</span>
-          <strong>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Captured' : 'Pending'}</strong>
-          <small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : selectedAuditPage?.latestSnapshotId ? 'Snapshot record available' : 'No page snapshot yet'}</small>
-        </div>
-        <div className="heatmap-page-health__item">
-          <span>Audit</span>
-          <strong>{latestAudit ? 'Completed' : 'Pending'}</strong>
-          <small>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : 'No audit run yet'}</small>
-        </div>
-        <div className="heatmap-page-health__item">
-          <span>Heatmap Events</span>
-          <strong>{heatmapSummaryLoading ? 'Loading…' : formatNumber(heatmapTotals.events || 0)}</strong>
-          <small>{Number(heatmapTotals.events || 0) > 0 ? `${formatNumber(heatmapTotals.sessions || 0)} sessions collected` : 'No events in selected range'}</small>
-        </div>
-        <div className="heatmap-page-health__item">
-          <span>Last Tracker Event</span>
-          <strong>{lastTrackerEventAt ? 'Seen' : 'Pending'}</strong>
-          <small>{lastTrackerEventAt ? getSnapshotTimestampLabel(lastTrackerEventAt) : 'No tracker event observed yet'}</small>
+        <div className={`heatmap-audit-status-card ${lastTrackerEventAt ? 'is-healthy' : 'is-pending'}`}>
+          <span>{lastTrackerEventAt ? 'Tracker event seen' : 'Tracker event pending'}</span>
+          <strong>{lastTrackerEventAt ? 'Tracker active' : 'No event yet'}</strong>
+          <small>{lastTrackerEventAt ? getSnapshotTimestampLabel(lastTrackerEventAt) : 'No tracker event observed for this page yet.'}</small>
         </div>
       </div>
 
@@ -5691,12 +5667,6 @@ const DashboardApp = ({
           </div>
         </div>
       )}
-
-      <div className="reports-panel__grid reports-panel__grid--three">
-        <div className="reports-stat"><span>Sessions Tracked</span><strong>{heatmapSummaryLoading ? '…' : formatNumber(heatmapTotals.sessions)}</strong><small>{formatNumber(heatmapTotals.events)} events in range</small></div>
-        <div className="reports-stat"><span>Clicks</span><strong>{heatmapSummaryLoading ? '…' : formatNumber(heatmapTotals.clicks)}</strong><small>{formatNumber(heatmapTotals.ctaClicks)} CTA clicks</small></div>
-        <div className="reports-stat"><span>Average Scroll</span><strong>{heatmapSummaryLoading ? '…' : formatPercent(heatmapTotals.avgScrollDepthPct, 0)}</strong><small>Top CTA: {heatmapTopTargets[0]?.label || 'Pending'}</small></div>
-      </div>
 
       <div className="heatmap-audit-layout">
         <div className="heatmap-audit-preview">
@@ -5727,6 +5697,11 @@ const DashboardApp = ({
               <small>{latestAudit?.audited_at ? `Last audited ${getSnapshotTimestampLabel(latestAudit.audited_at)}` : 'Audit pending'}</small>
             </div>
           </div>
+          <div className="heatmap-audit-rail-score">
+            <span>Combined score</span>
+            <strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}</strong>
+            <small>{latestAudit ? 'Weighted deterministic audit' : 'Run audit to score this page'}</small>
+          </div>
           {renderAuditActionCard({
             title: 'Audit score',
             status: getAuditStatus({ score: auditPageResult?.score ?? latestAudit?.performance_score, issueCount: (auditIssues || []).length }),
@@ -5747,7 +5722,6 @@ const DashboardApp = ({
               ))}
             </div>
           )}
-          <div className="reports-list__row"><div><strong>Screenshot</strong><small>{selectedScreenshot ? `${selectedScreenshot.deviceType} | ${selectedScreenshot.width || '—'}x${selectedScreenshot.height || '—'}` : 'No screenshot stored yet'}</small></div><div>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : '—'}</div></div>
           {renderAuditActionCard({
             title: 'CTA / urgency',
             status: getAuditStatus({

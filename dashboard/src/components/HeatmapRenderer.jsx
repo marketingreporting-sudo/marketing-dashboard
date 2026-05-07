@@ -185,8 +185,8 @@ export default function HeatmapRenderer({
         style={{
           position: 'relative',
           width: '100%',
-          minHeight: 420,
-          maxHeight: 680,
+          minHeight: 520,
+          maxHeight: 820,
           aspectRatio: '16 / 9',
           border: '1px solid var(--panel-border)',
           borderRadius: 8,
