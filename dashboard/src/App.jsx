@@ -127,8 +127,7 @@ const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
 const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
 const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
 const REPORTING_PANEL_LIBRARY = [
-  { id: 'executive', title: 'Executive Snapshot', eyebrow: 'Asset Manager Lens' },
-  { id: 'roi', title: 'ROI Metrics', eyebrow: 'Revenue Efficiency' },
+  { id: 'roi', title: 'ROAS Metrics', eyebrow: 'Revenue Efficiency' },
   { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
   { id: 'entrata', title: 'Entrata Funnel', eyebrow: 'Leads to Leases' },
   { id: 'heatmaps-audit', title: 'Heatmaps + Site Audit', eyebrow: 'Website Experience' },
@@ -762,33 +761,6 @@ const getScopedStableKey = (propertyId, fallbackValue) => {
   return `${scope}${String(fallbackValue)}`;
 };
 
-const getApplicationKey = (event) => {
-  const candidates = [
-    event.leaseIntervalId,
-    event.leaseId,
-    event.applicationId,
-    event.applicantId,
-    event.eventId
-  ];
-
-  const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return getScopedStableKey(event?._propertyId, stableId);
-  return getScopedStableKey(event?._propertyId, JSON.stringify(event));
-};
-
-const getLeaseKey = (event) => {
-  const candidates = [
-    event.leaseIntervalId,
-    event.leaseId,
-    event.applicationId,
-    event.eventId
-  ];
-
-  const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return getScopedStableKey(event?._propertyId, stableId);
-  return getScopedStableKey(event?._propertyId, JSON.stringify(event));
-};
-
 const getLeadKey = (lead) => {
   const candidates = [
     lead.leadId,
@@ -804,22 +776,6 @@ const getLeadKey = (lead) => {
   const stableId = candidates.find((value) => value != null && value !== '');
   if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
   return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
-};
-
-const getLeadCohortIdentifiers = (lead) => {
-  return [
-    lead.applicationId,
-    lead.leaseIntervalId,
-    lead.leaseId,
-    lead.prospectId,
-    lead.prospectID,
-    lead.customerId,
-    lead.customerID,
-    lead.leadId,
-    lead.leadID
-  ]
-    .filter((value) => value != null && value !== '')
-    .map((value) => getScopedStableKey(lead?._propertyId, value));
 };
 
 const getAvailabilityStatus = (unit) => {
@@ -1014,11 +970,6 @@ const isStartedApplicationEvent = (event) => {
   );
 };
 
-const isClosedLeaseEvent = (event) => {
-  const reason = String(event.eventReason || event.type || '').toLowerCase();
-  return event.typeId === 13 && reason.includes('approved');
-};
-
 const APPLICATION_COMPLETED_DATE_KEYS = [
   'Application - Completed',
   'Application Completed',
@@ -1030,17 +981,6 @@ const APPLICATION_COMPLETED_DATE_KEYS = [
   'appCompletedDate'
 ];
 
-const APPLICATION_APPROVED_DATE_KEYS = [
-  'Application - Approved',
-  'Application Approved',
-  'applicationApprovedOn',
-  'applicationApprovedDate',
-  'applicationDateApproved',
-  'applicationApproved',
-  'appApprovedOn',
-  'appApprovedDate'
-];
-
 const LEASE_APPROVED_DATE_KEYS = [
   'Lease - Approved',
   'Lease Approved',
@@ -1050,15 +990,15 @@ const LEASE_APPROVED_DATE_KEYS = [
   'leaseApproved'
 ];
 
-const LEASE_COMPLETED_DATE_KEYS = [
-  'Lease - Completed',
-  'Lease Completed',
-  'leaseCompletedOn',
-  'leaseCompletedDate',
-  'leaseDateCompleted',
-  'leaseCompleted',
-  'leaseSignedOn',
-  'leaseSignedDate'
+const EVENT_OCCURRED_DATE_KEYS = [
+  'eventDate',
+  'event_date',
+  'eventDateTime',
+  'eventDatetime',
+  'date',
+  'timestamp',
+  'createdAt',
+  'created_at'
 ];
 
 const getLifecycleDate = (record, dateKeys) => parseEntrataDate(findNestedValue(record, dateKeys));
@@ -1068,74 +1008,50 @@ const isInDateRange = (date, start, end) => {
   return date >= start && date <= end;
 };
 
-const getLifecycleApplicationKey = (lead) => {
+
+const getCompletedApplicationRecordKey = (record) => {
   const candidates = [
-    lead.applicationId,
-    lead.applicationID,
-    lead.applicantId,
-    lead.applicantID,
-    lead.leaseIntervalId,
-    lead.leaseId,
-    lead.prospectId,
-    lead.prospectID,
-    lead.leadId,
-    lead.leadID,
-    lead.id
+    record.application_id,
+    record.applicationId,
+    record.applicationID,
+    record.lease_interval_id,
+    record.leaseIntervalId,
+    record.lease_id,
+    record.leaseId,
+    record.applicantId,
+    record.applicantID,
+    record.prospectId,
+    record.prospectID,
+    record.eventId,
+    record.eventID,
+    record.id
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
-  return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
+  if (stableId) return getScopedStableKey(record?._propertyId ?? record?.property_id, stableId);
+  return getScopedStableKey(record?._propertyId ?? record?.property_id, JSON.stringify(record));
 };
 
-const getLifecycleLeaseKey = (lead) => {
+const getApprovedLeaseRecordKey = (record) => {
   const candidates = [
-    lead.leaseIntervalId,
-    lead.leaseId,
-    lead.leaseID,
-    lead.applicationId,
-    lead.applicationID,
-    lead.prospectId,
-    lead.prospectID,
-    lead.leadId,
-    lead.leadID,
-    lead.id
+    record.lease_interval_id,
+    record.leaseIntervalId,
+    record.lease_id,
+    record.leaseId,
+    record.leaseID,
+    record.application_id,
+    record.applicationId,
+    record.applicationID,
+    record.id
   ];
 
   const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
-  return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
+  if (stableId) return getScopedStableKey(record?._propertyId ?? record?.property_id, stableId);
+  return getScopedStableKey(record?._propertyId ?? record?.property_id, JSON.stringify(record));
 };
 
-const countLifecycleRecords = (records, dateKeys, getKey, start, end) => {
-  const ids = new Set();
-  let hasLifecycleData = false;
+const getTrueEventOccurredDate = (event) => parseEntrataDate(findNestedValue(event, EVENT_OCCURRED_DATE_KEYS) || event._date);
 
-  records.forEach((record) => {
-    const lifecycleDate = getLifecycleDate(record, dateKeys);
-    if (lifecycleDate) {
-      hasLifecycleData = true;
-    }
-    if (isInDateRange(lifecycleDate, start, end)) {
-      ids.add(getKey(record));
-    }
-  });
-
-  return {
-    count: ids.size,
-    hasLifecycleData
-  };
-};
-
-const isGuestCardLead = (lead) => {
-  const searchSpace = collectPrimitiveValues(lead).join(' ').toLowerCase();
-  return searchSpace.includes('guest card') || searchSpace.includes('guestcard');
-};
-
-const isRenewalLead = (lead) => {
-  const searchSpace = collectPrimitiveValues(lead).join(' ').toLowerCase();
-  return searchSpace.includes('renewal lease');
-};
 
 const formatPercent = (value, digits = 1) => {
   if (value == null || Number.isNaN(Number(value))) return '—';
@@ -1434,6 +1350,7 @@ const DashboardApp = ({
   // Real data state
   const [leadItems, setLeadItems] = useState([]);
   const [eventItems, setEventItems] = useState([]);
+  const [leaseItems, setLeaseItems] = useState([]);
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [availabilityPricingSnapshot, setAvailabilityPricingSnapshot] = useState(null);
   const [specialsSnapshot, setSpecialsSnapshot] = useState(null);
@@ -1960,6 +1877,7 @@ const DashboardApp = ({
         setParentDocs([]);
         setLeadItems([]);
         setEventItems([]);
+        setLeaseItems([]);
         setInvoiceItems([]);
         setAvailabilityPricingSnapshot(null);
         setSpecialsSnapshot(null);
@@ -1977,6 +1895,7 @@ const DashboardApp = ({
         setParentDocs([]);
         setLeadItems([]);
         setEventItems([]);
+        setLeaseItems([]);
         setInvoiceItems([]);
         setAvailabilityPricingSnapshot(null);
         setSpecialsSnapshot(null);
@@ -2016,6 +1935,7 @@ const DashboardApp = ({
         setParentDocs(Array.isArray(payload.parent_docs) ? payload.parent_docs : []);
         setLeadItems(Array.isArray(payload.lead_items) ? payload.lead_items : []);
         setEventItems(Array.isArray(payload.event_items) ? payload.event_items : []);
+        setLeaseItems(Array.isArray(payload.lease_items) ? payload.lease_items : []);
         setInvoiceItems(Array.isArray(payload.invoice_items) ? payload.invoice_items : []);
         setAvailabilityPricingSnapshot(payload.availability_pricing_snapshot || null);
         setSpecialsSnapshot(payload.specials_snapshot || null);
@@ -2032,6 +1952,7 @@ const DashboardApp = ({
           setParentDocs([]);
           setLeadItems([]);
           setEventItems([]);
+          setLeaseItems([]);
           setInvoiceItems([]);
           setAvailabilityPricingSnapshot(null);
           setSpecialsSnapshot(null);
@@ -2808,152 +2729,71 @@ const DashboardApp = ({
     return Array.from(canonicalLeads.values());
   }, [leadItems]);
 
-  const canonicalLeadItems = useMemo(() => {
-    return allCanonicalLeadItems.filter((lead) => !isGuestCardLead(lead) && !isRenewalLead(lead));
-  }, [allCanonicalLeadItems]);
-
-  const lifecycleLeadItems = useMemo(() => {
-    return leadItems.filter((lead) => !isGuestCardLead(lead) && !isRenewalLead(lead));
-  }, [leadItems]);
-
-  const allLifecycleLeadItems = useMemo(() => {
-    return leadItems;
-  }, [leadItems]);
-
   const totalLeads = allCanonicalLeadItems.length;
-  const leadCohortIds = useMemo(() => {
-    const ids = new Set();
-    canonicalLeadItems.forEach((lead) => {
-      getLeadCohortIdentifiers(lead).forEach((id) => ids.add(id));
-    });
-    return ids;
-  }, [canonicalLeadItems]);
 
-  const cohortEventItems = useMemo(() => {
-    return eventItems.filter((event) => {
-      const identifiers = [
-        event.applicationId,
-        event.leaseIntervalId,
-        event.leaseId,
-        event.prospectId,
-        event.prospectID,
-        event.customerId,
-        event.customerID,
-        event.leadId,
-        event.leadID
-      ]
-        .filter((value) => value != null && value !== '')
-        .map((value) => getScopedStableKey(event?._propertyId, value));
+  const completedApplicationRecords = useMemo(() => {
+    const completedApplications = new Map();
 
-      return identifiers.some((id) => leadCohortIds.has(id));
-    });
-  }, [eventItems, leadCohortIds]);
-
-  const uniqueApplicationEvents = useMemo(() => {
-    const uniqueApplications = new Map();
-    cohortEventItems.forEach((event) => {
-      if (!isStartedApplicationEvent(event)) return;
-      const key = getApplicationKey(event);
-      if (!uniqueApplications.has(key)) {
-        uniqueApplications.set(key, event);
-      }
-    });
-    return Array.from(uniqueApplications.values());
-  }, [cohortEventItems]);
-
-  const uniqueLeaseEvents = useMemo(() => {
-    const uniqueLeases = new Map();
-    cohortEventItems.forEach((event) => {
-      if (!isClosedLeaseEvent(event)) return;
-      const key = getLeaseKey(event);
-      if (!uniqueLeases.has(key)) {
-        uniqueLeases.set(key, event);
-      }
-    });
-    return Array.from(uniqueLeases.values());
-  }, [cohortEventItems]);
-
-  const allUniqueApplicationEvents = useMemo(() => {
-    const uniqueApplications = new Map();
     eventItems.forEach((event) => {
       if (!isStartedApplicationEvent(event)) return;
-      const key = getApplicationKey(event);
-      if (!uniqueApplications.has(key)) {
-        uniqueApplications.set(key, event);
+      const completedDate = getTrueEventOccurredDate(event);
+      if (!isInDateRange(completedDate, rangeDates.start, rangeDates.end)) return;
+      const key = getCompletedApplicationRecordKey(event);
+      const existing = completedApplications.get(key);
+      if (!existing || completedDate < existing.sortDate) {
+        completedApplications.set(key, {
+          key,
+          sortDate: completedDate,
+          date: completedDate,
+          source: 'event',
+          item: event
+        });
       }
     });
-    return Array.from(uniqueApplications.values());
-  }, [eventItems]);
 
-  const allUniqueLeaseEvents = useMemo(() => {
-    const uniqueLeases = new Map();
-    eventItems.forEach((event) => {
-      if (!isClosedLeaseEvent(event)) return;
-      const key = getLeaseKey(event);
-      if (!uniqueLeases.has(key)) {
-        uniqueLeases.set(key, event);
+    leaseItems.forEach((lease) => {
+      const completedDate = getLifecycleDate(lease, APPLICATION_COMPLETED_DATE_KEYS);
+      if (!isInDateRange(completedDate, rangeDates.start, rangeDates.end)) return;
+      const key = getCompletedApplicationRecordKey(lease);
+      const existing = completedApplications.get(key);
+      if (!existing || completedDate < existing.sortDate) {
+        completedApplications.set(key, {
+          key,
+          sortDate: completedDate,
+          date: completedDate,
+          source: 'lease',
+          item: lease
+        });
       }
     });
-    return Array.from(uniqueLeases.values());
-  }, [eventItems]);
 
-  const lifecycleApplicationMetrics = useMemo(() => {
-    const completed = countLifecycleRecords(
-      allLifecycleLeadItems,
-      APPLICATION_COMPLETED_DATE_KEYS,
-      getLifecycleApplicationKey,
-      rangeDates.start,
-      rangeDates.end
-    );
-    const approved = countLifecycleRecords(
-      allLifecycleLeadItems,
-      APPLICATION_APPROVED_DATE_KEYS,
-      getLifecycleApplicationKey,
-      rangeDates.start,
-      rangeDates.end
-    );
+    return Array.from(completedApplications.values());
+  }, [eventItems, leaseItems, rangeDates]);
 
-    return {
-      completed,
-      approved
-    };
-  }, [allLifecycleLeadItems, rangeDates]);
+  const approvedLeaseRecords = useMemo(() => {
+    const approvedLeases = new Map();
 
-  const lifecycleLeaseMetrics = useMemo(() => {
-    const approved = countLifecycleRecords(
-      allLifecycleLeadItems,
-      LEASE_APPROVED_DATE_KEYS,
-      getLifecycleLeaseKey,
-      rangeDates.start,
-      rangeDates.end
-    );
-    const completed = countLifecycleRecords(
-      allLifecycleLeadItems,
-      LEASE_COMPLETED_DATE_KEYS,
-      getLifecycleLeaseKey,
-      rangeDates.start,
-      rangeDates.end
-    );
+    leaseItems.forEach((lease) => {
+      const approvedDate = getLifecycleDate(lease, LEASE_APPROVED_DATE_KEYS);
+      if (!isInDateRange(approvedDate, rangeDates.start, rangeDates.end)) return;
+      const key = getApprovedLeaseRecordKey(lease);
+      const existing = approvedLeases.get(key);
+      if (!existing || approvedDate < existing.sortDate) {
+        approvedLeases.set(key, {
+          key,
+          sortDate: approvedDate,
+          date: approvedDate,
+          item: lease
+        });
+      }
+    });
 
-    return {
-      approved,
-      completed
-    };
-  }, [allLifecycleLeadItems, rangeDates]);
+    return Array.from(approvedLeases.values());
+  }, [leaseItems, rangeDates]);
 
-  const eventApplicationCount = allUniqueApplicationEvents.length;
-  const eventLeaseCount = allUniqueLeaseEvents.length;
-  const totalApplications = lifecycleApplicationMetrics.completed.hasLifecycleData
-    ? lifecycleApplicationMetrics.completed.count
-    : eventApplicationCount;
-  const totalLeases = lifecycleLeaseMetrics.approved.hasLifecycleData
-    ? lifecycleLeaseMetrics.approved.count
-    : eventLeaseCount;
-  const funnelMetricSource = (
-    lifecycleApplicationMetrics.completed.hasLifecycleData || lifecycleLeaseMetrics.approved.hasLifecycleData
-      ? 'Entrata lifecycle fields'
-      : 'Entrata events'
-  );
+  const totalApplications = completedApplicationRecords.length;
+  const totalLeases = approvedLeaseRecords.length;
+  const funnelMetricSource = 'Entrata completed applications + approved leases';
 
   const normalizedInvoiceItems = useMemo(() => {
     const uniqueInvoices = new Map();
@@ -3187,7 +3027,7 @@ const DashboardApp = ({
     return Array.from(grouped.values())
       .map((item) => ({
         ...item,
-        roi: item.marketingSpend > 0 ? (item.netEffectiveRevenue - item.marketingSpend) / item.marketingSpend : null
+        roas: item.marketingSpend > 0 ? (item.netEffectiveRevenue / item.marketingSpend) : null
       }))
       .sort((a, b) => b.netEffectiveRevenue - a.netEffectiveRevenue);
   }, [roiDailyItems]);
@@ -3195,13 +3035,14 @@ const DashboardApp = ({
   // Daily chart data
   const dailyChartData = useMemo(() => {
     const dateMap = {};
-    
-    // Initialize dates from parent docs
-    parentDocs.forEach(p => {
-      if (p.date) {
-        dateMap[p.date] = { date: p.date, leads: 0, leases: 0, applications: 0 };
-      }
-    });
+    for (
+      let cursor = new Date(rangeDates.start.getFullYear(), rangeDates.start.getMonth(), rangeDates.start.getDate());
+      cursor <= rangeDates.end;
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)
+    ) {
+      const dateKey = formatDateInputValue(cursor);
+      dateMap[dateKey] = { date: dateKey, leads: 0, leases: 0, applications: 0 };
+    }
 
     // Count leads per day
     allCanonicalLeadItems.forEach(l => {
@@ -3210,15 +3051,17 @@ const DashboardApp = ({
       }
     });
 
-    allUniqueApplicationEvents.forEach((event) => {
-      if (event._date && dateMap[event._date]) {
-        dateMap[event._date].applications += 1;
+    completedApplicationRecords.forEach((record) => {
+      const dateKey = record.date ? formatDateInputValue(record.date) : null;
+      if (dateKey && dateMap[dateKey]) {
+        dateMap[dateKey].applications += 1;
       }
     });
 
-    allUniqueLeaseEvents.forEach((event) => {
-      if (event._date && dateMap[event._date]) {
-        dateMap[event._date].leases += 1;
+    approvedLeaseRecords.forEach((record) => {
+      const dateKey = record.date ? formatDateInputValue(record.date) : null;
+      if (dateKey && dateMap[dateKey]) {
+        dateMap[dateKey].leases += 1;
       }
     });
 
@@ -3228,7 +3071,7 @@ const DashboardApp = ({
         ...d,
         label: new Date(d.date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
       }));
-  }, [parentDocs, allCanonicalLeadItems, allUniqueApplicationEvents, allUniqueLeaseEvents]);
+  }, [rangeDates, allCanonicalLeadItems, completedApplicationRecords, approvedLeaseRecords]);
 
   // Conversion rates
   const attributedLeaseCount = roiTotals.attributedLeases;
@@ -5935,7 +5778,7 @@ const DashboardApp = ({
             <div className="reports-kicker">Reporting Workspace</div>
             <div className="reports-headline">{selectedPropertyLabel}</div>
             <div className="reports-subhead">
-              A property-filtered reporting dashboard for asset managers that combines ROI, budget, funnel, paid media, analytics, and reputation into one configurable view.
+              A property-filtered reporting dashboard for asset managers that combines revenue efficiency, budget, funnel, paid media, analytics, and reputation into one configurable view.
             </div>
           </div>
           <div className="reports-chip-row">
@@ -6054,37 +5897,13 @@ const DashboardApp = ({
           </aside>
 
           <div className="reports-panels">
-            {activeReportingPanels.some((panel) => panel.id === 'executive') && (
-              <section id="reporting-panel-executive" className="reports-panel">
-                <div className="reports-panel__eyebrow">Asset Manager Lens</div>
-                <div className="reports-panel__title">Executive Snapshot</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat">
-                    <span>Marketing Spend</span>
-                    <strong>{formatCurrency(totalBlendedMarketingSpend)}</strong>
-                    <small>{formatCurrency(totalPerformanceMarketingCost)} performance media</small>
-                  </div>
-                  <div className="reports-stat">
-                    <span>Pipeline</span>
-                    <strong>{formatNumber(totalLeads)} / {formatNumber(totalApplications)} / {formatNumber(totalLeases)}</strong>
-                    <small>Leads, applications, leases</small>
-                  </div>
-                  <div className="reports-stat">
-                    <span>Health Check</span>
-                    <strong>{attributionMatchRate}%</strong>
-                    <small>Attributed lease match rate</small>
-                  </div>
-                </div>
-              </section>
-            )}
-
             {activeReportingPanels.some((panel) => panel.id === 'roi') && (
               <section id="reporting-panel-roi" className="reports-panel">
                 <div className="reports-panel__eyebrow">Revenue Efficiency</div>
-                <div className="reports-panel__title">ROI Metrics</div>
+                <div className="reports-panel__title">ROAS Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
                   <div className="reports-stat"><span>Net Effective Revenue</span><strong>{formatCurrency(roiTotals.netEffectiveRevenue)}</strong><small>{formatCurrency(roiTotals.grossLeaseValue)} gross lease value</small></div>
-                  <div className="reports-stat"><span>Blended ROI</span><strong>{blendedRoi != null ? `${(blendedRoi * 100).toFixed(1)}%` : '—'}</strong><small>{blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS unavailable'}</small></div>
+                  <div className="reports-stat"><span>Blended ROAS</span><strong>{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'}</strong><small>{formatCurrency(roiTotals.marketingSpend)} spend</small></div>
                   <div className="reports-stat"><span>Cost Per Lease</span><strong>{roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease) : '—'}</strong><small>{formatCurrency(roiTotals.concessionTotal)} concessions</small></div>
                 </div>
                 <div className="reports-list">
@@ -6094,7 +5913,7 @@ const DashboardApp = ({
                         <strong>{item.sourceLabel}</strong>
                         <small>{item.attributedLeases} leases | {formatCurrency(item.marketingSpend)} spend</small>
                       </div>
-                      <div>{item.roi != null ? `${(item.roi * 100).toFixed(0)}% ROI` : 'No ROI yet'}</div>
+                      <div>{item.roas != null ? `${item.roas.toFixed(2)}x ROAS` : 'No ROAS yet'}</div>
                     </div>
                   ))}
                 </div>

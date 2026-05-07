@@ -59,6 +59,32 @@ def _shape_child_payload(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _shape_property_lease(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row.get("raw_data") or {})
+    payload.update(
+        {
+            "_propertyId": row.get("property_id"),
+            "_firestorePath": row.get("firestore_path"),
+            "_date": row.get("attribution_event_date"),
+            "id": row.get("id"),
+            "property_id": row.get("property_id"),
+            "reporting_window_start": row.get("reporting_window_start"),
+            "reporting_window_end": row.get("reporting_window_end"),
+            "attribution_status": row.get("attribution_status"),
+            "attribution_event_date": row.get("attribution_event_date"),
+            "lease_start_date": row.get("lease_start_date"),
+            "lease_end_date": row.get("lease_end_date"),
+            "move_in_date": row.get("move_in_date"),
+            "move_out_date": row.get("move_out_date"),
+            "gross_lease_value": row.get("gross_lease_value"),
+            "net_effective_rent": row.get("net_effective_rent"),
+            "net_effective_revenue": row.get("net_effective_revenue"),
+            "concession_total": row.get("concession_total"),
+        }
+    )
+    return payload
+
+
 def _shape_current_snapshot(row: dict[str, Any] | None, *, fallback_array_keys: tuple[str, ...] = ()) -> dict[str, Any] | None:
     if not row:
         return None
@@ -158,6 +184,22 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
+    lease_rows = _fetch_json(
+        "property_leases",
+        [
+            (
+                "select",
+                "id,property_id,reporting_window_start,reporting_window_end,attribution_status,"
+                "attribution_event_date,lease_start_date,lease_end_date,move_in_date,move_out_date,"
+                "gross_lease_value,net_effective_rent,net_effective_revenue,concession_total,raw_data,firestore_path",
+            ),
+            ("property_id", f"eq.{property_id}"),
+            ("reporting_window_end", f"gte.{start_date.isoformat()}"),
+            ("reporting_window_start", f"lte.{end_date.isoformat()}"),
+            ("order", "attribution_event_date.asc"),
+        ],
+        headers=headers,
+    )
     roi_rows = _fetch_json(
         "property_roi_daily",
         [
@@ -208,6 +250,7 @@ def get_property_reporting_overview_payload(
         "parent_docs": [_shape_property_snapshot(row) for row in parent_rows],
         "lead_items": [_shape_child_payload(row) for row in leads_rows],
         "event_items": [_shape_child_payload(row) for row in events_rows],
+        "lease_items": [_shape_property_lease(row) for row in lease_rows],
         "invoice_items": [_shape_child_payload(row) for row in invoice_rows],
         "availability_items": [],
         "latest_availability_date": availability_snapshot_date,
@@ -221,6 +264,7 @@ def get_property_reporting_overview_payload(
             "parent_docs": len(parent_rows),
             "lead_items": len(leads_rows),
             "event_items": len(events_rows),
+            "lease_items": len(lease_rows),
             "invoice_items": len(invoice_rows),
             "availability_items": 0,
             "roi_daily_items": len(roi_rows),
@@ -300,6 +344,11 @@ def get_multi_property_reporting_overview_summary(
         for payload in payloads
         for item in payload.get("event_items", [])
     ])
+    aggregated_lease_items = _sort_activity_rows([
+        item
+        for payload in payloads
+        for item in payload.get("lease_items", [])
+    ])
     aggregated_invoice_items = _sort_activity_rows([
         item
         for payload in payloads
@@ -326,6 +375,7 @@ def get_multi_property_reporting_overview_summary(
         "parent_docs": aggregated_parent_docs,
         "lead_items": aggregated_lead_items,
         "event_items": aggregated_event_items,
+        "lease_items": aggregated_lease_items,
         "invoice_items": aggregated_invoice_items,
         "availability_items": [],
         "latest_availability_date": latest_availability_date,
@@ -336,6 +386,7 @@ def get_multi_property_reporting_overview_summary(
             "parent_docs": len(aggregated_parent_docs),
             "lead_items": len(aggregated_lead_items),
             "event_items": len(aggregated_event_items),
+            "lease_items": len(aggregated_lease_items),
             "invoice_items": len(aggregated_invoice_items),
             "availability_items": 0,
             "roi_daily_items": len(aggregated_roi_daily_items),
