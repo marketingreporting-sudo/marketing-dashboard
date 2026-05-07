@@ -2972,6 +2972,15 @@ const DashboardApp = ({
     });
   }, [normalizedInvoiceItems, rangeDates]);
 
+  const leadStatusBreakdown = useMemo(() => {
+    const statuses = {};
+    allCanonicalLeadItems.forEach((lead) => {
+      const status = lead.status || 'Unknown';
+      statuses[status] = (statuses[status] || 0) + 1;
+    });
+    return statuses;
+  }, [allCanonicalLeadItems]);
+
   // Lead sources breakdown
   const leadSourceBreakdown = useMemo(() => {
     const sources = {};
@@ -3121,6 +3130,42 @@ const DashboardApp = ({
     });
 
     return totals;
+  }, [roiDailyItems]);
+
+  const roiSourceBreakdown = useMemo(() => {
+    const grouped = new Map();
+
+    roiDailyItems.forEach((item) => {
+      const sourceMetrics = Array.isArray(item.source_metrics) ? item.source_metrics : [];
+      sourceMetrics.forEach((metric) => {
+        const key = metric.source_key || metric.source_label || 'other';
+        const current = grouped.get(key) || {
+          sourceKey: key,
+          sourceLabel: metric.source_label || 'Other',
+          attributedLeases: 0,
+          grossLeaseValue: 0,
+          netEffectiveRevenue: 0,
+          concessionTotal: 0,
+          marketingSpend: 0,
+          performanceMarketingSpend: 0
+        };
+
+        current.attributedLeases += metric.attributed_leases || 0;
+        current.grossLeaseValue += metric.gross_lease_value || 0;
+        current.netEffectiveRevenue += metric.net_effective_revenue || 0;
+        current.concessionTotal += metric.concession_total || 0;
+        current.marketingSpend += metric.marketing_spend || 0;
+        current.performanceMarketingSpend += metric.performance_marketing_spend || 0;
+        grouped.set(key, current);
+      });
+    });
+
+    return Array.from(grouped.values())
+      .map((item) => ({
+        ...item,
+        roi: item.marketingSpend > 0 ? (item.netEffectiveRevenue - item.marketingSpend) / item.marketingSpend : null
+      }))
+      .sort((a, b) => b.netEffectiveRevenue - a.netEffectiveRevenue);
   }, [roiDailyItems]);
 
   // Daily chart data
