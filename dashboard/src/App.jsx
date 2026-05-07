@@ -5335,26 +5335,26 @@ const DashboardApp = ({
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <DollarSign size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Net Lease Revenue</div>
+          <div className="card-title">Lead-to-Lease Conversion</div>
         </div>
         <div className="card-value">
-          {roiLoading ? '…' : roiTotals.netEffectiveRevenue > 0 ? `$${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : 'No data'}
+          {loading ? '…' : `${leaseConversion}%`}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Gross: {roiTotals.grossLeaseValue > 0 ? `$${roiTotals.grossLeaseValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'} | Concessions: {roiTotals.concessionTotal > 0 ? `$${roiTotals.concessionTotal.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
+          Leads: {totalLeads.toLocaleString()} | Leases: {totalLeases.toLocaleString()}
         </div>
       </div>
 
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <TrendingUp size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Live ROI</div>
+          <div className="card-title">Cost Per Lease</div>
         </div>
         <div className="card-value">
-          {roiLoading ? '…' : blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : 'No spend'}
+          {roiLoading ? '…' : roiCostPerLease !== '—' ? `$${roiCostPerLease}` : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          ROAS: {blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'} | Cost / Lease: {roiCostPerLease !== '—' ? `$${roiCostPerLease}` : '—'}
+          ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {totalLeases.toLocaleString()}
         </div>
       </div>
 
