@@ -665,6 +665,137 @@ h1, h2, h3 {
   align-items: start;
 }
 
+.heatmap-audit-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.heatmap-audit-status-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 16px;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.heatmap-audit-status-card span {
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.heatmap-audit-status-card strong {
+  color: var(--primary);
+  font-size: 1rem;
+}
+
+.heatmap-audit-status-card small {
+  color: rgba(16, 33, 38, 0.64);
+  line-height: 1.45;
+}
+
+.heatmap-audit-status-card.is-healthy {
+  border-color: rgba(108, 178, 139, 0.24);
+  background: rgba(108, 178, 139, 0.1);
+}
+
+.heatmap-audit-status-card.is-pending {
+  border-color: rgba(238, 196, 94, 0.24);
+  background: rgba(238, 196, 94, 0.08);
+}
+
+.heatmap-page-health {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-radius: 18px;
+  background: rgba(16, 33, 38, 0.04);
+  border: 1px solid rgba(16, 33, 38, 0.06);
+}
+
+.heatmap-page-health__item {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.heatmap-page-health__item span {
+  color: rgba(16, 33, 38, 0.54);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.heatmap-page-health__item strong {
+  color: var(--primary);
+  font-size: 0.9rem;
+}
+
+.heatmap-page-health__item small {
+  color: rgba(16, 33, 38, 0.62);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.heatmap-coordinate-diagnostics {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border-radius: 18px;
+  background: rgba(16, 33, 38, 0.055);
+  border: 1px dashed rgba(16, 33, 38, 0.2);
+}
+
+.heatmap-coordinate-diagnostics__heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+}
+
+.heatmap-coordinate-diagnostics__heading strong {
+  color: var(--primary);
+  font-size: 0.92rem;
+}
+
+.heatmap-coordinate-diagnostics__heading small {
+  color: rgba(16, 33, 38, 0.6);
+  font-size: 0.76rem;
+}
+
+.heatmap-coordinate-diagnostics__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.heatmap-coordinate-diagnostics__grid div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.62rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.heatmap-coordinate-diagnostics__grid span {
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.heatmap-coordinate-diagnostics__grid strong {
+  color: var(--primary);
+  font-size: 1.05rem;
+}
+
 .heatmap-audit-preview,
 .heatmap-audit-rail,
 .heatmap-audit-interactions {
@@ -810,6 +941,40 @@ h1, h2, h3 {
   border-top: 1px solid rgba(16, 33, 38, 0.08);
 }
 
+.heatmap-audit-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.heatmap-audit-category {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.7rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(16, 33, 38, 0.07);
+}
+
+.heatmap-audit-category span {
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.heatmap-audit-category strong {
+  color: var(--primary);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.heatmap-audit-category small {
+  color: rgba(16, 33, 38, 0.6);
+  font-size: 0.72rem;
+}
+
 .heatmap-renderer-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -896,7 +1061,10 @@ h1, h2, h3 {
 @media (max-width: 1180px) {
   .reports-kpi-grid,
   .reports-panel__grid--three,
-  .reports-pipeline-grid {
+  .reports-pipeline-grid,
+  .heatmap-audit-status-grid,
+  .heatmap-page-health,
+  .heatmap-coordinate-diagnostics__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -920,7 +1088,10 @@ h1, h2, h3 {
 
   .reports-kpi-grid,
   .reports-panel__grid--three,
-  .reports-pipeline-grid {
+  .reports-pipeline-grid,
+  .heatmap-audit-status-grid,
+  .heatmap-page-health,
+  .heatmap-coordinate-diagnostics__grid {
     grid-template-columns: 1fr;
   }
 
@@ -934,6 +1105,11 @@ h1, h2, h3 {
   }
 
   .heatmap-audit-section-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .heatmap-coordinate-diagnostics__heading {
     align-items: start;
     flex-direction: column;
   }

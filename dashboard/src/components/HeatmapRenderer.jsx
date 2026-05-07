@@ -92,6 +92,7 @@ export default function HeatmapRenderer({
     scroll: activeLayers?.scroll === true,
     engagement: activeLayers?.engagement === true,
   };
+  const activeLayerCount = Object.values(layers).filter(Boolean).length;
   const aggregateCells = useMemo(() => aggregatePoints(points, layers), [points, layers]);
   const maxScroll = clampPercent(totals.maxScrollDepthPct);
   const hasScreenshot = Boolean(screenshotUrl);
@@ -129,6 +130,9 @@ export default function HeatmapRenderer({
         : screenshot
           ? `Screenshot preview unavailable${error ? `: ${error}` : ''}`
           : 'Blank page frame';
+  const emptyMessage = activeLayerCount === 0
+    ? 'Waiting for interaction data. The screenshot is ready, and overlays will appear once clicks or scroll activity are collected.'
+    : 'No heatmap events for the selected page, device, and date range yet.';
 
   useEffect(() => {
     setImageLoaded(false);
@@ -310,7 +314,7 @@ export default function HeatmapRenderer({
             })}
             {!loading && !hasData && (
               <div style={{ position: 'sticky', top: '34%', display: 'grid', placeItems: 'center', color: 'var(--primary-tan)', padding: '2rem', textAlign: 'center', pointerEvents: 'none' }}>
-                No heatmap events for the selected page, device, and date range yet.
+                {emptyMessage}
               </div>
             )}
           </div>

@@ -1392,6 +1392,7 @@ const DashboardApp = ({
     scroll: false,
     engagement: false,
   });
+  const [heatmapLayersTouched, setHeatmapLayersTouched] = useState(false);
   const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
   const heatmapPageOptions = heatmapPagesData?.pages || [];
   const auditPageOptions = siteAuditPagesData?.pages || [];
@@ -3327,6 +3328,7 @@ const DashboardApp = ({
   };
 
   const updateHeatmapLayer = (field, value) => {
+    setHeatmapLayersTouched(true);
     setHeatmapLayers((current) => ({
       ...current,
       [field]: value
@@ -3904,6 +3906,49 @@ const DashboardApp = ({
     (heatmapSummaryData?.points || [])
       .filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice)
   ), [heatmapSummaryData, selectedHeatmapDevice]);
+  const heatmapCoordinateDiagnostics = useMemo(() => {
+    const allPoints = Array.isArray(heatmapSummaryData?.points) ? heatmapSummaryData.points : [];
+    const selectedDevicePoints = allPoints.filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice);
+    const deviceMismatchCount = allPoints.length - selectedDevicePoints.length;
+    const parseCoordinate = (value) => {
+      if (value === null || value === undefined || value === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const hasRendererCoordinate = (point) => {
+      const xPct = parseCoordinate(point.xPct);
+      const yPct = parseCoordinate(point.yPct);
+      if (xPct === null || yPct === null) return false;
+      if (xPct <= 0.001 && yPct <= 0.001 && !point.targetLabel && !point.targetHref) return false;
+      return true;
+    };
+    const coordinateCount = selectedDevicePoints.filter((point) => point.xPct != null || point.yPct != null).length;
+    const rendererAcceptedCount = selectedDevicePoints.filter(hasRendererCoordinate).length;
+    return {
+      rawEvents: Number(heatmapTotals.events || 0),
+      withCoordinates: coordinateCount,
+      rejectedFromRenderer: Math.max(0, coordinateCount - rendererAcceptedCount),
+      deviceMismatch: Math.max(0, deviceMismatchCount),
+    };
+  }, [heatmapSummaryData, selectedHeatmapDevice, heatmapTotals.events]);
+  useEffect(() => {
+    setHeatmapLayersTouched(false);
+  }, [rangeDates, selectedHeatmapDevice, selectedHeatmapPath, selectedPropertyId]);
+  useEffect(() => {
+    if (heatmapLayersTouched || heatmapSummaryLoading || !heatmapSummaryData) return;
+    const clickCount = Number(heatmapTotals.clicks || 0) + Number(heatmapTotals.ctaClicks || 0);
+    const scrollCount = Number(heatmapTotals.scrolls || 0);
+    const maxScrollDepth = Number(heatmapTotals.maxScrollDepthPct || 0);
+    if (clickCount > 0) {
+      setHeatmapLayers({ click: true, cursor: false, scroll: false, engagement: false });
+      return;
+    }
+    if (scrollCount > 0 || maxScrollDepth > 0) {
+      setHeatmapLayers({ click: false, cursor: false, scroll: true, engagement: false });
+      return;
+    }
+    setHeatmapLayers({ click: false, cursor: false, scroll: false, engagement: false });
+  }, [heatmapLayersTouched, heatmapSummaryData, heatmapSummaryLoading, heatmapTotals.clicks, heatmapTotals.ctaClicks, heatmapTotals.scrolls, heatmapTotals.maxScrollDepthPct]);
   const heatmapClickAnomalies = useMemo(() => {
     const clickPoints = heatmapPoints.filter((point) => point.type === 'click');
     const deadClicks = clickPoints.filter((point) => !point.targetHref && !point.targetLabel).length;
@@ -3927,6 +3972,39 @@ const DashboardApp = ({
   const auditRecommendations = auditPageResult?.recommendations || latestAudit?.recommendations || [];
   const auditStaleDates = auditPageResult?.staleDateStrings || latestAudit?.stale_date_findings || latestAudit?.staleDateFindings || [];
   const auditBrokenLinks = auditPageResult?.suspiciousLinks || latestAudit?.broken_links || latestAudit?.brokenLinks || [];
+  const auditCategoryScores = useMemo(() => {
+    const rawCategories = latestAudit?.raw_data?.categoryScores || latestAudit?.rawData?.categoryScores;
+    if (Array.isArray(rawCategories) && rawCategories.length) return rawCategories;
+    const pageCategories = auditPageResult?.categoryScores;
+    if (pageCategories && typeof pageCategories === 'object') {
+      const labels = {
+        seoBasics: 'SEO basics',
+        ctaClarity: 'CTA clarity',
+        staleDates: 'Stale dates',
+        internalLinks: 'Internal links',
+        pageStructure: 'Page structure',
+        performanceProxy: 'Performance proxy',
+      };
+      return Object.entries(labels).map(([key, label]) => ({
+        key,
+        label,
+        score: pageCategories[key],
+      })).filter((item) => item.score != null);
+    }
+    return [
+      { key: 'ctaClarity', label: 'CTA clarity', score: latestAudit?.urgency_score },
+      { key: 'staleDates', label: 'Stale dates', score: latestAudit?.freshness_score },
+      { key: 'internalLinks', label: 'Internal links', score: latestAudit?.link_score },
+    ].filter((item) => item.score != null);
+  }, [latestAudit, auditPageResult]);
+  const lastTrackerEventAt = useMemo(() => {
+    const latestPoint = heatmapPoints
+      .map((point) => point.occurredAt)
+      .filter(Boolean)
+      .sort()
+      .pop();
+    return latestPoint || selectedAuditPage?.lastSeenAt || '';
+  }, [heatmapPoints, selectedAuditPage]);
   const selectedPortfolioAudit = useMemo(
     () => portfolioAuditProperties.find((property) => property.propertyId === selectedPropertyId) || portfolioAuditProperties[0] || null,
     [portfolioAuditProperties, selectedPropertyId]
@@ -5553,6 +5631,67 @@ const DashboardApp = ({
         </div>
       </div>
 
+      <div className="heatmap-audit-status-grid">
+        <div className={`heatmap-audit-status-card ${selectedScreenshot ? 'is-healthy' : 'is-pending'}`}>
+          <span>{selectedScreenshot ? 'Screenshot captured' : 'Screenshot pending'}</span>
+          <strong>{selectedScreenshot ? `${selectedScreenshot.deviceType || selectedHeatmapDevice} screenshot` : 'Waiting for capture'}</strong>
+          <small>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No screenshot stored for this page/device yet.'}</small>
+        </div>
+        <div className={`heatmap-audit-status-card ${latestAudit ? 'is-healthy' : 'is-pending'}`}>
+          <span>{latestAudit ? 'Audit complete' : 'Audit pending'}</span>
+          <strong>{latestAudit ? `Score ${auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}` : 'Run audit'}</strong>
+          <small>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : 'Audit data is separate from heatmap traffic.'}</small>
+        </div>
+        <div className={`heatmap-audit-status-card ${Number(heatmapTotals.events || 0) > 0 ? 'is-healthy' : 'is-pending'}`}>
+          <span>{Number(heatmapTotals.events || 0) > 0 ? 'Heatmap traffic active' : 'Heatmap traffic pending'}</span>
+          <strong>{heatmapSummaryLoading ? 'Loading…' : `${formatNumber(heatmapTotals.events || 0)} events`}</strong>
+          <small>{Number(heatmapTotals.events || 0) > 0 ? `${formatNumber(heatmapTotals.sessions || 0)} tracked sessions in range.` : 'Audit and screenshots can be ready before visitor interaction data arrives.'}</small>
+        </div>
+      </div>
+
+      <div className="heatmap-page-health">
+        <div className="heatmap-page-health__item">
+          <span>Screenshot</span>
+          <strong>{selectedScreenshot ? 'Captured' : 'Pending'}</strong>
+          <small>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No screenshot yet'}</small>
+        </div>
+        <div className="heatmap-page-health__item">
+          <span>Snapshot</span>
+          <strong>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Captured' : 'Pending'}</strong>
+          <small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : selectedAuditPage?.latestSnapshotId ? 'Snapshot record available' : 'No page snapshot yet'}</small>
+        </div>
+        <div className="heatmap-page-health__item">
+          <span>Audit</span>
+          <strong>{latestAudit ? 'Completed' : 'Pending'}</strong>
+          <small>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : 'No audit run yet'}</small>
+        </div>
+        <div className="heatmap-page-health__item">
+          <span>Heatmap Events</span>
+          <strong>{heatmapSummaryLoading ? 'Loading…' : formatNumber(heatmapTotals.events || 0)}</strong>
+          <small>{Number(heatmapTotals.events || 0) > 0 ? `${formatNumber(heatmapTotals.sessions || 0)} sessions collected` : 'No events in selected range'}</small>
+        </div>
+        <div className="heatmap-page-health__item">
+          <span>Last Tracker Event</span>
+          <strong>{lastTrackerEventAt ? 'Seen' : 'Pending'}</strong>
+          <small>{lastTrackerEventAt ? getSnapshotTimestampLabel(lastTrackerEventAt) : 'No tracker event observed yet'}</small>
+        </div>
+      </div>
+
+      {reportingAdminEnabled && (
+        <div className="heatmap-coordinate-diagnostics">
+          <div className="heatmap-coordinate-diagnostics__heading">
+            <strong>Coordinate diagnostics</strong>
+            <small>Admin-only tracker validation for the selected page/device/range.</small>
+          </div>
+          <div className="heatmap-coordinate-diagnostics__grid">
+            <div><span>Raw events received</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rawEvents)}</strong></div>
+            <div><span>Events with coordinates</span><strong>{formatNumber(heatmapCoordinateDiagnostics.withCoordinates)}</strong></div>
+            <div><span>Rejected from renderer</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rejectedFromRenderer)}</strong></div>
+            <div><span>Device mismatch count</span><strong>{formatNumber(heatmapCoordinateDiagnostics.deviceMismatch)}</strong></div>
+          </div>
+        </div>
+      )}
+
       <div className="reports-panel__grid reports-panel__grid--three">
         <div className="reports-stat"><span>Sessions Tracked</span><strong>{heatmapSummaryLoading ? '…' : formatNumber(heatmapTotals.sessions)}</strong><small>{formatNumber(heatmapTotals.events)} events in range</small></div>
         <div className="reports-stat"><span>Clicks</span><strong>{heatmapSummaryLoading ? '…' : formatNumber(heatmapTotals.clicks)}</strong><small>{formatNumber(heatmapTotals.ctaClicks)} CTA clicks</small></div>
@@ -5592,9 +5731,22 @@ const DashboardApp = ({
             title: 'Audit score',
             status: getAuditStatus({ score: auditPageResult?.score ?? latestAudit?.performance_score, issueCount: (auditIssues || []).length }),
             count: siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—',
-            finding: latestAudit ? 'Latest deterministic site audit score.' : 'Run an audit to generate a score.',
-            details: auditIssues.length ? auditIssues : auditRecommendations,
+            finding: latestAudit ? 'Weighted score across SEO, CTA, freshness, links, structure, and performance proxy.' : 'Run an audit to generate a score.',
+            details: auditCategoryScores.length
+              ? auditCategoryScores.map((item) => `${item.label}: ${formatNumber(item.score, 1)}${item.weight != null ? ` (${Math.round(Number(item.weight) * 100)}% weight)` : ''}`)
+              : auditIssues.length ? auditIssues : auditRecommendations,
           })}
+          {auditCategoryScores.length > 0 && (
+            <div className="heatmap-audit-category-grid">
+              {auditCategoryScores.map((item) => (
+                <div key={item.key || item.label} className="heatmap-audit-category">
+                  <span>{item.label}</span>
+                  <strong>{formatNumber(item.score, 1)}</strong>
+                  <small>{item.weight != null ? `${Math.round(Number(item.weight) * 100)}% weight` : 'Category score'}</small>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="reports-list__row"><div><strong>Screenshot</strong><small>{selectedScreenshot ? `${selectedScreenshot.deviceType} | ${selectedScreenshot.width || '—'}x${selectedScreenshot.height || '—'}` : 'No screenshot stored yet'}</small></div><div>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : '—'}</div></div>
           {renderAuditActionCard({
             title: 'CTA / urgency',

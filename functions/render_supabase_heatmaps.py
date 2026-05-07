@@ -1917,21 +1917,63 @@ def _audit_page(page: dict[str, Any]) -> dict[str, Any]:
     if int(structure.get("imageCount") or 0) > 35:
         recommendations.append("Review image weight and lazy-loading on this page.")
 
-    score = 100
-    score -= 12 if not title else 0
-    score -= 12 if not meta else 0
-    score -= 14 if not any(item.get("level") == "h1" for item in headings if isinstance(item, dict)) else 0
-    score -= 16 if not ctas else 0
-    score -= min(18, len(stale_dates) * 6)
-    score -= min(12, len(suspicious_links) * 3)
-    score -= 8 if int(structure.get("imageCount") or 0) > 35 else 0
-    score = max(0, min(100, score))
+    h1_count = sum(1 for item in headings if isinstance(item, dict) and item.get("level") == "h1")
+    h2_count = sum(1 for item in headings if isinstance(item, dict) and item.get("level") == "h2")
+    link_count = int(structure.get("linkCount") or len(links) or 0)
+    image_count = int(structure.get("imageCount") or 0)
+    form_count = int(structure.get("formCount") or 0)
+
+    seo_score = 100
+    seo_score -= 30 if not title else 0
+    seo_score -= 25 if not meta else 0
+    seo_score -= 25 if h1_count == 0 else 0
+    seo_score -= 10 if h1_count > 1 else 0
+    seo_score -= 10 if h2_count == 0 else 0
+
+    cta_score = 100
+    cta_score -= 45 if not ctas else 0
+    cta_score -= 15 if len(ctas) == 1 else 0
+    cta_score -= 10 if form_count == 0 and not any("apply" in _normalize_text(cta.get("label") if isinstance(cta, dict) else cta, 160).lower() for cta in ctas) else 0
+
+    stale_date_score = max(0, 100 - min(80, len(stale_dates) * 25))
+    internal_link_score = max(0, 100 - min(70, len(suspicious_links) * 18))
+
+    page_structure_score = 100
+    page_structure_score -= 20 if h1_count == 0 else 0
+    page_structure_score -= 15 if h2_count == 0 else 0
+    page_structure_score -= 15 if link_count == 0 else 0
+    page_structure_score -= 10 if form_count == 0 and not ctas else 0
+
+    performance_proxy_score = 100
+    performance_proxy_score -= min(30, max(0, image_count - 20) * 2)
+    performance_proxy_score -= 10 if not page.get("screenshots") else 0
+    performance_proxy_score -= min(20, max(0, link_count - 120) // 10)
+
+    category_scores = {
+        "seoBasics": max(0, min(100, round(seo_score, 1))),
+        "ctaClarity": max(0, min(100, round(cta_score, 1))),
+        "staleDates": max(0, min(100, round(stale_date_score, 1))),
+        "internalLinks": max(0, min(100, round(internal_link_score, 1))),
+        "pageStructure": max(0, min(100, round(page_structure_score, 1))),
+        "performanceProxy": max(0, min(100, round(performance_proxy_score, 1))),
+    }
+    category_weights = {
+        "seoBasics": 0.2,
+        "ctaClarity": 0.2,
+        "staleDates": 0.15,
+        "internalLinks": 0.15,
+        "pageStructure": 0.15,
+        "performanceProxy": 0.15,
+    }
+    score = round(sum(category_scores[key] * weight for key, weight in category_weights.items()), 1)
 
     return {
         "pageId": page.get("id"),
         "path": page.get("path"),
         "url": page.get("url"),
         "score": score,
+        "categoryScores": category_scores,
+        "categoryWeights": category_weights,
         "issues": issues,
         "recommendations": recommendations,
         "staleDateStrings": stale_dates,
@@ -1941,6 +1983,8 @@ def _audit_page(page: dict[str, Any]) -> dict[str, Any]:
         "ctaCount": len(ctas),
         "internalLinkCount": len(links),
         "screenshotCount": len(page.get("screenshots") or []),
+        "imageCount": image_count,
+        "formCount": form_count,
     }
 
 
@@ -1977,18 +2021,34 @@ def run_site_audit_summary(
                 recommendations.append(recommendation)
 
     average_score = round(sum(page.get("score", 0) for page in page_results) / len(page_results), 1) if page_results else 0
-    urgency_score = round(
-        sum(100 if page.get("ctaCount", 0) else 40 for page in page_results) / len(page_results),
-        1,
-    ) if page_results else 0
-    freshness_score = round(
-        sum(60 if page.get("staleDateStrings") else 100 for page in page_results) / len(page_results),
-        1,
-    ) if page_results else 0
-    link_score = round(
-        sum(70 if page.get("suspiciousLinks") else 100 for page in page_results) / len(page_results),
-        1,
-    ) if page_results else 0
+    category_keys = ["seoBasics", "ctaClarity", "staleDates", "internalLinks", "pageStructure", "performanceProxy"]
+    category_labels = {
+        "seoBasics": "SEO basics",
+        "ctaClarity": "CTA clarity",
+        "staleDates": "Stale dates",
+        "internalLinks": "Internal links",
+        "pageStructure": "Page structure",
+        "performanceProxy": "Performance proxy",
+    }
+    category_scores = {
+        key: round(
+            sum((page.get("categoryScores") or {}).get(key, 0) for page in page_results) / len(page_results),
+            1,
+        )
+        for key in category_keys
+    } if page_results else {key: 0 for key in category_keys}
+    category_weights = {
+        "seoBasics": 0.2,
+        "ctaClarity": 0.2,
+        "staleDates": 0.15,
+        "internalLinks": 0.15,
+        "pageStructure": 0.15,
+        "performanceProxy": 0.15,
+    }
+    weighted_score = round(sum(category_scores[key] * category_weights[key] for key in category_keys), 1) if page_results else 0
+    urgency_score = category_scores["ctaClarity"]
+    freshness_score = category_scores["staleDates"]
+    link_score = category_scores["internalLinks"]
 
     site_id = _fetch_site_id_filter(site_key)
     row = {
@@ -1997,12 +2057,12 @@ def run_site_audit_summary(
         "status": "ok" if not all_issues else "needs_attention",
         "audited_at": datetime.now(timezone.utc).isoformat(),
         "page_count": len(page_results),
-        "performance_score": average_score,
+        "performance_score": weighted_score,
         "urgency_score": urgency_score,
         "freshness_score": freshness_score,
         "link_score": link_score,
         "summary": (
-            f"Audited {len(page_results)} pages. Average score {average_score}."
+            f"Audited {len(page_results)} pages. Weighted score {weighted_score}."
             if page_results
             else "No page snapshots are available yet."
         ),
@@ -2014,14 +2074,30 @@ def run_site_audit_summary(
             {
                 "path": page.get("path"),
                 "score": page.get("score"),
+                "categoryScores": page.get("categoryScores"),
                 "screenshotCount": page.get("screenshotCount"),
                 "internalLinkCount": page.get("internalLinkCount"),
                 "ctaCount": page.get("ctaCount"),
+                "imageCount": page.get("imageCount"),
+                "formCount": page.get("formCount"),
             }
             for page in page_results
         ][:100],
         "pages": page_results[:500],
-        "raw_data": {"siteKey": site_key or "", "algorithm": "redstone-basic-site-audit-v1"},
+        "raw_data": {
+            "siteKey": site_key or "",
+            "algorithm": "redstone-weighted-site-audit-v2",
+            "categoryScores": [
+                {
+                    "key": key,
+                    "label": category_labels[key],
+                    "score": category_scores[key],
+                    "weight": category_weights[key],
+                }
+                for key in category_keys
+            ],
+            "legacyAverageScore": average_score,
+        },
     }
     rows = _json_request(
         "property_site_audits",
