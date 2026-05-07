@@ -2942,16 +2942,6 @@ const DashboardApp = ({
     });
   }, [normalizedInvoiceItems, rangeDates]);
 
-  // Lead status breakdown
-  const leadStatusBreakdown = useMemo(() => {
-    const statuses = {};
-    allCanonicalLeadItems.forEach(l => {
-      const s = l.status || 'Unknown';
-      statuses[s] = (statuses[s] || 0) + 1;
-    });
-    return statuses;
-  }, [allCanonicalLeadItems]);
-
   // Lead sources breakdown
   const leadSourceBreakdown = useMemo(() => {
     const sources = {};
@@ -3101,42 +3091,6 @@ const DashboardApp = ({
     });
 
     return totals;
-  }, [roiDailyItems]);
-
-  const roiSourceBreakdown = useMemo(() => {
-    const grouped = new Map();
-
-    roiDailyItems.forEach((item) => {
-      const sourceMetrics = Array.isArray(item.source_metrics) ? item.source_metrics : [];
-      sourceMetrics.forEach((metric) => {
-        const key = metric.source_key || metric.source_label || 'other';
-        const current = grouped.get(key) || {
-          sourceKey: key,
-          sourceLabel: metric.source_label || 'Other',
-          attributedLeases: 0,
-          grossLeaseValue: 0,
-          netEffectiveRevenue: 0,
-          concessionTotal: 0,
-          marketingSpend: 0,
-          performanceMarketingSpend: 0
-        };
-
-        current.attributedLeases += metric.attributed_leases || 0;
-        current.grossLeaseValue += metric.gross_lease_value || 0;
-        current.netEffectiveRevenue += metric.net_effective_revenue || 0;
-        current.concessionTotal += metric.concession_total || 0;
-        current.marketingSpend += metric.marketing_spend || 0;
-        current.performanceMarketingSpend += metric.performance_marketing_spend || 0;
-        grouped.set(key, current);
-      });
-    });
-
-    return Array.from(grouped.values())
-      .map((item) => ({
-        ...item,
-        roi: item.marketingSpend > 0 ? (item.netEffectiveRevenue - item.marketingSpend) / item.marketingSpend : null
-      }))
-      .sort((a, b) => b.netEffectiveRevenue - a.netEffectiveRevenue);
   }, [roiDailyItems]);
 
   // Daily chart data
@@ -5382,18 +5336,29 @@ const DashboardApp = ({
         </div>
       </div>
 
-      {/* ── Lead Status Breakdown ── */}
       <div className="card span-2">
-        <div className="card-title">Lead Status Breakdown</div>
-        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {Object.entries(leadStatusBreakdown).sort((a,b) => b[1] - a[1]).slice(0, 5).map(([status, count]) => (
-            <div key={status} style={{ flex: '1 1 28%', minWidth: '80px', padding: '0.5rem', background: 'rgba(255,255,255,0.1)', borderRadius: '4px' }}>
-              <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', opacity: 0.7, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{status}</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 'bold' }}>{count}</div>
-            </div>
-          ))}
-          {Object.keys(leadStatusBreakdown).length === 0 && !loading && (
-            <div style={{ opacity: 0.5, fontSize: '0.85rem' }}>No lead data for this period</div>
+        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>Marketing Plays</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem', fontSize: '0.85rem' }}>
+          {totalLeads > 0 && totalApplications / totalLeads < 0.15 && (
+            <p>• <strong>Low App Rate</strong>: Only {((totalApplications / totalLeads) * 100).toFixed(0)}% of leads applied. Consider follow-up campaigns.</p>
+          )}
+          {totalLeads === 0 && (
+            <p>• <strong>No Data</strong>: Expand the date range to see metrics.</p>
+          )}
+          {totalLeads > 0 && (
+            <p>• <strong>Top Source</strong>: {leadSourceBreakdown[0]?.name || 'N/A'} drives {leadSourceBreakdown[0]?.value || 0} leads ({totalLeads > 0 ? ((leadSourceBreakdown[0]?.value / totalLeads) * 100).toFixed(0) : 0}%).</p>
+          )}
+          {totalPerformanceMarketingCost > 0 && (
+            <p>• <strong>Cost per Lease</strong>: {costPerLease !== '—' ? `$${costPerLease}` : '—'} based on prorated paid media spend for this range.</p>
+          )}
+          {totalBlendedMarketingSpend > 0 && (
+            <p>• <strong>Total Marketing Spend</strong>: ${totalBlendedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} allocated across the selected days from tracked monthly marketing invoices.</p>
+          )}
+          {blendedRoi != null && (
+            <p>• <strong>Blended ROI</strong>: {(blendedRoi * 100).toFixed(0)}% from ${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} net effective revenue on ${roiTotals.marketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend.</p>
+          )}
+          {attributedLeaseCount > 0 && (
+            <p>• <strong>Attribution Match Rate</strong>: {attributionMatchRate}% of tracked leases are tied back to a lead record for this range.</p>
           )}
         </div>
       </div>
@@ -5414,43 +5379,6 @@ const DashboardApp = ({
           </MeasuredChart>
         ) : (
           <div style={{ opacity: 0.5, fontSize: '0.85rem', marginTop: '1rem' }}>No source data</div>
-        )}
-      </div>
-
-      <div className="card span-2" style={{ background: 'var(--panel-soft)', color: 'var(--white)' }}>
-        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>ROI by Source</div>
-        {roiSourceBreakdown.length > 0 ? (
-          <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.6rem' }}>
-            {roiSourceBreakdown.slice(0, 6).map((item) => (
-              <div
-                key={item.sourceKey}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1.5fr 0.7fr 0.9fr 0.9fr',
-                  gap: '0.75rem',
-                  paddingBottom: '0.6rem',
-                  borderBottom: '1px solid var(--panel-border)',
-                  alignItems: 'center'
-                }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600 }}>{item.sourceLabel}</div>
-                  <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>{item.attributedLeases} leases</div>
-                </div>
-                <div style={{ fontSize: '0.82rem' }}>
-                  ${item.marketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </div>
-                <div style={{ fontSize: '0.82rem' }}>
-                  ${item.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </div>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: item.roi != null && item.roi < 0 ? 'var(--primary-red)' : 'var(--white)' }}>
-                  {item.roi != null ? `${(item.roi * 100).toFixed(0)}%` : '—'}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ opacity: 0.6, marginTop: '1rem' }}>No ROI source data yet. Run the ROI aggregation after lease attribution backfill.</div>
         )}
       </div>
 
@@ -5485,61 +5413,6 @@ const DashboardApp = ({
         )}
       </div>
 
-      {/* ── Summary Stats Row ── */}
-      <div className="card span-2" style={{ background: 'var(--panel-alt)', color: 'var(--white)' }}>
-        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>Conversion Funnel</div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1rem' }}>
-          <div style={{ textAlign: 'center', flex: 1 }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{totalLeads}</div>
-            <div style={{ fontSize: '0.7rem' }}>Leads</div>
-          </div>
-          <TrendingUp size={16} style={{ opacity: 0.4 }} />
-          <div style={{ textAlign: 'center', flex: 1 }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{totalApplications}</div>
-            <div style={{ fontSize: '0.7rem' }}>Applications</div>
-          </div>
-          <TrendingUp size={16} style={{ opacity: 0.4 }} />
-          <div style={{ textAlign: 'center', flex: 1 }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{totalLeases}</div>
-            <div style={{ fontSize: '0.7rem' }}>Leases</div>
-          </div>
-          <TrendingUp size={16} style={{ opacity: 0.4 }} />
-          <div style={{ textAlign: 'center', flex: 1 }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-              {totalBlendedMarketingSpend > 0 ? `$${totalBlendedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
-            </div>
-            <div style={{ fontSize: '0.7rem' }}>Total Marketing</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="card span-2" style={{ background: 'var(--panel-alt)', color: 'var(--white)' }}>
-        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>Marketing Plays</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem', fontSize: '0.85rem' }}>
-          {totalLeads > 0 && totalApplications / totalLeads < 0.15 && (
-            <p>• <strong>Low App Rate</strong>: Only {((totalApplications / totalLeads) * 100).toFixed(0)}% of leads applied. Consider follow-up campaigns.</p>
-          )}
-          {totalLeads === 0 && (
-            <p>• <strong>No Data</strong>: Expand the date range to see metrics.</p>
-          )}
-          {totalLeads > 0 && (
-            <p>• <strong>Top Source</strong>: {leadSourceBreakdown[0]?.name || 'N/A'} drives {leadSourceBreakdown[0]?.value || 0} leads ({totalLeads > 0 ? ((leadSourceBreakdown[0]?.value / totalLeads) * 100).toFixed(0) : 0}%).</p>
-          )}
-          {totalPerformanceMarketingCost > 0 && (
-            <p>• <strong>Cost per Lease</strong>: {costPerLease !== '—' ? `$${costPerLease}` : '—'} based on prorated paid media spend for this range.</p>
-          )}
-          {totalBlendedMarketingSpend > 0 && (
-            <p>• <strong>Total Marketing Spend</strong>: ${totalBlendedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} allocated across the selected days from tracked monthly marketing invoices.</p>
-          )}
-          {blendedRoi != null && (
-            <p>• <strong>Blended ROI</strong>: {(blendedRoi * 100).toFixed(0)}% from ${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} net effective revenue on ${roiTotals.marketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend.</p>
-          )}
-          {attributedLeaseCount > 0 && (
-            <p>• <strong>Attribution Match Rate</strong>: {attributionMatchRate}% of tracked leases are tied back to a lead record for this range.</p>
-          )}
-        </div>
-      </div>
-
       <div className="card span-4" style={{ background: 'var(--panel-soft)', color: 'var(--white)' }}>
         <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>Marketing Spend Breakdown</div>
         {marketingSpendBreakdown.length > 0 ? (
@@ -5566,6 +5439,7 @@ const DashboardApp = ({
           <div style={{ opacity: 0.6, marginTop: '1rem' }}>No marketing spend rows found for this date range.</div>
         )}
       </div>
+
     </div>
   );
 
