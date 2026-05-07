@@ -2964,11 +2964,7 @@ const DashboardApp = ({
         PERFORMANCE_MARKETING_GL_CODES,
         PERFORMANCE_MARKETING_DESCRIPTIONS
       );
-      return (
-        inPerformanceGl &&
-        isActiveAdvertisingInvoice(invoice) &&
-        getAllocatedInvoiceAmountInRange(invoice, rangeDates.start, rangeDates.end) > 0
-      );
+      return inPerformanceGl && getAllocatedInvoiceAmountInRange(invoice, rangeDates.start, rangeDates.end) > 0;
     });
   }, [normalizedInvoiceItems, rangeDates]);
 
@@ -5929,24 +5925,44 @@ const DashboardApp = ({
 
         <div className="reports-kpi-grid">
           <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Net Revenue</div>
-            <div className="reports-kpi-card__value">{formatCurrency(roiTotals.netEffectiveRevenue)}</div>
-            <div className="reports-kpi-card__meta">Attributed lease revenue in the selected window</div>
+            <div className="reports-kpi-card__label">Total Leads</div>
+            <div className="reports-kpi-card__value">{formatNumber(totalLeads)}</div>
+            <div className="reports-kpi-card__meta">Apps {formatNumber(totalApplications)} | Leases {formatNumber(totalLeases)}</div>
           </div>
           <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Blended ROI</div>
-            <div className="reports-kpi-card__value">{blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'}</div>
-            <div className="reports-kpi-card__meta">Net effective revenue minus spend, divided by spend</div>
+            <div className="reports-kpi-card__label">Applications Completed</div>
+            <div className="reports-kpi-card__value">{formatNumber(totalApplications)}</div>
+            <div className="reports-kpi-card__meta">Lead-to-completed-app {applicationConversion}% | {funnelMetricSource}</div>
           </div>
           <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Leases</div>
+            <div className="reports-kpi-card__label">Leases Approved</div>
             <div className="reports-kpi-card__value">{formatNumber(totalLeases)}</div>
-            <div className="reports-kpi-card__meta">{applicationToLeaseConversion}% app to lease conversion</div>
+            <div className="reports-kpi-card__meta">App-to-approved-lease {applicationToLeaseConversion}% | Lead-to-lease {leaseConversion}%</div>
           </div>
           <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Paid Media Spend</div>
-            <div className="reports-kpi-card__value">{formatCurrency(totalPerformanceMarketingCost)}</div>
-            <div className="reports-kpi-card__meta">Google Ads + Meta-aligned performance spend</div>
+            <div className="reports-kpi-card__label">Marketing Cost</div>
+            <div className="reports-kpi-card__value">{totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data'}</div>
+            <div className="reports-kpi-card__meta">Paid media {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'} | CPL {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Lead-to-Lease Conversion</div>
+            <div className="reports-kpi-card__value">{leaseConversion}%</div>
+            <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Leases {formatNumber(totalLeases)}</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Cost Per Lead</div>
+            <div className="reports-kpi-card__value">{costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend'}</div>
+            <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Paid media {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'}</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">Cost Per Lease</div>
+            <div className="reports-kpi-card__value">{roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease, 2) : 'No spend'}</div>
+            <div className="reports-kpi-card__meta">ROI {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases {formatNumber(totalLeases)}</div>
+          </div>
+          <div className="reports-kpi-card">
+            <div className="reports-kpi-card__label">ROAS</div>
+            <div className="reports-kpi-card__value">{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}</div>
+            <div className="reports-kpi-card__meta">Net revenue {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend {roiTotals.marketingSpend > 0 ? formatCurrency(roiTotals.marketingSpend) : '—'}</div>
           </div>
         </div>
 

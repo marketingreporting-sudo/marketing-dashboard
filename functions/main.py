@@ -4284,10 +4284,7 @@ def apply_invoice_spend_to_buckets(buckets, invoice, start_date, end_date):
 
     total_days = max(count_inclusive_days(allocation_start, allocation_end), 1)
     daily_amount = amount / total_days
-    is_performance = (
-        has_invoice_classification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS)
-        and is_active_advertising_invoice(invoice)
-    )
+    is_performance = has_invoice_classification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS)
     channel = classify_invoice_channel(invoice)
 
     for day in daterange(overlap_start, overlap_end):
