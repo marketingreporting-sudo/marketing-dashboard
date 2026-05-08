@@ -318,6 +318,147 @@ def build_local_falcon_location_match_summary(properties: list[dict[str, Any]] |
     }
 
 
+def _local_falcon_report_sort_value(report: dict[str, Any]) -> int:
+    timestamp = _parse_local_falcon_number(report.get("timestamp") or report.get("last_timestamp"))
+    if timestamp is not None:
+        return int(timestamp)
+    looker_date = str(report.get("looker_date") or report.get("looker_last_date") or "")
+    if looker_date.isdigit():
+        return int(looker_date)
+    return 0
+
+
+def _normalize_local_falcon_rank(value: Any) -> int | None:
+    if value in (None, "", False):
+        return None
+    try:
+        return int(float(str(value).replace("+", "").strip()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_local_falcon_grid(detail: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(detail, dict):
+        return {"size": 0, "points": []}
+    raw_points = detail.get("data_points") if isinstance(detail.get("data_points"), list) else []
+    grid_size = int(_parse_local_falcon_number(detail.get("grid_size")) or 0)
+    if not grid_size and raw_points:
+        grid_size = int(len(raw_points) ** 0.5)
+    points = []
+    for index, point in enumerate(raw_points):
+        if not isinstance(point, dict):
+            continue
+        rank = _normalize_local_falcon_rank(point.get("rank"))
+        points.append(
+            {
+                "index": index,
+                "row": (index // grid_size) if grid_size else 0,
+                "column": (index % grid_size) if grid_size else index,
+                "lat": point.get("lat"),
+                "lng": point.get("lng"),
+                "found": bool(point.get("found")),
+                "rank": rank,
+                "rankLabel": str(rank) if rank is not None else "20+",
+                "resultCount": int(_parse_local_falcon_number(point.get("count")) or 0),
+            }
+        )
+    return {"size": grid_size, "points": points}
+
+
+def _first_non_empty_local_falcon(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value not in (None, "", False):
+            return value
+    return None
+
+
+def _derive_local_falcon_competitors(detail: dict[str, Any] | None, target_place_id: str | None) -> list[dict[str, Any]]:
+    if not isinstance(detail, dict):
+        return []
+    data_points = detail.get("data_points") if isinstance(detail.get("data_points"), list) else []
+    total_points = len(data_points)
+    if not total_points:
+        return []
+
+    competitors: dict[str, dict[str, Any]] = {}
+    for point in data_points:
+        if not isinstance(point, dict):
+            continue
+        results = point.get("results") if isinstance(point.get("results"), list) else []
+        seen_places = set()
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            place_id = str(result.get("place_id") or result.get("id") or result.get("name") or "")
+            if not place_id or place_id in seen_places:
+                continue
+            seen_places.add(place_id)
+            rank = _normalize_local_falcon_rank(result.get("rank"))
+            current = competitors.setdefault(
+                place_id,
+                {
+                    "placeId": place_id,
+                    "name": result.get("name"),
+                    "address": _first_non_empty_local_falcon(result, ("address", "full_address", "formatted_address")),
+                    "rating": _parse_local_falcon_number(_first_non_empty_local_falcon(result, ("rating", "stars"))),
+                    "reviews": _parse_local_falcon_number(_first_non_empty_local_falcon(result, ("reviews", "review_count"))),
+                    "ranks": [],
+                    "topThreeCount": 0,
+                },
+            )
+            current["name"] = current.get("name") or result.get("name")
+            current["address"] = current.get("address") or _first_non_empty_local_falcon(result, ("address", "full_address", "formatted_address"))
+            current["rating"] = current.get("rating") or _parse_local_falcon_number(_first_non_empty_local_falcon(result, ("rating", "stars")))
+            current["reviews"] = current.get("reviews") or _parse_local_falcon_number(_first_non_empty_local_falcon(result, ("reviews", "review_count")))
+            if rank is not None:
+                current["ranks"].append(rank)
+                if rank <= 3:
+                    current["topThreeCount"] += 1
+
+    rows = []
+    for item in competitors.values():
+        ranks = item.get("ranks") or []
+        found_in = len(ranks)
+        if not found_in:
+            continue
+        rows.append(
+            {
+                "placeId": item.get("placeId"),
+                "name": item.get("name"),
+                "address": item.get("address"),
+                "rating": item.get("rating"),
+                "reviews": item.get("reviews"),
+                "foundIn": found_in,
+                "foundInPercent": round((found_in / total_points) * 100, 2),
+                "arp": round(sum(ranks) / found_in, 2),
+                "atrp": round((sum(ranks) + ((total_points - found_in) * 21)) / total_points, 2),
+                "solv": round((item.get("topThreeCount", 0) / total_points) * 100, 2),
+                "isTarget": bool(target_place_id and item.get("placeId") == target_place_id),
+            }
+        )
+    return sorted(rows, key=lambda item: (not item["isTarget"], -(item.get("solv") or 0), item.get("arp") or 99))
+
+
+def _normalize_local_falcon_trends(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for item in reports:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "reportKey": item.get("report_key"),
+                "date": item.get("looker_date") or item.get("date"),
+                "label": str(item.get("date") or item.get("looker_date") or "")[:10],
+                "keyword": item.get("keyword"),
+                "arp": _parse_local_falcon_number(item.get("arp")),
+                "atrp": _parse_local_falcon_number(item.get("atrp")),
+                "solv": _parse_local_falcon_number(item.get("solv")),
+            }
+        )
+    return list(reversed(rows))
+
+
 def fetch_and_store_local_falcon_dashboard(
     property_id: str,
     place_id: str | None = None,
@@ -401,8 +542,18 @@ def fetch_and_store_local_falcon_dashboard(
         campaign_reports = campaign_data.get("reports") if isinstance(campaign_data.get("reports"), list) else []
 
     scan_reports = scan_data.get("reports") if isinstance(scan_data.get("reports"), list) else []
+    scan_reports = sorted(scan_reports, key=_local_falcon_report_sort_value, reverse=True)
     latest_report = scan_reports[0] if scan_reports else None
+    latest_scan_detail = None
+    if latest_report and latest_report.get("report_key"):
+        report_key = latest_report.get("report_key")
+        latest_scan_detail = _local_falcon_data(
+            _local_falcon_post(f"/v1/reports/{report_key}/", {"report_key": report_key}),
+            f"/v1/reports/{report_key}/",
+        )
     overview_source = location_detail or (location_reports[0] if location_reports else {}) or latest_report or {}
+    if isinstance(latest_scan_detail, dict) and latest_scan_detail.get("report_key"):
+        overview_source = latest_scan_detail
     keyword_rows = location_detail.get("keywords", []) if isinstance(location_detail, dict) else []
     if not isinstance(keyword_rows, list):
         keyword_rows = []
@@ -429,10 +580,31 @@ def fetch_and_store_local_falcon_dashboard(
             "avgArp": _parse_local_falcon_number(overview_source.get("avg_arp") or overview_source.get("arp")),
             "avgAtrp": _parse_local_falcon_number(overview_source.get("avg_atrp") or overview_source.get("atrp")),
             "avgSolv": _parse_local_falcon_number(overview_source.get("avg_solv") or overview_source.get("solv")),
+            "foundIn": int(_parse_local_falcon_number(overview_source.get("found_in")) or 0),
+            "points": int(_parse_local_falcon_number(overview_source.get("points") or overview_source.get("data_points")) or 0),
+            "foundInPercent": (
+                round(((_parse_local_falcon_number(overview_source.get("found_in")) or 0) / (_parse_local_falcon_number(overview_source.get("points") or overview_source.get("data_points")) or 1)) * 100, 2)
+                if (overview_source.get("found_in") is not None or overview_source.get("points") is not None or overview_source.get("data_points") is not None)
+                else None
+            ),
             "lastRunDate": overview_source.get("last_date") or overview_source.get("date"),
             "publicUrl": overview_source.get("public_url"),
             "pdf": overview_source.get("pdf"),
+            "heatmap": overview_source.get("heatmap"),
+            "image": overview_source.get("image"),
         },
+        "LatestScan": {
+            "reportKey": latest_scan_detail.get("report_key") if isinstance(latest_scan_detail, dict) else latest_report.get("report_key") if latest_report else None,
+            "keyword": latest_scan_detail.get("keyword") if isinstance(latest_scan_detail, dict) else latest_report.get("keyword") if latest_report else None,
+            "date": latest_scan_detail.get("date") if isinstance(latest_scan_detail, dict) else latest_report.get("date") if latest_report else None,
+            "gridSize": latest_scan_detail.get("grid_size") if isinstance(latest_scan_detail, dict) else latest_report.get("grid_size") if latest_report else None,
+            "radius": latest_scan_detail.get("radius") if isinstance(latest_scan_detail, dict) else latest_report.get("radius") if latest_report else None,
+            "measurement": latest_scan_detail.get("measurement") if isinstance(latest_scan_detail, dict) else latest_report.get("measurement") if latest_report else None,
+            "raw": latest_scan_detail or {},
+        },
+        "Grid": _normalize_local_falcon_grid(latest_scan_detail),
+        "Competitors": _derive_local_falcon_competitors(latest_scan_detail, resolved_place_id),
+        "Trends": _normalize_local_falcon_trends(scan_reports),
         "Keywords": [
             {
                 "keyword": item.get("keyword"),

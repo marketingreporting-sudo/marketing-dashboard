@@ -1088,6 +1088,15 @@ const getDeltaTone = (value) => {
   return 'neutral';
 };
 
+const getLocalFalconRankTone = (rank) => {
+  const numeric = Number(rank);
+  if (!Number.isFinite(numeric)) return 'missing';
+  if (numeric <= 3) return 'strong';
+  if (numeric <= 10) return 'moderate';
+  if (numeric <= 20) return 'weak';
+  return 'missing';
+};
+
 const shortenLabel = (value, max = 20) => {
   const text = String(value || '(not set)');
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -3800,6 +3809,23 @@ const DashboardApp = ({
   const localFalconReports = localFalconData?.Reports || [];
   const localFalconLocation = localFalconData?.Location || null;
   const localFalconLatestReport = localFalconReports[0] || null;
+  const localFalconLatestScan = localFalconData?.LatestScan || null;
+  const localFalconGrid = localFalconData?.Grid || {};
+  const localFalconGridPoints = Array.isArray(localFalconGrid?.points) ? localFalconGrid.points : [];
+  const localFalconGridSize = Number(localFalconGrid?.size || localFalconLatestScan?.gridSize || 0);
+  const localFalconCompetitors = Array.isArray(localFalconData?.Competitors) ? localFalconData.Competitors : [];
+  const localFalconTrends = Array.isArray(localFalconData?.Trends) ? localFalconData.Trends : [];
+  const localFalconTrendChartData = useMemo(() => (
+    localFalconTrends.map((item) => ({
+      name: String(item.label || item.date || '').slice(0, 10),
+      arp: Number(item.arp || 0),
+      atrp: Number(item.atrp || 0),
+      solv: Number(item.solv || 0),
+    }))
+  ), [localFalconTrends]);
+  const localFalconHeatmapUrl = localFalconOverview?.heatmap || localFalconLatestReport?.heatmap || localFalconLatestScan?.raw?.heatmap;
+  const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
+  const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
   const heatmapTotals = heatmapSummaryData?.totals || {};
   const heatmapPoints = useMemo(() => (
     (heatmapSummaryData?.points || [])
@@ -6050,6 +6076,102 @@ const DashboardApp = ({
                   <div className="reports-stat"><span>Average Rank</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgArp, 2)}</strong><small>{localFalconLoading ? 'Loading…' : `${formatNumber(localFalconOverview?.keywordCount)} tracked keywords`}</small></div>
                   <div className="reports-stat"><span>Top Rank Position</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgAtrp, 2)}</strong><small>{localFalconStatusMessage || localFalconOverview?.lastRunDate || localFalconData?.Status?.message || 'Latest Local Falcon scan set'}</small></div>
                 </div>
+                <div className="reports-panel__grid reports-panel__grid--three" style={{ marginTop: '0.9rem' }}>
+                  <div className="reports-stat"><span>Found In</span><strong>{localFalconLoading ? '…' : `${formatNumber(localFalconOverview?.foundInPercent, 1)}%`}</strong><small>{formatNumber(localFalconOverview?.foundIn)} of {formatNumber(localFalconOverview?.points)} grid points</small></div>
+                  <div className="reports-stat"><span>Latest Keyword</span><strong>{localFalconLoading ? '…' : shortenLabel(localFalconLatestScan?.keyword || localFalconLatestReport?.keyword || '—', 28)}</strong><small>{localFalconLatestScan?.date || localFalconOverview?.lastRunDate || 'Latest scan date pending'}</small></div>
+                  <div className="reports-stat"><span>Grid</span><strong>{localFalconLoading ? '…' : `${formatNumber(localFalconGridSize)}x${formatNumber(localFalconGridSize)}`}</strong><small>{localFalconLatestScan?.radius ? `${localFalconLatestScan.radius}${localFalconLatestScan.measurement || ''} radius` : 'Grid radius pending'}</small></div>
+                </div>
+
+                {(localFalconHeatmapUrl || localFalconReportUrl || localFalconPdfUrl) && (
+                  <div className="local-falcon-report-card">
+                    <div className="local-falcon-report-card__media">
+                      {localFalconHeatmapUrl ? (
+                        <img src={localFalconHeatmapUrl} alt="Local Falcon heatmap" />
+                      ) : (
+                        <div className="reports-empty">No heatmap image is available for the latest scan.</div>
+                      )}
+                    </div>
+                    <div className="local-falcon-report-card__content">
+                      <div className="reports-panel__eyebrow">Latest Scan Detail</div>
+                      <div className="reports-list">
+                        <div className="reports-list__row"><div><strong>{localFalconLatestScan?.keyword || localFalconLatestReport?.keyword || 'Latest Local Falcon scan'}</strong><small>{localFalconLatestScan?.date || localFalconOverview?.lastRunDate || 'Scan date pending'}</small></div><div>{formatNumber(localFalconOverview?.avgSolv, 2)} SoLV</div></div>
+                        <div className="reports-list__row"><div><strong>{localFalconLocation?.match?.name || localFalconLocation?.name || 'Matched Local Falcon location'}</strong><small>{localFalconLocation?.placeId || 'Place ID pending'}</small></div><div>{formatNumber(localFalconCompetitors.length)} competitors</div></div>
+                      </div>
+                      <div className="local-falcon-report-card__actions">
+                        {localFalconReportUrl && <a href={localFalconReportUrl} target="_blank" rel="noreferrer">Open Report</a>}
+                        {localFalconPdfUrl && <a href={localFalconPdfUrl} target="_blank" rel="noreferrer">PDF</a>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {localFalconGridPoints.length > 0 && (
+                  <div className="local-falcon-section">
+                    <div className="reports-panel__eyebrow">Grid Rank Map</div>
+                    <div className="local-falcon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(localFalconGridSize, 1)}, minmax(0, 1fr))` }}>
+                      {localFalconGridPoints.map((point) => (
+                        <div key={point.index} className={`local-falcon-grid__cell local-falcon-grid__cell--${getLocalFalconRankTone(point.rank)}`}>
+                          <strong>{point.rankLabel}</strong>
+                          <small>{formatNumber(point.resultCount)} results</small>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="local-falcon-grid-legend">
+                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--strong" /> 1-3 strong</span>
+                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--moderate" /> 4-10 moderate</span>
+                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--weak" /> 11-20 weak</span>
+                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--missing" /> 20+ missing</span>
+                    </div>
+                  </div>
+                )}
+
+                {localFalconTrendChartData.length > 1 && (
+                  <div className="local-falcon-section">
+                    <div className="reports-panel__eyebrow">Ranking Trend</div>
+                    <MeasuredChart className="analytics-chart analytics-chart--compact">
+                      {({ width, height }) => (
+                        <LineChart width={width} height={height} data={localFalconTrendChartData} margin={CHART_MARGIN_STANDARD}>
+                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
+                          <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                          <YAxis yAxisId="rank" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} reversed />
+                          <YAxis yAxisId="solv" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
+                          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
+                          <Line yAxisId="rank" type="monotone" dataKey="arp" name="ARP" stroke={CHART_COLOR_GOLD} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_GOLD }} />
+                          <Line yAxisId="rank" type="monotone" dataKey="atrp" name="ATRP" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
+                          <Line yAxisId="solv" type="monotone" dataKey="solv" name="SoLV" stroke={CHART_COLOR_GREEN} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_GREEN }} />
+                        </LineChart>
+                      )}
+                    </MeasuredChart>
+                  </div>
+                )}
+
+                {localFalconCompetitors.length > 0 && (
+                  <div className="local-falcon-section">
+                    <div className="reports-panel__eyebrow">Competitor Comparison</div>
+                    <div className="local-falcon-competitor-table">
+                      <div className="local-falcon-competitor-table__head">Business</div>
+                      <div className="local-falcon-competitor-table__head">ARP</div>
+                      <div className="local-falcon-competitor-table__head">ATRP</div>
+                      <div className="local-falcon-competitor-table__head">SoLV</div>
+                      <div className="local-falcon-competitor-table__head">Found</div>
+                      <div className="local-falcon-competitor-table__head">Rating</div>
+                      {localFalconCompetitors.slice(0, 12).map((item) => (
+                        <React.Fragment key={item.placeId || item.name}>
+                          <div className="local-falcon-competitor-table__cell">
+                            <strong>{item.name || 'Unnamed competitor'}{item.isTarget ? ' (Selected)' : ''}</strong>
+                            <small>{item.address || item.placeId || 'Address unavailable'}</small>
+                          </div>
+                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.arp, 2)}</div>
+                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.atrp, 2)}</div>
+                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.solv, 2)}</div>
+                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.foundIn)} pts</div>
+                          <div className="local-falcon-competitor-table__cell">{item.rating != null ? `${formatNumber(item.rating, 1)} (${formatNumber(item.reviews)})` : '—'}</div>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="reports-list">
                   {localFalconKeywords.slice(0, 5).map((item) => (
                     <div key={item.keyword || item.lastScanReportKey} className="reports-list__row">
@@ -6071,7 +6193,7 @@ const DashboardApp = ({
                   ))}
                   {localFalconKeywords.length === 0 && localFalconReports.length === 0 && <div className="reports-empty">{localFalconStatusMessage || 'No Local Falcon reports are available for this property and date range.'}</div>}
                 </div>
-                {(localFalconLatestReport?.publicUrl || localFalconLatestReport?.heatmap || localFalconOverview?.publicUrl || localFalconLocation?.placeId) && (
+                {(localFalconReportUrl || localFalconHeatmapUrl || localFalconPdfUrl || localFalconLocation?.placeId) && (
                   <div className="reports-list" style={{ marginTop: '0.9rem' }}>
                     <div className="reports-list__row">
                       <div>
@@ -6079,9 +6201,9 @@ const DashboardApp = ({
                         <small>{localFalconLocation?.placeId || 'Place ID pending'}</small>
                       </div>
                       <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        {(localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl) && <a href={localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl} target="_blank" rel="noreferrer">Open report</a>}
-                        {localFalconLatestReport?.heatmap && <a href={localFalconLatestReport.heatmap} target="_blank" rel="noreferrer">Heatmap</a>}
-                        {(localFalconLatestReport?.pdf || localFalconOverview?.pdf) && <a href={localFalconLatestReport?.pdf || localFalconOverview?.pdf} target="_blank" rel="noreferrer">PDF</a>}
+                        {localFalconReportUrl && <a href={localFalconReportUrl} target="_blank" rel="noreferrer">Open report</a>}
+                        {localFalconHeatmapUrl && <a href={localFalconHeatmapUrl} target="_blank" rel="noreferrer">Heatmap</a>}
+                        {localFalconPdfUrl && <a href={localFalconPdfUrl} target="_blank" rel="noreferrer">PDF</a>}
                       </div>
                     </div>
                   </div>
