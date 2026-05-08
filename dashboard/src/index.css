@@ -651,6 +651,71 @@ h1, h2, h3 {
   gap: 1rem;
 }
 
+.marketing-spend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 6.6rem;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.marketing-spend-toggle__track {
+  position: relative;
+  width: 1.75rem;
+  height: 0.95rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.marketing-spend-toggle__knob {
+  position: absolute;
+  top: 0.16rem;
+  left: 0.16rem;
+  width: 0.63rem;
+  height: 0.63rem;
+  border-radius: 999px;
+  background: currentColor;
+  transition: transform 160ms ease;
+}
+
+.marketing-spend-toggle.is-included .marketing-spend-toggle__knob {
+  transform: translateX(0.78rem);
+}
+
+.marketing-spend-toggle.is-excluded {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.marketing-spend-report-row.is-excluded {
+  opacity: 0.58;
+}
+
+.marketing-spend-report-row__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  white-space: nowrap;
+}
+
+.reports-list__row .marketing-spend-toggle {
+  border-color: rgba(16, 33, 38, 0.14);
+  background: rgba(16, 33, 38, 0.06);
+}
+
+.reports-list__row .marketing-spend-toggle__track {
+  background: rgba(16, 33, 38, 0.16);
+}
+
 .reports-empty {
   padding: 1rem;
   border-radius: 18px;

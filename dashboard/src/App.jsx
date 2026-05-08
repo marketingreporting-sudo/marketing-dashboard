@@ -92,20 +92,6 @@ const PERFORMANCE_MARKETING_DESCRIPTIONS = [
   'internet advertising',
   'ppc management fees'
 ];
-const ACTIVE_ADVERTISING_PATTERNS = [
-  'apartments.com',
-  'google ads',
-  'facebook ads',
-  'meta ads',
-  'social ads',
-  'rent college pads',
-  'rentcollegepads',
-  'zillow',
-  'find my place',
-  'myplace',
-  'geofencing',
-  'digible'
-];
 const ALL_MARKETING_DESCRIPTIONS = [
   'general advertising & marketing',
   'internet advertising',
@@ -410,6 +396,11 @@ const normalizeSavedDashboardState = (savedState, fallbackPropertyId) => {
     ? nextState.customRange
     : {};
   const savedTab = nextState.activeTab === 'notes' ? 'tasks' : nextState.activeTab;
+  const excludedMarketingSpendKeys = Array.isArray(nextState.excludedMarketingSpendKeys)
+    ? nextState.excludedMarketingSpendKeys
+        .map((item) => String(item))
+        .filter(Boolean)
+    : [];
 
   return {
     activeTab: NAV_ITEMS.some((item) => item.id === savedTab) ? savedTab : 'dashboard',
@@ -422,6 +413,7 @@ const normalizeSavedDashboardState = (savedState, fallbackPropertyId) => {
     metaAdsAttributionMode: META_ADS_ATTRIBUTION_MODES.has(nextState.metaAdsAttributionMode)
       ? nextState.metaAdsAttributionMode
       : 'account_default',
+    excludedMarketingSpendKeys,
   };
 };
 
@@ -676,6 +668,8 @@ const getInvoiceBreakdownLabel = (invoice) => {
   return accountLabel || vendorName || 'Unlabeled marketing cost';
 };
 
+const getMarketingSpendExclusionKey = (label) => String(label || 'Unlabeled marketing cost').trim().toLowerCase();
+
 const getInvoiceEffectiveDate = (invoice) => {
   return (
     parseEntrataDate(invoice.postDate) ||
@@ -749,11 +743,6 @@ const hasInvoiceClassification = (invoice, allowedCodes, allowedDescriptions) =>
 
   const searchSpace = collectPrimitiveValues(invoice).join(' ').toLowerCase();
   return allowedDescriptions.some((description) => searchSpace.includes(description));
-};
-
-const isActiveAdvertisingInvoice = (invoice) => {
-  const searchSpace = collectPrimitiveValues(invoice).join(' ').toLowerCase();
-  return ACTIVE_ADVERTISING_PATTERNS.some((pattern) => searchSpace.includes(pattern));
 };
 
 const getScopedStableKey = (propertyId, fallbackValue) => {
@@ -1277,6 +1266,7 @@ const DashboardApp = ({
     };
   });
   const [selectedPropertyId, setSelectedPropertyId] = useState(savedWorkspaceState.selectedPropertyId);
+  const [excludedMarketingSpendKeys, setExcludedMarketingSpendKeys] = useState(savedWorkspaceState.excludedMarketingSpendKeys);
   const [loading, setLoading] = useState(true);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
   const [roiLoading, setRoiLoading] = useState(true);
@@ -1301,7 +1291,7 @@ const DashboardApp = ({
   const [heatmapSiteNotice, setHeatmapSiteNotice] = useState(null);
   const [heatmapSiteDoc, setHeatmapSiteDoc] = useState(HEATMAP_SITE_DEFAULT_CONFIG);
   const [heatmapSiteDraft, setHeatmapSiteDraft] = useState(HEATMAP_SITE_DEFAULT_CONFIG);
-  const [heatmapPagesLoading, setHeatmapPagesLoading] = useState(false);
+  const [, setHeatmapPagesLoading] = useState(false);
   const [heatmapSummaryLoading, setHeatmapSummaryLoading] = useState(false);
   const [siteAuditLoading, setSiteAuditLoading] = useState(false);
   const [siteAuditRunning, setSiteAuditRunning] = useState(false);
@@ -1564,9 +1554,10 @@ const DashboardApp = ({
         customRange,
         selectedPropertyId,
         metaAdsAttributionMode,
+        excludedMarketingSpendKeys,
       })
     );
-  }, [activeTab, customRange, dateRange, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
+  }, [activeTab, customRange, dateRange, excludedMarketingSpendKeys, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
 
   useEffect(() => {
     if (!canEditReportingLayout && reportingAdminEnabled) {
@@ -2845,6 +2836,33 @@ const DashboardApp = ({
     });
   }, [normalizedInvoiceItems, rangeDates]);
 
+  const excludedMarketingSpendKeySet = useMemo(() => (
+    new Set(excludedMarketingSpendKeys)
+  ), [excludedMarketingSpendKeys]);
+
+  const includedMarketingInvoices = useMemo(() => (
+    allMarketingInvoices.filter((invoice) => {
+      const label = getInvoiceBreakdownLabel(invoice);
+      return !excludedMarketingSpendKeySet.has(getMarketingSpendExclusionKey(label));
+    })
+  ), [allMarketingInvoices, excludedMarketingSpendKeySet]);
+
+  const includedPerformanceMarketingInvoices = useMemo(() => (
+    performanceMarketingInvoices.filter((invoice) => {
+      const label = getInvoiceBreakdownLabel(invoice);
+      return !excludedMarketingSpendKeySet.has(getMarketingSpendExclusionKey(label));
+    })
+  ), [performanceMarketingInvoices, excludedMarketingSpendKeySet]);
+
+  const toggleMarketingSpendLine = useCallback((label) => {
+    const key = getMarketingSpendExclusionKey(label);
+    setExcludedMarketingSpendKeys((currentKeys) => (
+      currentKeys.includes(key)
+        ? currentKeys.filter((item) => item !== key)
+        : [...currentKeys, key]
+    ));
+  }, []);
+
   const leadStatusBreakdown = useMemo(() => {
     const statuses = {};
     allCanonicalLeadItems.forEach((lead) => {
@@ -2871,19 +2889,19 @@ const DashboardApp = ({
   // Marketing cost from invoices
   const totalPerformanceMarketingCost = useMemo(() => {
     let total = 0;
-    performanceMarketingInvoices.forEach(inv => {
+    includedPerformanceMarketingInvoices.forEach(inv => {
       total += getAllocatedInvoiceAmountInRange(inv, rangeDates.start, rangeDates.end);
     });
     return total;
-  }, [performanceMarketingInvoices, rangeDates]);
+  }, [includedPerformanceMarketingInvoices, rangeDates]);
 
   const totalBlendedMarketingSpend = useMemo(() => {
     let total = 0;
-    allMarketingInvoices.forEach((invoice) => {
+    includedMarketingInvoices.forEach((invoice) => {
       total += getAllocatedInvoiceAmountInRange(invoice, rangeDates.start, rangeDates.end);
     });
     return total;
-  }, [allMarketingInvoices, rangeDates]);
+  }, [includedMarketingInvoices, rangeDates]);
 
   const marketingSpendBreakdown = useMemo(() => {
     const groupedSpend = new Map();
@@ -2896,9 +2914,17 @@ const DashboardApp = ({
     });
 
     return Array.from(groupedSpend.entries())
-      .map(([label, amount]) => ({ label, amount }))
+      .map(([label, amount]) => ({
+        label,
+        amount,
+        excluded: excludedMarketingSpendKeySet.has(getMarketingSpendExclusionKey(label)),
+      }))
       .sort((a, b) => b.amount - a.amount);
-  }, [allMarketingInvoices, rangeDates]);
+  }, [allMarketingInvoices, excludedMarketingSpendKeySet, rangeDates]);
+
+  const activeMarketingSpendLineCount = useMemo(() => (
+    marketingSpendBreakdown.filter((item) => !item.excluded).length
+  ), [marketingSpendBreakdown]);
 
   const specialItems = useMemo(() => {
     return extractSpecialItems(specialsSnapshot);
@@ -3951,7 +3977,7 @@ const DashboardApp = ({
   const reportingPanelSummaries = useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
-    budget: `${marketingSpendBreakdown.length} tracked spend lines | ${formatCurrency(totalPerformanceMarketingCost)} paid media`,
+    budget: `${activeMarketingSpendLineCount} active spend lines | ${formatCurrency(totalPerformanceMarketingCost)} paid media`,
     entrata: `${totalLeads} leads | ${totalApplications} apps | ${totalLeases} leases`,
     'google-ads': googleAdsLoading ? 'Loading paid search metrics' : googleAdsStatusMessage ? 'Google Ads connection needs attention' : `${formatNumber(googleAdsOverview?.clicks)} clicks | ${formatCurrency(googleAdsOverview?.cost)} spend`,
     ga4: ga4Loading ? 'Loading analytics metrics' : ga4Blocked ? 'GA4 access required' : `${formatNumber(ga4Sessions)} sessions | ${formatNumber(ga4EventTotal)} tracked events`,
@@ -3972,7 +3998,7 @@ const DashboardApp = ({
     localFalconLoading,
     localFalconOverview,
     localFalconStatusMessage,
-    marketingSpendBreakdown.length,
+    activeMarketingSpendLineCount,
     metaAdsLoading,
     metaAdsOverview,
     heatmapSummaryLoading,
@@ -5371,14 +5397,30 @@ const DashboardApp = ({
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
+                  alignItems: 'center',
                   gap: '1rem',
                   paddingBottom: '0.75rem',
-                  borderBottom: '1px solid var(--panel-border)'
+                  borderBottom: '1px solid var(--panel-border)',
+                  opacity: item.excluded ? 0.48 : 1
                 }}
               >
                 <div style={{ maxWidth: '75%' }}>{item.label}</div>
-                <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>
-                  ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+                  <button
+                    type="button"
+                    className={`marketing-spend-toggle ${item.excluded ? 'is-excluded' : 'is-included'}`}
+                    aria-pressed={!item.excluded}
+                    onClick={() => toggleMarketingSpendLine(item.label)}
+                    title={item.excluded ? 'Include this spend line' : 'Exclude this spend line from totals'}
+                  >
+                    <span className="marketing-spend-toggle__track">
+                      <span className="marketing-spend-toggle__knob" />
+                    </span>
+                    <span>{item.excluded ? 'Excluded' : 'Included'}</span>
+                  </button>
+                  <div style={{ fontWeight: 600, whiteSpace: 'nowrap', textDecoration: item.excluded ? 'line-through' : 'none' }}>
+                    ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
                 </div>
               </div>
             ))}
@@ -5951,18 +5993,32 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Spend Control</div>
                 <div className="reports-panel__title">Budget Tracking</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Total Marketing</span><strong>{formatCurrency(totalBlendedMarketingSpend)}</strong><small>All tracked marketing GL codes</small></div>
+                  <div className="reports-stat"><span>Total Marketing</span><strong>{formatCurrency(totalBlendedMarketingSpend)}</strong><small>{activeMarketingSpendLineCount} active marketing GL lines</small></div>
                   <div className="reports-stat"><span>Performance Marketing</span><strong>{formatCurrency(totalPerformanceMarketingCost)}</strong><small>Paid media + PPC management</small></div>
-                  <div className="reports-stat"><span>Tracked Cost Lines</span><strong>{formatNumber(marketingSpendBreakdown.length)}</strong><small>Invoice buckets in range</small></div>
+                  <div className="reports-stat"><span>Tracked Cost Lines</span><strong>{formatNumber(activeMarketingSpendLineCount)}</strong><small>{marketingSpendBreakdown.length - activeMarketingSpendLineCount} excluded from totals</small></div>
                 </div>
                 <div className="reports-list">
                   {marketingSpendBreakdown.slice(0, 6).map((item) => (
-                    <div key={item.label} className="reports-list__row">
+                    <div key={item.label} className={`reports-list__row marketing-spend-report-row ${item.excluded ? 'is-excluded' : ''}`}>
                       <div>
                         <strong>{item.label}</strong>
-                        <small>Allocated within the selected reporting window</small>
+                        <small>{item.excluded ? 'Excluded from selected reporting window totals' : 'Included in selected reporting window totals'}</small>
                       </div>
-                      <div>{formatCurrency(item.amount)}</div>
+                      <div className="marketing-spend-report-row__actions">
+                        <button
+                          type="button"
+                          className={`marketing-spend-toggle ${item.excluded ? 'is-excluded' : 'is-included'}`}
+                          aria-pressed={!item.excluded}
+                          onClick={() => toggleMarketingSpendLine(item.label)}
+                          title={item.excluded ? 'Include this spend line' : 'Exclude this spend line from totals'}
+                        >
+                          <span className="marketing-spend-toggle__track">
+                            <span className="marketing-spend-toggle__knob" />
+                          </span>
+                          <span>{item.excluded ? 'Excluded' : 'Included'}</span>
+                        </button>
+                        <div>{formatCurrency(item.amount)}</div>
+                      </div>
                     </div>
                   ))}
                   {marketingSpendBreakdown.length === 0 && <div className="reports-empty">No marketing spend rows matched this date range.</div>}
