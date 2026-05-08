@@ -111,7 +111,7 @@ export default function HeatmapRenderer({
   const pageSurfaceStyle = zoomMode === 'fit'
     ? {
         width: pageWidthPercent,
-        minWidth: pageMinWidth,
+        minWidth: 0,
         maxWidth: '100%',
         margin: '0 auto',
       }
@@ -140,7 +140,7 @@ export default function HeatmapRenderer({
   }, [screenshotUrl]);
 
   return (
-    <div>
+    <div className="heatmap-renderer">
       <div className="heatmap-renderer-toolbar">
         <div className="heatmap-layer-control" aria-label="Heatmap layers">
           {Object.entries(LAYER_META).map(([layer, meta]) => (
@@ -185,9 +185,8 @@ export default function HeatmapRenderer({
         style={{
           position: 'relative',
           width: '100%',
-          minHeight: 520,
-          maxHeight: 820,
-          aspectRatio: '16 / 9',
+          height: 'clamp(420px, 54vw, 760px)',
+          minHeight: 0,
           border: '1px solid var(--panel-border)',
           borderRadius: 8,
           overflow: 'hidden',
