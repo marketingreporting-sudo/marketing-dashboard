@@ -3,7 +3,7 @@
  * Plugin Name: Redstone Website Editor
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.5.0
+ * Version: 1.5.3
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -15,6 +15,7 @@ if (!defined('ABSPATH')) {
 
 if (!class_exists('Redstone_Website_Manager')) {
     final class Redstone_Website_Manager {
+        const PLUGIN_VERSION = '1.5.3';
         const OPTION_KEY = 'redstone_website_manager_content';
         const SCHEMA_OPTION_KEY = 'redstone_website_manager_schema';
         const MENU_SLUG = 'redstone-website-manager';
@@ -176,7 +177,8 @@ if (!class_exists('Redstone_Website_Manager')) {
             add_action('admin_menu', array($this, 'register_admin_page'));
             add_action('admin_init', array($this, 'register_setting'));
             add_action('rest_api_init', array($this, 'register_rest_routes'));
-            add_action('template_redirect', array($this, 'start_frontend_buffer'));
+            add_action('init', array($this, 'mark_frontend_no_cache'), 0);
+            add_action('template_redirect', array($this, 'start_frontend_buffer'), 0);
         }
 
         public function register_admin_page() {
@@ -321,12 +323,16 @@ if (!class_exists('Redstone_Website_Manager')) {
         }
 
         public function handle_rest_get(WP_REST_Request $request) {
+            $this->send_no_cache_headers();
+
             return rest_ensure_response(
                 array(
+                    'plugin_version' => self::PLUGIN_VERSION,
                     'content' => $this->get_content(),
                     'schema' => $this->get_flat_schema(),
                     'schema_groups' => $this->get_schema(),
                     'tracking_config' => $this->get_tracking_config(),
+                    'cache_capabilities' => $this->get_cache_capabilities(),
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
@@ -366,10 +372,12 @@ if (!class_exists('Redstone_Website_Manager')) {
             return rest_ensure_response(
                 array(
                     'success' => true,
+                    'plugin_version' => self::PLUGIN_VERSION,
                     'content' => $normalized,
                     'schema' => $this->get_flat_schema(),
                     'schema_groups' => $this->get_schema(),
                     'tracking_config' => $this->get_tracking_config(),
+                    'cache_capabilities' => $this->get_cache_capabilities(),
                     'updated_at' => get_option(self::OPTION_KEY . '_updated_at'),
                 )
             );
@@ -421,9 +429,45 @@ if (!class_exists('Redstone_Website_Manager')) {
             return trim((string) get_option(self::SHARED_SECRET_OPTION, ''));
         }
 
+        public function mark_frontend_no_cache() {
+            if (is_admin() || wp_doing_ajax() || (defined('REST_REQUEST') && REST_REQUEST)) {
+                return;
+            }
+
+            $this->define_no_cache_constants();
+        }
+
+        private function define_no_cache_constants() {
+            if (!defined('DONOTCACHEPAGE')) {
+                define('DONOTCACHEPAGE', true);
+            }
+            if (!defined('DONOTCACHEOBJECT')) {
+                define('DONOTCACHEOBJECT', true);
+            }
+            if (!defined('DONOTCACHEDB')) {
+                define('DONOTCACHEDB', true);
+            }
+        }
+
+        private function send_no_cache_headers() {
+            $this->define_no_cache_constants();
+            if (function_exists('nocache_headers') && !headers_sent()) {
+                nocache_headers();
+            }
+            if (!headers_sent()) {
+                header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+                header('Pragma: no-cache');
+                header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
+                header('X-Redstone-Website-Manager: ' . self::PLUGIN_VERSION);
+            }
+        }
+
         private function flush_common_caches() {
             if (function_exists('wp_cache_flush')) {
                 wp_cache_flush();
+            }
+            if (function_exists('wp_cache_clear_cache')) {
+                wp_cache_clear_cache();
             }
             if (function_exists('rocket_clean_domain')) {
                 rocket_clean_domain();
@@ -437,10 +481,50 @@ if (!class_exists('Redstone_Website_Manager')) {
             if (function_exists('litespeed_purge_all')) {
                 litespeed_purge_all();
             }
+            do_action('litespeed_purge_all');
             if (function_exists('sg_cachepress_purge_everything')) {
                 sg_cachepress_purge_everything();
             }
+            if (function_exists('sg_cachepress_purge_cache')) {
+                sg_cachepress_purge_cache();
+            }
+            if (function_exists('wpaas_flush_cache')) {
+                wpaas_flush_cache();
+            }
+            if (function_exists('breeze_clear_all_cache')) {
+                breeze_clear_all_cache();
+            }
+            if (class_exists('autoptimizeCache') && method_exists('autoptimizeCache', 'clearall')) {
+                autoptimizeCache::clearall();
+            }
+            if (class_exists('WpeCommon') && method_exists('WpeCommon', 'purge_memcached')) {
+                WpeCommon::purge_memcached();
+            }
+            if (class_exists('WpeCommon') && method_exists('WpeCommon', 'clear_maxcdn_cache')) {
+                WpeCommon::clear_maxcdn_cache();
+            }
+            if (class_exists('WpeCommon') && method_exists('WpeCommon', 'purge_varnish_cache')) {
+                WpeCommon::purge_varnish_cache();
+            }
+            do_action('redstone_website_manager_cache_flush_requested');
             do_action('redstone_website_manager_cache_flushed');
+        }
+
+        private function get_cache_capabilities() {
+            return array(
+                'wp_cache_flush' => function_exists('wp_cache_flush'),
+                'wp_cache_clear_cache' => function_exists('wp_cache_clear_cache'),
+                'rocket_clean_domain' => function_exists('rocket_clean_domain'),
+                'w3tc_flush_all' => function_exists('w3tc_flush_all'),
+                'wpfc_clear_all_cache' => function_exists('wpfc_clear_all_cache'),
+                'litespeed_purge_all' => function_exists('litespeed_purge_all'),
+                'sg_cachepress_purge_everything' => function_exists('sg_cachepress_purge_everything'),
+                'sg_cachepress_purge_cache' => function_exists('sg_cachepress_purge_cache'),
+                'wpaas_flush_cache' => function_exists('wpaas_flush_cache'),
+                'breeze_clear_all_cache' => function_exists('breeze_clear_all_cache'),
+                'autoptimize_cache' => class_exists('autoptimizeCache') && method_exists('autoptimizeCache', 'clearall'),
+                'wp_engine_cache' => class_exists('WpeCommon'),
+            );
         }
 
         /**
@@ -1010,6 +1094,7 @@ if (!class_exists('Redstone_Website_Manager')) {
                 return;
             }
 
+            $this->send_no_cache_headers();
             ob_start(array($this, 'replace_tokens_in_html'));
         }
 

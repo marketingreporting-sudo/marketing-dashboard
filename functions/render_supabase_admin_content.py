@@ -806,7 +806,8 @@ def _truncate_preview(value: str, limit: int = 180) -> str:
 def _build_wordpress_payload(record: dict[str, Any], tracking_config: dict[str, Any] | None = None) -> dict[str, Any]:
     content = record.get("content") if isinstance(record.get("content"), dict) else {}
     derived = record.get("derivedContent") if isinstance(record.get("derivedContent"), dict) else {}
-    schema = record.get("schema") if isinstance(record.get("schema"), dict) else WEBSITE_MANAGER_DEFAULT_SCHEMA
+    has_explicit_schema = isinstance(record.get("schema"), dict)
+    schema = record.get("schema") if has_explicit_schema else WEBSITE_MANAGER_DEFAULT_SCHEMA
     schema_keys = {
         str(field.get("key"))
         for group in schema.get("groups", [])
@@ -837,7 +838,7 @@ def _build_wordpress_payload(record: dict[str, Any], tracking_config: dict[str, 
     for source_key, raw_value in content.items():
         if source_key == WEBSITE_MANAGER_SCHEMA_META_KEY:
             continue
-        if schema_keys and source_key not in schema_keys:
+        if has_explicit_schema and schema_keys and source_key not in schema_keys:
             continue
         target_key = WORDPRESS_FIELD_MAP.get(source_key, source_key)
         payload[target_key] = _normalize_text(raw_value)
