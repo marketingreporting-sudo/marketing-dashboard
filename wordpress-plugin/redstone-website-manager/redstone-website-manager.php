@@ -3,7 +3,7 @@
  * Plugin Name: Redstone Website Editor
  * Plugin URI: https://redstone.example
  * Description: Stores editable website content fields for Redstone-managed WordPress properties and exposes them to themes plus a secure REST endpoint.
- * Version: 1.5.3
+ * Version: 1.5.4
  * Author: Redstone
  * License: GPL-2.0-or-later
  * Text Domain: redstone-website-manager
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 
 if (!class_exists('Redstone_Website_Manager')) {
     final class Redstone_Website_Manager {
-        const PLUGIN_VERSION = '1.5.3';
+        const PLUGIN_VERSION = '1.5.4';
         const OPTION_KEY = 'redstone_website_manager_content';
         const SCHEMA_OPTION_KEY = 'redstone_website_manager_schema';
         const MENU_SLUG = 'redstone-website-manager';
@@ -179,6 +179,8 @@ if (!class_exists('Redstone_Website_Manager')) {
             add_action('rest_api_init', array($this, 'register_rest_routes'));
             add_action('init', array($this, 'mark_frontend_no_cache'), 0);
             add_action('template_redirect', array($this, 'start_frontend_buffer'), 0);
+            add_filter('wp_headers', array($this, 'override_frontend_cache_headers'), PHP_INT_MAX);
+            add_action('send_headers', array($this, 'send_frontend_no_cache_headers'), PHP_INT_MAX);
         }
 
         public function register_admin_page() {
@@ -437,6 +439,28 @@ if (!class_exists('Redstone_Website_Manager')) {
             $this->define_no_cache_constants();
         }
 
+        public function override_frontend_cache_headers($headers) {
+            if (is_admin() || wp_doing_ajax()) {
+                return $headers;
+            }
+
+            $this->define_no_cache_constants();
+            $headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
+            $headers['Pragma'] = 'no-cache';
+            $headers['Expires'] = 'Wed, 11 Jan 1984 05:00:00 GMT';
+            $headers['X-Redstone-Website-Manager'] = self::PLUGIN_VERSION;
+
+            return $headers;
+        }
+
+        public function send_frontend_no_cache_headers() {
+            if (is_admin() || wp_doing_ajax()) {
+                return;
+            }
+
+            $this->send_no_cache_headers();
+        }
+
         private function define_no_cache_constants() {
             if (!defined('DONOTCACHEPAGE')) {
                 define('DONOTCACHEPAGE', true);
@@ -455,10 +479,11 @@ if (!class_exists('Redstone_Website_Manager')) {
                 nocache_headers();
             }
             if (!headers_sent()) {
-                header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-                header('Pragma: no-cache');
-                header('Expires: Wed, 11 Jan 1984 05:00:00 GMT');
-                header('X-Redstone-Website-Manager: ' . self::PLUGIN_VERSION);
+                header_remove('Cache-Control');
+                header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0', true);
+                header('Pragma: no-cache', true);
+                header('Expires: Wed, 11 Jan 1984 05:00:00 GMT', true);
+                header('X-Redstone-Website-Manager: ' . self::PLUGIN_VERSION, true);
             }
         }
 

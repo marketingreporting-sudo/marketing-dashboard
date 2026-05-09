@@ -234,6 +234,6 @@ The token format is the preferred builder approach for this pilot.
   - `redstone_website_manager_shared_secret`
 - Last REST update time is stored in: `redstone_website_manager_content_updated_at`
 - Frontend token replacement runs through output buffering on normal frontend page loads.
-- Frontend pages and the plugin REST endpoint send no-cache headers and common WordPress `DONOTCACHE*` constants so token-rendered pages are less likely to be stored by page caches.
+- Frontend pages and the plugin REST endpoint send no-cache headers, common WordPress `DONOTCACHE*` constants, and a late header override so token-rendered pages are less likely to be stored by page caches.
 - On successful REST updates, the plugin flushes WordPress object cache and common page-cache integrations when available, including WP Rocket, W3 Total Cache, WP Fastest Cache, LiteSpeed, SiteGround Optimizer, GoDaddy/WPaaS cache, Breeze, Autoptimize, and WP Engine cache hooks.
 - REST responses include `plugin_version` and `cache_capabilities` so you can confirm the installed plugin version and see which cache purge integrations are available on that WordPress site.
