@@ -229,14 +229,25 @@ export const normalizeHeatmapSiteConfig = (value) => {
   const screenshotMinIntervalHours = Number(safeValue.screenshotMinIntervalHours ?? 24);
   const rawEventRetentionDays = Number(safeValue.rawEventRetentionDays ?? 90);
   const aggregateRetentionDays = Number(safeValue.aggregateRetentionDays ?? 730);
+  const allowedDomains = Array.isArray(safeValue.allowedDomains)
+    ? safeValue.allowedDomains.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const expandedDomains = allowedDomains.reduce((items, domain) => {
+    const normalized = domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+    const variants = normalized.startsWith('www.')
+      ? [normalized, normalized.slice(4)]
+      : [normalized, normalized.includes('.') ? `www.${normalized}` : ''];
+    variants.filter(Boolean).forEach((variant) => {
+      if (!items.includes(variant)) items.push(variant);
+    });
+    return items;
+  }, []);
   return {
     ...HEATMAP_SITE_DEFAULT_CONFIG,
     id: String(safeValue.id || ''),
     name: String(safeValue.name || ''),
     siteKey: String(safeValue.siteKey || ''),
-    allowedDomains: Array.isArray(safeValue.allowedDomains)
-      ? safeValue.allowedDomains.map((item) => String(item || '').trim()).filter(Boolean)
-      : [],
+    allowedDomains: expandedDomains,
     trackingEnabled: Boolean(safeValue.trackingEnabled),
     samplingRate: Number.isFinite(samplingRate) ? Math.max(0, Math.min(1, samplingRate)) : 0.10,
     featureFlags: {

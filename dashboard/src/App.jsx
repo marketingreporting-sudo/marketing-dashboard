@@ -7,6 +7,7 @@ import {
   HEATMAP_SITES_URL,
   HEATMAP_PAGES_URL,
   HEATMAP_SUMMARY_URL,
+  HEATMAP_TRACKER_HEALTH_URL,
   HEATMAP_TRACKER_URL,
   META_ADS_DASHBOARD_URL,
   PROPERTY_REPORTING_OVERVIEW_URL,
@@ -1298,6 +1299,8 @@ const DashboardApp = ({
   const [heatmapPanelError, setHeatmapPanelError] = useState(null);
   const [heatmapPagesData, setHeatmapPagesData] = useState(null);
   const [heatmapSummaryData, setHeatmapSummaryData] = useState(null);
+  const [heatmapTrackerHealthData, setHeatmapTrackerHealthData] = useState(null);
+  const [heatmapTrackerHealthLoading, setHeatmapTrackerHealthLoading] = useState(false);
   const [siteAuditPagesData, setSiteAuditPagesData] = useState(null);
   const [siteAuditSummaryData, setSiteAuditSummaryData] = useState(null);
   const [portfolioAuditLoading, setPortfolioAuditLoading] = useState(false);
@@ -2211,6 +2214,44 @@ const DashboardApp = ({
     };
 
     loadHeatmapSummary();
+    return () => controller.abort();
+  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
+
+  useEffect(() => {
+    if (!propertyScopedSelectionId || !HEATMAP_TRACKER_HEALTH_URL || !selectedHeatmapPath) {
+      setHeatmapTrackerHealthData(null);
+      setHeatmapTrackerHealthLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const loadTrackerHealth = async () => {
+      setHeatmapTrackerHealthLoading(true);
+      try {
+        const params = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          path: selectedHeatmapPath,
+          device_type: selectedHeatmapDevice,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
+        const response = await authFetch(`${HEATMAP_TRACKER_HEALTH_URL}?${params.toString()}`, { signal: controller.signal });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Tracker health fetch failed: ${response.status}`);
+        }
+        setHeatmapTrackerHealthData(payload);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Tracker health fetch failed', error);
+        setHeatmapTrackerHealthData(null);
+      } finally {
+        if (!controller.signal.aborted) setHeatmapTrackerHealthLoading(false);
+      }
+    };
+
+    loadTrackerHealth();
     return () => controller.abort();
   }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
 
@@ -3853,6 +3894,10 @@ const DashboardApp = ({
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
   const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
   const heatmapTotals = heatmapSummaryData?.totals || {};
+  const trackerHealth = heatmapTrackerHealthData?.health || {};
+  const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
+    ? heatmapTrackerHealthData.recommendations
+    : [];
   const heatmapPoints = useMemo(() => (
     (heatmapSummaryData?.points || [])
       .filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice)
@@ -5523,10 +5568,10 @@ const DashboardApp = ({
           <strong>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Page snapshot' : 'Waiting for snapshot'}</strong>
           <small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : selectedAuditPage?.latestSnapshotId ? 'Snapshot record available.' : 'No page snapshot yet.'}</small>
         </div>
-        <div className={`heatmap-audit-status-card ${lastTrackerEventAt ? 'is-healthy' : 'is-pending'}`}>
-          <span>{lastTrackerEventAt ? 'Tracker event seen' : 'Tracker event pending'}</span>
-          <strong>{lastTrackerEventAt ? 'Tracker active' : 'No event yet'}</strong>
-          <small>{lastTrackerEventAt ? getSnapshotTimestampLabel(lastTrackerEventAt) : 'No tracker event observed for this page yet.'}</small>
+        <div className={`heatmap-audit-status-card ${trackerHealth.trackerScriptObserved || lastTrackerEventAt ? 'is-healthy' : 'is-pending'}`}>
+          <span>{trackerHealth.trackerScriptObserved || lastTrackerEventAt ? 'Tracker event seen' : 'Tracker event pending'}</span>
+          <strong>{heatmapTrackerHealthLoading ? 'Checking…' : trackerHealth.latestCollectStatus || (lastTrackerEventAt ? 'Tracker active' : 'No event yet')}</strong>
+          <small>{trackerHealth.latestEventAt ? getSnapshotTimestampLabel(trackerHealth.latestEventAt) : lastTrackerEventAt ? getSnapshotTimestampLabel(lastTrackerEventAt) : 'No tracker event observed for this page yet.'}</small>
         </div>
       </div>
 
@@ -5541,7 +5586,16 @@ const DashboardApp = ({
             <div><span>Events with coordinates</span><strong>{formatNumber(heatmapCoordinateDiagnostics.withCoordinates)}</strong></div>
             <div><span>Rejected from renderer</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rejectedFromRenderer)}</strong></div>
             <div><span>Device mismatch count</span><strong>{formatNumber(heatmapCoordinateDiagnostics.deviceMismatch)}</strong></div>
+            <div><span>Tracker diagnostics</span><strong>{formatNumber(trackerHealth.countsByType?.tracker_diagnostic || 0)}</strong></div>
+            <div><span>Sample rate</span><strong>{trackerHealth.sampleRate != null ? `${Math.round(Number(trackerHealth.sampleRate || 0) * 100)}%` : '—'}</strong></div>
+            <div><span>DNT respected</span><strong>{trackerHealth.respectDnt ? 'Yes' : 'No'}</strong></div>
+            <div><span>Allowed domains</span><strong>{formatNumber((trackerHealth.allowedDomains || []).length)}</strong></div>
           </div>
+          {trackerRecommendations.length > 0 && (
+            <div className="heatmap-tracker-health-list">
+              {trackerRecommendations.slice(0, 4).map((item) => <span key={item}>{item}</span>)}
+            </div>
+          )}
         </div>
       )}
 

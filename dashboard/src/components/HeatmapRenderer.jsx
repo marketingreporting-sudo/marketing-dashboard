@@ -10,7 +10,10 @@ const LAYER_META = {
 const EVENT_TO_LAYER = {
   click: 'click',
   cta_click: 'click',
+  pointerdown: 'click',
+  touchstart: 'click',
   mousemove: 'cursor',
+  pointermove: 'cursor',
   scroll: 'scroll',
   engagement: 'engagement',
 };
@@ -36,14 +39,29 @@ const ZOOM_OPTIONS = [
   { key: '150', label: '150%' },
 ];
 
-const aggregatePoints = (points, activeLayers, gridSize = 24) => {
+const coordinatePercent = (point, axis, screenshot) => {
+  const pctKey = axis === 'x' ? 'xPct' : 'yPct';
+  const pageKey = axis === 'x' ? 'pageX' : 'pageY';
+  const documentKey = axis === 'x' ? 'documentWidth' : 'documentHeight';
+  const screenshotKey = axis === 'x' ? 'width' : 'height';
+  const captureMetrics = screenshot?.captureMetrics || {};
+  const direct = parsePercent(point[pctKey]);
+  if (direct != null) return direct;
+  const pageValue = Number(point[pageKey]);
+  const documentValue = Number(point[documentKey] || captureMetrics[documentKey] || screenshot?.[screenshotKey]);
+  if (Number.isFinite(pageValue) && Number.isFinite(documentValue) && documentValue > 0) {
+    return clampPercent(pageValue / documentValue);
+  }
+  return null;
+};
+
+const aggregatePoints = (points, activeLayers, screenshot, gridSize = 24) => {
   const cells = new Map();
   points.forEach((point) => {
     const layer = EVENT_TO_LAYER[point.type] || point.type;
     if (!activeLayers[layer] || layer === 'scroll') return;
-    if (point.xPct == null || point.yPct == null) return;
-    const xPct = parsePercent(point.xPct);
-    const yPct = parsePercent(point.yPct);
+    const xPct = coordinatePercent(point, 'x', screenshot);
+    const yPct = coordinatePercent(point, 'y', screenshot);
     if (xPct == null || yPct == null) return;
     if (xPct <= 0.001 && yPct <= 0.001 && !point.targetLabel && !point.targetHref) return;
     const gridX = Math.min(gridSize - 1, Math.floor(xPct * gridSize));
@@ -93,7 +111,7 @@ export default function HeatmapRenderer({
     engagement: activeLayers?.engagement === true,
   };
   const activeLayerCount = Object.values(layers).filter(Boolean).length;
-  const aggregateCells = useMemo(() => aggregatePoints(points, layers), [points, layers]);
+  const aggregateCells = useMemo(() => aggregatePoints(points, layers, screenshot), [points, layers, screenshot]);
   const maxScroll = clampPercent(totals.maxScrollDepthPct);
   const hasScreenshot = Boolean(screenshotUrl);
   const [zoomMode, setZoomMode] = useState('fit');

@@ -56,6 +56,7 @@ from render_supabase_heatmaps import (
     create_site_screenshot_upload_url_payload,
     get_heatmap_pages_summary,
     get_heatmap_summary,
+    get_heatmap_tracker_health_summary,
     get_heatmap_tracker_payload,
     list_site_audit_portfolio_summary,
     get_site_audit_pages_summary,
@@ -796,6 +797,41 @@ def create_app() -> Flask:
                 start_date_value=request.args.get("start_date") or req_json.get("start_date"),
                 end_date_value=request.args.get("end_date") or req_json.get("end_date"),
                 site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/heatmaps/tracker-health", methods=["GET", "POST", "OPTIONS"])
+    def heatmap_tracker_health():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = get_heatmap_tracker_health_summary(
+                str(property_id),
+                start_date_value=request.args.get("start_date") or req_json.get("start_date"),
+                end_date_value=request.args.get("end_date") or req_json.get("end_date"),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                path=request.args.get("path") or req_json.get("path"),
+                device_type=request.args.get("device_type") or request.args.get("deviceType") or req_json.get("device_type") or req_json.get("deviceType"),
                 access_token=access_token,
             )
             return build_cors_json_response(payload)

@@ -178,6 +178,13 @@ HTTP_ENDPOINT_SPECS = (
         render_handler="get_heatmap_pages_summary",
     ),
     HttpEndpointSpec(
+        route="/api/heatmaps/tracker-health",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="render_only",
+        purpose="Read property-scoped tracker diagnostics for live heatmap QA.",
+        render_handler="get_heatmap_tracker_health_summary",
+    ),
+    HttpEndpointSpec(
         route="/api/admin/heatmap-sites",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="render_only",

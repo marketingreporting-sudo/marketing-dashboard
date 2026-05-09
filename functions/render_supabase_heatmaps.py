@@ -20,7 +20,22 @@ from render_supabase_validation import (
 )
 
 
-HEATMAP_EVENT_TYPES = {"click", "mousemove", "scroll", "engagement", "visibility", "pageview", "cta_click", "page_duration"}
+HEATMAP_EVENT_TYPES = {
+    "click",
+    "mousemove",
+    "pointermove",
+    "pointerdown",
+    "touchstart",
+    "scroll",
+    "engagement",
+    "visibility",
+    "viewport",
+    "first_interaction",
+    "tracker_diagnostic",
+    "pageview",
+    "cta_click",
+    "page_duration",
+}
 HEATMAP_BATCH_LIMIT = 250
 HEATMAP_DEFAULT_DAYS = 28
 HEATMAP_DEFAULT_SAMPLE_RATE = 0.10
@@ -491,13 +506,39 @@ def _fetch_site_by_key(site_key: str) -> dict[str, Any] | None:
     return rows[0] if rows else None
 
 
+def _expand_allowed_domains(domains: list[Any]) -> list[str]:
+    def preserve_www(value: Any) -> str:
+        text = _normalize_text(value, 2048)
+        if not text:
+            return ""
+        parsed = urlparse(text if "://" in text else f"https://{text}")
+        return (parsed.hostname or "").lower()
+
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for item in domains:
+        host = preserve_www(item)
+        if not host:
+            continue
+        candidates = [host]
+        if host.startswith("www."):
+            candidates.append(host[4:])
+        elif "." in host:
+            candidates.append(f"www.{host}")
+        for candidate in candidates:
+            if candidate and candidate not in seen:
+                seen.add(candidate)
+                expanded.append(candidate)
+    return expanded
+
+
 def _shape_site(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row.get("id"),
         "propertyId": row.get("property_id"),
         "siteKey": row.get("site_key"),
         "name": row.get("name") or "",
-        "allowedDomains": row.get("allowed_domains") or [],
+        "allowedDomains": _expand_allowed_domains(row.get("allowed_domains") if isinstance(row.get("allowed_domains"), list) else []),
         "trackingEnabled": bool(row.get("tracking_enabled")),
         "samplingRate": float(row.get("sampling_rate") or 0),
         "featureFlags": _normalize_feature_flags(row.get("feature_flags")),
@@ -564,7 +605,7 @@ def save_heatmap_site_summary(property_id: str, payload: dict[str, Any], access_
     row = {
         "property_id": str(property_id),
         "name": _normalize_text(payload.get("name"), 160),
-        "allowed_domains": [_hostname_from_value(item) for item in allowed_domains if _hostname_from_value(item)],
+        "allowed_domains": _expand_allowed_domains(allowed_domains),
         "tracking_enabled": bool(payload.get("trackingEnabled", payload.get("tracking_enabled", True))),
         "sampling_rate": max(0, min(1, sampling_rate)),
         "feature_flags": _normalize_feature_flags(payload.get("featureFlags") or payload.get("feature_flags")),
@@ -1412,6 +1453,8 @@ def collect_heatmap_payload(
     return {
         "status": "ok",
         "accepted": len(event_rows),
+        "received": len(events_payload),
+        "rejected": max(0, len(events_payload) - len(event_rows)),
         "siteKey": site_key,
         "propertyId": site.get("property_id"),
         "pageId": page_row.get("id") if page_row else None,
@@ -1611,7 +1654,7 @@ def get_heatmap_summary(
             session_keys.add(str(event.get("session_key")))
         counts_by_type[event_kind] = counts_by_type.get(event_kind, 0) + 1
         counts_by_path[event_path] = counts_by_path.get(event_path, 0) + 1
-        if event_kind in {"click", "cta_click"}:
+        if event_kind in {"click", "cta_click", "pointerdown", "touchstart"}:
             target_label = _normalize_text(raw_data.get("targetLabel") or event.get("target_id") or event.get("target_classes") or event.get("target_tag"), 160)
             if target_label:
                 target_counts[target_label] = target_counts.get(target_label, 0) + 1
@@ -1628,6 +1671,14 @@ def get_heatmap_summary(
                     "sessionKey": event.get("session_key"),
                     "xPct": event.get("x_pct"),
                     "yPct": event.get("y_pct"),
+                    "viewportWidth": event.get("viewport_width"),
+                    "viewportHeight": event.get("viewport_height"),
+                    "documentWidth": event.get("document_width"),
+                    "documentHeight": event.get("document_height"),
+                    "pageX": event.get("page_x"),
+                    "pageY": event.get("page_y"),
+                    "clientX": event.get("x"),
+                    "clientY": event.get("y"),
                     "scrollDepthPct": event.get("scroll_depth_pct"),
                     "targetTag": event.get("target_tag"),
                     "targetId": event.get("target_id"),
@@ -1656,9 +1707,15 @@ def get_heatmap_summary(
             "events": len(events),
             "clicks": counts_by_type.get("click", 0),
             "ctaClicks": counts_by_type.get("cta_click", 0),
+            "pointerDowns": counts_by_type.get("pointerdown", 0),
+            "touchStarts": counts_by_type.get("touchstart", 0),
             "mouseMoves": counts_by_type.get("mousemove", 0),
+            "pointerMoves": counts_by_type.get("pointermove", 0),
             "engagements": counts_by_type.get("engagement", 0),
             "scrolls": counts_by_type.get("scroll", 0),
+            "viewportEvents": counts_by_type.get("viewport", 0),
+            "firstInteractions": counts_by_type.get("first_interaction", 0),
+            "trackerDiagnostics": counts_by_type.get("tracker_diagnostic", 0),
             "pageDurationEvents": counts_by_type.get("page_duration", 0),
             "avgScrollDepthPct": (scroll_depth_total / scroll_depth_count) if scroll_depth_count else 0.0,
             "maxScrollDepthPct": max_scroll_depth,
@@ -1674,6 +1731,140 @@ def get_heatmap_summary(
         ],
         "points": points[:2500],
         "sessions": sorted(session_keys)[:100],
+        "staging_only": True,
+    }
+
+
+def get_heatmap_tracker_health_summary(
+    property_id: str,
+    *,
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+    site_key: str | None = None,
+    path: str | None = None,
+    device_type: str | None = None,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    end_date = _parse_iso_date(end_date_value) or datetime.now(timezone.utc).date()
+    start_date = _parse_iso_date(start_date_value) or (end_date - timedelta(days=HEATMAP_DEFAULT_DAYS - 1))
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    site_rows: list[dict[str, Any]]
+    if site_key:
+        site = _fetch_site_by_key(site_key)
+        site_rows = [site] if site and str(site.get("property_id")) == str(property_id) else []
+    else:
+        site_rows = _fetch_json(
+            "property_heatmap_sites",
+            [
+                ("select", "*"),
+                ("property_id", f"eq.{property_id}"),
+                ("order", "created_at.asc"),
+                ("limit", "1"),
+            ],
+            headers=_supabase_anon_headers(access_token),
+        )
+    site = site_rows[0] if site_rows else None
+    shaped_site = _shape_site(site) if site else None
+    site_id = str(site.get("id")) if site else ""
+
+    filters = [
+        ("select", "event_type,occurred_at,path,raw_data,session_key,x_pct,y_pct"),
+        ("property_id", f"eq.{property_id}"),
+        ("occurred_at", f"gte.{start_date.isoformat()}T00:00:00+00:00"),
+        ("occurred_at", f"lte.{end_date.isoformat()}T23:59:59+00:00"),
+        ("order", "occurred_at.desc"),
+        ("limit", "1000"),
+    ]
+    if site_id:
+        filters.append(("site_id", f"eq.{site_id}"))
+    if path:
+        filters.append(("path", f"eq.{_normalize_text(path, 1024)}"))
+
+    events = _fetch_json("property_heatmap_events", filters, headers=_supabase_anon_headers(access_token))
+    normalized_device_type = _normalize_text(device_type, 40).lower()
+    if normalized_device_type in {"desktop", "mobile", "tablet"}:
+        events = [
+            event for event in events
+            if (event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}).get("deviceType") == normalized_device_type
+        ]
+
+    counts_by_type: dict[str, int] = {}
+    latest_event_at = None
+    latest_collect_status = ""
+    latest_diagnostic_at = None
+    coordinate_events = 0
+    session_keys: set[str] = set()
+    for event in events:
+        event_type = str(event.get("event_type") or "")
+        counts_by_type[event_type] = counts_by_type.get(event_type, 0) + 1
+        if event.get("session_key"):
+            session_keys.add(str(event.get("session_key")))
+        if event.get("x_pct") is not None or event.get("y_pct") is not None:
+            coordinate_events += 1
+        occurred_at = event.get("occurred_at")
+        latest_event_at = latest_event_at or occurred_at
+        raw_data = event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}
+        if event_type == "tracker_diagnostic":
+            latest_diagnostic_at = latest_diagnostic_at or occurred_at
+            latest_collect_status = latest_collect_status or _normalize_text(raw_data.get("lastCollectStatus") or raw_data.get("stage"), 80)
+
+    allowed_domains = shaped_site.get("allowedDomains") if shaped_site else []
+    missing_domain_variants: list[str] = []
+    for host in allowed_domains:
+        if host.startswith("www."):
+            counterpart = host[4:]
+        else:
+            counterpart = f"www.{host}" if "." in host else ""
+        if counterpart and counterpart not in allowed_domains:
+            missing_domain_variants.append(counterpart)
+
+    sampling_rate = float(shaped_site.get("samplingRate") or 0) if shaped_site else 0
+    recommendations = []
+    if not shaped_site:
+        recommendations.append("No heatmap site configuration was found for this property.")
+    elif not shaped_site.get("trackingEnabled"):
+        recommendations.append("Tracking is disabled for this site.")
+    if shaped_site and not allowed_domains:
+        recommendations.append("Add at least one allowed domain before testing live tracking.")
+    if missing_domain_variants:
+        recommendations.append(f"Add matching www/non-www allowed domain variants: {', '.join(missing_domain_variants[:4])}.")
+    if shaped_site and sampling_rate < 1:
+        recommendations.append("For QA, temporarily set sampling to 1.0 so test sessions are not sampled out.")
+    if shaped_site and shaped_site.get("respectDnt"):
+        recommendations.append("For QA, turn browser DNT off or temporarily disable Respect DNT.")
+    if not latest_event_at:
+        recommendations.append("No tracker event has been observed in the selected range yet.")
+
+    return {
+        "status": "ok",
+        "property_id": str(property_id),
+        "range": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+        "filters": {
+            "siteKey": site_key or "",
+            "path": path or "",
+            "deviceType": normalized_device_type if normalized_device_type in {"desktop", "mobile", "tablet"} else "",
+        },
+        "site": shaped_site,
+        "health": {
+            "trackerScriptExpected": bool(shaped_site and shaped_site.get("trackingEnabled") and shaped_site.get("siteKey")),
+            "trackerScriptObserved": bool(latest_event_at),
+            "latestEventAt": latest_event_at,
+            "latestDiagnosticAt": latest_diagnostic_at,
+            "latestCollectStatus": latest_collect_status,
+            "eventsAccepted": len(events),
+            "eventsWithCoordinates": coordinate_events,
+            "sessionsObserved": len(session_keys),
+            "sampleRate": sampling_rate,
+            "sampleMayRejectQaSessions": bool(sampling_rate and sampling_rate < 1),
+            "consentMode": shaped_site.get("consentMode") if shaped_site else "",
+            "respectDnt": bool(shaped_site.get("respectDnt")) if shaped_site else False,
+            "allowedDomains": allowed_domains,
+            "missingDomainVariants": missing_domain_variants,
+            "countsByType": counts_by_type,
+        },
+        "recommendations": recommendations,
         "staging_only": True,
     }
 
@@ -1785,6 +1976,13 @@ def get_site_screenshot_preview_summary(
             "storagePath": storage_path,
             "width": screenshot.get("width"),
             "height": screenshot.get("height"),
+            "captureMetrics": {
+                "viewportWidth": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(screenshot.get("device_type") or ""), {}).get("width"),
+                "viewportHeight": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(screenshot.get("device_type") or ""), {}).get("height"),
+                "documentWidth": screenshot.get("width"),
+                "documentHeight": screenshot.get("height"),
+                "deviceScaleFactor": 1,
+            },
             "contentHash": screenshot.get("content_hash"),
             "capturedAt": screenshot.get("captured_at"),
         },
@@ -1817,6 +2015,13 @@ def _shape_audit_page(page: dict[str, Any], snapshot: dict[str, Any] | None, scr
                 "storagePath": item.get("storage_path"),
                 "width": item.get("width"),
                 "height": item.get("height"),
+                "captureMetrics": {
+                    "viewportWidth": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(item.get("device_type") or ""), {}).get("width"),
+                    "viewportHeight": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(item.get("device_type") or ""), {}).get("height"),
+                    "documentWidth": item.get("width"),
+                    "documentHeight": item.get("height"),
+                    "deviceScaleFactor": 1,
+                },
                 "contentHash": item.get("content_hash"),
                 "capturedAt": item.get("captured_at"),
             }
@@ -2290,6 +2495,19 @@ def build_tracker_script(
   var SCROLL_THROTTLE_MS = 1000;
   var DWELL_MS = 2000;
   var startedAt = Date.now();
+  var status = window.__REDSTONE_TRACKER_STATUS = {{
+    loaded: true,
+    siteKey: SITE_KEY,
+    scriptLoadedAt: new Date().toISOString(),
+    sampleRate: SAMPLE_RATE,
+    sampleAccepted: null,
+    consentAllowed: null,
+    blockedReason: '',
+    lastCollectStatus: '',
+    lastCollectAt: '',
+    eventsAccepted: 0,
+    eventsQueued: 0
+  }};
   if (!SITE_KEY) return;
   if (!FEATURE_FLAGS.heatmaps && !FEATURE_FLAGS.pageSnapshots && !FEATURE_FLAGS.screenshots) return;
 
@@ -2310,7 +2528,12 @@ def build_tracker_script(
     return true;
   }}
 
-  if (!hasConsent()) return;
+  if (!hasConsent()) {{
+    status.consentAllowed = false;
+    status.blockedReason = 'consent_or_dnt';
+    return;
+  }}
+  status.consentAllowed = true;
 
   function sessionId() {{
     var key = '__redstone_tracker_sid';
@@ -2331,7 +2554,12 @@ def build_tracker_script(
     return included;
   }}
 
-  if (!sampledIn()) return;
+  if (!sampledIn()) {{
+    status.sampleAccepted = false;
+    status.blockedReason = 'sampled_out';
+    return;
+  }}
+  status.sampleAccepted = true;
 
   var sid = sessionId();
   var queue = [];
@@ -2339,6 +2567,8 @@ def build_tracker_script(
   var lastScroll = 0;
   var lastDwell = 0;
   var lastPointer = null;
+  var lastDwellKey = '';
+  var firstInteractionSent = false;
   var pageSent = false;
 
   function absoluteUrl(value) {{
@@ -2436,6 +2666,33 @@ def build_tracker_script(
       targetLabel: actionLabel(action || target),
       isCta: isCta(target)
     }};
+  }}
+
+  function markFirstInteraction(source, target) {{
+    if (firstInteractionSent) return;
+    firstInteractionSent = true;
+    enqueue('first_interaction', Object.assign({{
+      source: source || 'unknown',
+      firstInteractionMs: Date.now() - startedAt
+    }}, targetMeta(target)));
+  }}
+
+  function pointerPayload(e, extra) {{
+    var size = docSize();
+    var pageX = typeof e.pageX === 'number' ? e.pageX : (window.scrollX + (e.clientX || 0));
+    var pageY = typeof e.pageY === 'number' ? e.pageY : (window.scrollY + (e.clientY || 0));
+    return Object.assign({{
+      x: e.clientX || 0,
+      y: e.clientY || 0,
+      pageX: pageX,
+      pageY: pageY,
+      viewportXPct: (e.clientX || 0) / Math.max(1, window.innerWidth || 1),
+      viewportYPct: (e.clientY || 0) / Math.max(1, window.innerHeight || 1),
+      xPct: pageX / Math.max(1, size.documentWidth),
+      yPct: pageY / Math.max(1, size.documentHeight),
+      pointerType: e.pointerType || extra && extra.pointerType || '',
+      isPrimary: e.isPrimary !== false
+    }}, extra || {{}});
   }}
 
   function findMetaDescription() {{
@@ -2542,6 +2799,7 @@ def build_tracker_script(
 
   function enqueue(type, data) {{
     queue.push({{ type: type, occurredAt: new Date().toISOString(), data: Object.assign(common(), data || {{}}) }});
+    status.eventsQueued += 1;
     if (queue.length >= MAX_QUEUE) flush();
   }}
 
@@ -2574,62 +2832,109 @@ def build_tracker_script(
     }});
     pageSent = true;
     if (navigator.sendBeacon) {{
-      navigator.sendBeacon(COLLECTOR_URL, new Blob([payload], {{ type: 'application/json' }}));
+      var queuedCount = events.length;
+      var beaconAccepted = navigator.sendBeacon(COLLECTOR_URL, new Blob([payload], {{ type: 'application/json' }}));
+      status.lastCollectStatus = beaconAccepted ? 'beacon_queued' : 'beacon_rejected';
+      status.lastCollectAt = new Date().toISOString();
+      if (beaconAccepted) status.eventsAccepted += queuedCount;
     }} else {{
-      fetch(COLLECTOR_URL, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: payload, keepalive: true }}).catch(function() {{}});
+      fetch(COLLECTOR_URL, {{ method: 'POST', headers: {{ 'Content-Type': 'application/json' }}, body: payload, keepalive: true }})
+        .then(function(response) {{
+          status.lastCollectStatus = response.ok ? 'ok' : 'http_' + response.status;
+          status.lastCollectAt = new Date().toISOString();
+          return response.json ? response.json().catch(function() {{ return null; }}) : null;
+        }})
+        .then(function(result) {{
+          if (result && typeof result.accepted === 'number') status.eventsAccepted += result.accepted;
+        }})
+        .catch(function() {{
+          status.lastCollectStatus = 'fetch_error';
+          status.lastCollectAt = new Date().toISOString();
+        }});
     }}
   }}
 
   enqueue('pageview', {{ scrollY: window.scrollY, scrollDepthPct: scrollDepth() }});
+  enqueue('tracker_diagnostic', {{
+    stage: 'loaded',
+    sampleAccepted: true,
+    consentAllowed: true,
+    featureFlags: FEATURE_FLAGS,
+    screenshotCaptureFrequency: SCREENSHOT_CAPTURE_FREQUENCY,
+    loadedAt: new Date().toISOString()
+  }});
   document.addEventListener('click', function(e) {{
     if (isSensitiveElement(e.target)) return;
-    var size = docSize();
+    markFirstInteraction('click', e.target);
     var meta = targetMeta(e.target);
-    var point = Object.assign({{
-      x: e.clientX,
-      y: e.clientY,
-      pageX: e.pageX,
-      pageY: e.pageY,
-      viewportXPct: e.clientX / Math.max(1, window.innerWidth || 1),
-      viewportYPct: e.clientY / Math.max(1, window.innerHeight || 1),
-      xPct: e.pageX / Math.max(1, size.documentWidth),
-      yPct: e.pageY / Math.max(1, size.documentHeight)
-    }}, meta);
+    var point = Object.assign(pointerPayload(e), meta);
     enqueue('click', point);
     if (meta.isCta) enqueue('cta_click', point);
   }}, true);
-  document.addEventListener('mousemove', function(e) {{
+
+  function handlePointerMove(e, eventType) {{
     if (isSensitiveElement(e.target)) return;
     var now = Date.now();
     if (now - lastMove < MOVE_THROTTLE_MS) return;
     lastMove = now;
-    var size = docSize();
-    lastPointer = {{ x: e.clientX, y: e.clientY, pageX: e.pageX, pageY: e.pageY, at: now }};
-    enqueue('mousemove', {{
-      x: e.clientX,
-      y: e.clientY,
-      pageX: e.pageX,
-      pageY: e.pageY,
-      viewportXPct: e.clientX / Math.max(1, window.innerWidth || 1),
-      viewportYPct: e.clientY / Math.max(1, window.innerHeight || 1),
-      xPct: e.pageX / Math.max(1, size.documentWidth),
-      yPct: e.pageY / Math.max(1, size.documentHeight)
-    }});
-  }}, {{ passive: true }});
+    var point = pointerPayload(e);
+    lastPointer = {{ x: point.x, y: point.y, pageX: point.pageX, pageY: point.pageY, pointerType: point.pointerType, at: now }};
+    lastDwellKey = '';
+    enqueue(eventType, point);
+  }}
+  if (window.PointerEvent) {{
+    document.addEventListener('pointermove', function(e) {{ handlePointerMove(e, 'pointermove'); }}, {{ passive: true }});
+    document.addEventListener('pointerdown', function(e) {{
+      if (isSensitiveElement(e.target)) return;
+      markFirstInteraction('pointerdown', e.target);
+      var point = Object.assign(pointerPayload(e), targetMeta(e.target));
+      lastPointer = {{ x: point.x, y: point.y, pageX: point.pageX, pageY: point.pageY, pointerType: point.pointerType, at: Date.now() }};
+      if (e.pointerType && e.pointerType !== 'mouse') enqueue('pointerdown', point);
+    }}, {{ passive: true }});
+  }} else {{
+    document.addEventListener('mousemove', function(e) {{ handlePointerMove(e, 'mousemove'); }}, {{ passive: true }});
+    document.addEventListener('touchstart', function(e) {{
+      var touch = e.changedTouches && e.changedTouches[0];
+      if (!touch || isSensitiveElement(e.target)) return;
+      markFirstInteraction('touchstart', e.target);
+      var synthetic = {{
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        pageX: touch.pageX,
+        pageY: touch.pageY,
+        pointerType: 'touch',
+        isPrimary: true
+      }};
+      enqueue('touchstart', Object.assign(pointerPayload(synthetic), targetMeta(e.target)));
+    }}, {{ passive: true }});
+  }}
   window.addEventListener('scroll', function() {{
     var now = Date.now();
     if (now - lastScroll < 1000) return;
     lastScroll = now;
+    markFirstInteraction('scroll', document.documentElement);
     enqueue('scroll', {{
       scrollX: window.scrollX,
       scrollY: window.scrollY,
       scrollDepthPct: scrollDepth()
     }});
   }}, {{ passive: true }});
+  function enqueueViewport(reason) {{
+    enqueue('viewport', Object.assign({{
+      reason: reason || 'resize',
+      orientation: window.screen && window.screen.orientation ? window.screen.orientation.type : '',
+      scrollDepthPct: scrollDepth()
+    }}, docSize()));
+  }}
+  window.addEventListener('resize', function() {{ enqueueViewport('resize'); }}, {{ passive: true }});
+  window.addEventListener('orientationchange', function() {{ enqueueViewport('orientationchange'); }}, {{ passive: true }});
   window.setInterval(function() {{
     if (!lastPointer) return;
     var now = Date.now();
-    if (now - lastDwell < DWELL_MS) return;
+    if (now - lastPointer.at < DWELL_MS || now - lastDwell < DWELL_MS) return;
+    var dwellKey = [Math.round(lastPointer.pageX / 12), Math.round(lastPointer.pageY / 12), lastPointer.pointerType || ''].join(':');
+    if (dwellKey === lastDwellKey) return;
+    lastDwellKey = dwellKey;
     lastDwell = now;
     var size = docSize();
     enqueue('engagement', {{
@@ -2647,11 +2952,13 @@ def build_tracker_script(
   window.addEventListener('visibilitychange', function() {{
     if (document.visibilityState === 'hidden') {{
       enqueue('visibility', {{ state: 'hidden' }});
+      enqueue('tracker_diagnostic', {{ stage: 'hidden_flush', lastCollectStatus: status.lastCollectStatus, eventsQueued: status.eventsQueued, eventsAccepted: status.eventsAccepted }});
       flush();
     }}
   }});
   window.addEventListener('pagehide', function() {{
     enqueue('page_duration', {{ engagementMs: Date.now() - startedAt, scrollDepthPct: scrollDepth() }});
+    enqueue('tracker_diagnostic', {{ stage: 'pagehide_flush', lastCollectStatus: status.lastCollectStatus, eventsQueued: status.eventsQueued, eventsAccepted: status.eventsAccepted }});
     flush();
   }});
   window.setInterval(flush, FLUSH_MS);

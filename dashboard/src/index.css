@@ -834,6 +834,20 @@ h1, h2, h3 {
   font-size: 1.05rem;
 }
 
+.heatmap-tracker-health-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.heatmap-tracker-health-list span {
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  background: rgba(238, 196, 94, 0.12);
+  color: rgba(16, 33, 38, 0.72);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .heatmap-audit-preview,
 .heatmap-audit-rail,
 .heatmap-audit-interactions {
@@ -5711,6 +5725,7 @@ th {
 .dashboard-container--reports .heatmap-coordinate-diagnostics__heading small,
 .dashboard-container--reports .heatmap-audit-status-card small,
 .dashboard-container--reports .heatmap-audit-compact-empty,
+.dashboard-container--reports .heatmap-tracker-health-list span,
 .dashboard-container--reports .heatmap-audit-card__details,
 .dashboard-container--reports .heatmap-audit-category small {
   color: var(--text-soft) !important;
@@ -5741,6 +5756,7 @@ th {
 .dashboard-container--reports .heatmap-coordinate-diagnostics,
 .dashboard-container--reports .heatmap-audit-card,
 .dashboard-container--reports .heatmap-audit-category,
+.dashboard-container--reports .heatmap-tracker-health-list span,
 .dashboard-container--reports .heatmap-coordinate-diagnostics__grid div {
   background: var(--panel-alt) !important;
 }

@@ -93,6 +93,11 @@ export const HEATMAP_TRACKER_URL = resolveApiUrl(
   '/api/heatmaps/tracker.js'
 );
 
+export const HEATMAP_TRACKER_HEALTH_URL = resolveApiUrl(
+  import.meta.env.VITE_HEATMAP_TRACKER_HEALTH_URL || '',
+  '/api/heatmaps/tracker-health'
+);
+
 export const SITE_AUDIT_PAGE_SNAPSHOT_URL = resolveApiUrl(
   import.meta.env.VITE_SITE_AUDIT_PAGE_SNAPSHOT_URL || '',
   '/api/site-audit/page-snapshot'
