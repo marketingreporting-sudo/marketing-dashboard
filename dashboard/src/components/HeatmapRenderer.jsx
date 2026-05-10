@@ -185,12 +185,12 @@ export default function HeatmapRenderer({
   highlightedTarget = null,
   formatNumber = (value) => String(value ?? 0),
 }) {
-  const layers = {
+  const layers = useMemo(() => ({
     click: activeLayers?.click !== false,
     cursor: activeLayers?.cursor === true,
     scroll: activeLayers?.scroll === true,
     engagement: activeLayers?.engagement === true,
-  };
+  }), [activeLayers?.click, activeLayers?.cursor, activeLayers?.scroll, activeLayers?.engagement]);
   const activeLayerCount = Object.values(layers).filter(Boolean).length;
   const aggregateCells = useMemo(() => {
     const serverCells = normalizeAggregateCells(cells, layers);
@@ -211,8 +211,9 @@ export default function HeatmapRenderer({
       totalsByLayer[cell.layer] = (totalsByLayer[cell.layer] || 0) + Number(cell.count || 0);
       return totalsByLayer;
     }, {});
+    const clickTotal = Number(totals.clicks || 0) + Number(totals.ctaClicks || 0);
     return {
-      click: Number(totals.clicks || 0) + Number(totals.ctaClicks || 0) + Number(totals.taps || 0) || cellTotals.click || 0,
+      click: clickTotal || cellTotals.click || 0,
       cursor: Number(totals.cursorSamples || 0) || Number(totals.mouseMoves || 0) + Number(totals.pointerMoves || 0) || cellTotals.cursor || 0,
       scroll: Number(totals.scrolls || 0),
       engagement: Number(totals.engagements || 0) || cellTotals.engagement || 0,

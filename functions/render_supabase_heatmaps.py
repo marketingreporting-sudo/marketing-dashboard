@@ -1922,7 +1922,6 @@ HEATMAP_AGGREGATE_GRID_SIZE = 24
 HEATMAP_RAGE_CLICK_WINDOW_SECONDS = 5
 HEATMAP_CTA_FRUSTRATION_WINDOW_SECONDS = 12
 HEATMAP_ANOMALY_GRID_SIZE = 32
-HEATMAP_ANOMALY_EVENT_TYPES = {"click", "cta_click", "pointerdown", "touchstart", "pageview"}
 
 
 def _numeric(value: Any, default: float = 0.0) -> float:
@@ -2038,7 +2037,6 @@ def _detect_heatmap_click_anomalies(events: list[dict[str, Any]]) -> dict[str, A
     sorted_clicks = sorted(click_events, key=lambda event: str(event.get("occurred_at") or ""))
     rage_clusters: list[dict[str, Any]] = []
     cta_frustrations: list[dict[str, Any]] = []
-    dead_clicks: list[dict[str, Any]] = []
 
     dead_counts: dict[str, dict[str, Any]] = {}
     for event in sorted_clicks:
