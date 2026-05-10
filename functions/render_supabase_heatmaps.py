@@ -37,6 +37,10 @@ HEATMAP_EVENT_TYPES = {
     "page_duration",
 }
 HEATMAP_BATCH_LIMIT = 250
+HEATMAP_TAP_DEDUPE_WINDOW_MS = 900
+HEATMAP_TAP_DEDUPE_GRID_SIZE = 80
+HEATMAP_CLICK_LIKE_EVENTS = {"click", "cta_click", "pointerdown", "touchstart"}
+HEATMAP_CLICK_EVENT_PRIORITY = {"cta_click": 4, "click": 3, "pointerdown": 2, "touchstart": 1}
 HEATMAP_DEFAULT_DAYS = 28
 HEATMAP_DEFAULT_SAMPLE_RATE = 0.10
 HEATMAP_DEFAULT_FEATURE_FLAGS = {"heatmaps": True, "pageSnapshots": True, "screenshots": False}
@@ -377,6 +381,93 @@ def _normalize_screenshot_device_type(value: Any) -> str:
     if device_type not in {"desktop", "mobile", "tablet"}:
         raise ValueError("Screenshot requires deviceType of desktop, mobile, or tablet.")
     return device_type
+
+
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if item is not None and item != ""}
+
+
+def _screenshot_capture_metrics(
+    screenshot: dict[str, Any],
+    *,
+    device_type: str | None = None,
+    fallback_width: int | None = None,
+    fallback_height: int | None = None,
+) -> dict[str, Any]:
+    raw_data = _json_object(screenshot.get("raw_data") or screenshot.get("rawData"))
+    supplied_metrics = _json_object(
+        screenshot.get("captureMetrics")
+        or screenshot.get("capture_metrics")
+        or raw_data.get("captureMetrics")
+        or raw_data.get("capture_metrics")
+    )
+    normalized_device_type = str(device_type or screenshot.get("device_type") or screenshot.get("deviceType") or "")
+    viewport = SCREENSHOT_CAPTURE_VIEWPORTS.get(normalized_device_type, {})
+    screenshot_width = _to_int(screenshot.get("width")) or fallback_width
+    screenshot_height = _to_int(screenshot.get("height")) or fallback_height
+
+    screenshot_mode = _normalize_text(
+        supplied_metrics.get("screenshotMode")
+        or supplied_metrics.get("screenshot_mode")
+        or screenshot.get("screenshotMode")
+        or screenshot.get("screenshot_mode")
+        or raw_data.get("screenshotMode")
+        or raw_data.get("screenshot_mode"),
+        40,
+    )
+    if screenshot_mode not in {"full_page", "clipped"}:
+        screenshot_mode = "full_page"
+
+    clip = supplied_metrics.get("clip") if isinstance(supplied_metrics.get("clip"), dict) else None
+    return _compact_dict(
+        {
+            "viewportWidth": _to_int(supplied_metrics.get("viewportWidth") or supplied_metrics.get("viewport_width"))
+            or viewport.get("width"),
+            "viewportHeight": _to_int(supplied_metrics.get("viewportHeight") or supplied_metrics.get("viewport_height"))
+            or viewport.get("height"),
+            "documentWidth": _to_int(supplied_metrics.get("documentWidth") or supplied_metrics.get("document_width"))
+            or screenshot_width,
+            "documentHeight": _to_int(supplied_metrics.get("documentHeight") or supplied_metrics.get("document_height"))
+            or screenshot_height,
+            "screenshotWidth": screenshot_width,
+            "screenshotHeight": screenshot_height,
+            "deviceScaleFactor": _to_float(supplied_metrics.get("deviceScaleFactor") or supplied_metrics.get("device_scale_factor"))
+            or 1,
+            "devicePixelRatio": _to_float(supplied_metrics.get("devicePixelRatio") or supplied_metrics.get("device_pixel_ratio")),
+            "screenshotMode": screenshot_mode,
+            "capturedUrl": _normalize_text(
+                supplied_metrics.get("capturedUrl")
+                or supplied_metrics.get("captured_url")
+                or screenshot.get("capturedUrl")
+                or screenshot.get("captured_url")
+                or raw_data.get("capturedUrl")
+                or raw_data.get("captured_url"),
+                2048,
+            ),
+            "sourceUrl": _normalize_text(
+                supplied_metrics.get("sourceUrl")
+                or supplied_metrics.get("source_url")
+                or screenshot.get("sourceUrl")
+                or screenshot.get("source_url")
+                or raw_data.get("sourceUrl")
+                or raw_data.get("source_url"),
+                2048,
+            ),
+            "clip": clip,
+        }
+    )
 
 
 def _expected_screenshot_path(site: dict[str, Any], page_row: dict[str, Any], device_type: str, extension: str) -> str:
@@ -908,6 +999,27 @@ def save_site_screenshot_metadata_payload(
     if storage_path != expected_path:
         raise ValueError("Screenshot storage path does not match the expected property/page/device path.")
 
+    capture_metrics = _screenshot_capture_metrics(
+        screenshot,
+        device_type=device_type,
+        fallback_width=width,
+        fallback_height=height,
+    )
+    if not capture_metrics.get("capturedUrl"):
+        capture_metrics["capturedUrl"] = _normalize_text(
+            payload.get("capturedUrl") or payload.get("captured_url") or payload.get("url"),
+            2048,
+        )
+    if not capture_metrics.get("sourceUrl"):
+        capture_metrics["sourceUrl"] = _normalize_text(payload.get("url") or capture_metrics.get("capturedUrl"), 2048)
+    screenshot_raw_data = _json_object(screenshot.get("rawData") or screenshot.get("raw_data"))
+    raw_data = {
+        **screenshot_raw_data,
+        "captureMetrics": capture_metrics,
+        "screenshotMode": capture_metrics.get("screenshotMode"),
+        "capturedUrl": capture_metrics.get("capturedUrl"),
+    }
+
     row = {
         "page_id": page_row.get("id"),
         "site_id": site.get("id"),
@@ -919,6 +1031,7 @@ def save_site_screenshot_metadata_payload(
         "height": height,
         "content_hash": _normalize_text(screenshot.get("contentHash") or screenshot.get("content_hash"), 160),
         "captured_at": _parse_timestamp(screenshot.get("capturedAt") or screenshot.get("captured_at")),
+        "raw_data": raw_data,
     }
     rows = _json_request(
         "property_site_screenshots",
@@ -1088,9 +1201,10 @@ def capture_site_screenshots(
                                 continue
 
                             viewport = SCREENSHOT_CAPTURE_VIEWPORTS[device_type]
+                            device_scale_factor = 1
                             context = browser.new_context(
                                 viewport=viewport,
-                                device_scale_factor=1,
+                                device_scale_factor=device_scale_factor,
                                 user_agent=(
                                     "Mozilla/5.0 (compatible; RedstoneSiteAuditBot/1.0; +https://redstoneresidential.com)"
                                 ),
@@ -1098,6 +1212,7 @@ def capture_site_screenshots(
                             page = context.new_page()
                             try:
                                 page.goto(page_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                                captured_url = page.url
                                 try:
                                     page.wait_for_load_state("load", timeout=10_000)
                                 except Exception:
@@ -1105,20 +1220,30 @@ def capture_site_screenshots(
                                 page.wait_for_timeout(1500)
                                 dimensions = page.evaluate(
                                     """() => ({
-                                      width: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0, window.innerWidth || 0),
-                                      height: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight || 0)
+                                      documentWidth: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0, window.innerWidth || 0),
+                                      documentHeight: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight || 0),
+                                      viewportWidth: window.innerWidth || 0,
+                                      viewportHeight: window.innerHeight || 0,
+                                      devicePixelRatio: window.devicePixelRatio || 1
                                     })"""
                                 )
-                                width = min(int(dimensions.get("width") or viewport["width"]), SCREENSHOT_MAX_WIDTH)
-                                height = min(int(dimensions.get("height") or viewport["height"]), SCREENSHOT_MAX_HEIGHT)
+                                document_width = int(dimensions.get("documentWidth") or viewport["width"])
+                                document_height = int(dimensions.get("documentHeight") or viewport["height"])
+                                viewport_width = int(dimensions.get("viewportWidth") or viewport["width"])
+                                viewport_height = int(dimensions.get("viewportHeight") or viewport["height"])
+                                device_pixel_ratio = float(dimensions.get("devicePixelRatio") or device_scale_factor)
+                                width = min(document_width, SCREENSHOT_MAX_WIDTH)
+                                height = min(document_height, SCREENSHOT_MAX_HEIGHT)
                                 if width * height > SCREENSHOT_MAX_PIXELS:
                                     height = max(viewport["height"], SCREENSHOT_MAX_PIXELS // max(width, 1))
                                 output_path = Path(tmpdir) / f"{page_row.get('id')}-{device_type}.jpg"
                                 use_full_page = (
-                                    int(dimensions.get("width") or 0) <= SCREENSHOT_MAX_WIDTH
-                                    and int(dimensions.get("height") or 0) <= SCREENSHOT_MAX_HEIGHT
-                                    and int(dimensions.get("width") or 0) * int(dimensions.get("height") or 0) <= SCREENSHOT_MAX_PIXELS
+                                    document_width <= SCREENSHOT_MAX_WIDTH
+                                    and document_height <= SCREENSHOT_MAX_HEIGHT
+                                    and document_width * document_height <= SCREENSHOT_MAX_PIXELS
                                 )
+                                screenshot_mode = "full_page" if use_full_page else "clipped"
+                                clip = None if use_full_page else {"x": 0, "y": 0, "width": width, "height": height}
                                 screenshot_args = {
                                     "path": str(output_path),
                                     "type": "jpeg",
@@ -1127,7 +1252,7 @@ def capture_site_screenshots(
                                 if use_full_page:
                                     screenshot_args["full_page"] = True
                                 else:
-                                    screenshot_args["clip"] = {"x": 0, "y": 0, "width": width, "height": height}
+                                    screenshot_args["clip"] = clip
                                 page.screenshot(**screenshot_args)
                                 image_bytes = output_path.read_bytes()
                                 if len(image_bytes) > SCREENSHOT_MAX_BYTES:
@@ -1160,6 +1285,18 @@ def capture_site_screenshots(
                                             "height": height,
                                             "contentHash": content_hash,
                                             "capturedAt": datetime.now(timezone.utc).isoformat(),
+                                            "captureMetrics": {
+                                                "viewportWidth": viewport_width,
+                                                "viewportHeight": viewport_height,
+                                                "documentWidth": document_width,
+                                                "documentHeight": document_height,
+                                                "deviceScaleFactor": device_scale_factor,
+                                                "devicePixelRatio": device_pixel_ratio,
+                                                "screenshotMode": screenshot_mode,
+                                                "capturedUrl": captured_url,
+                                                "sourceUrl": page_url,
+                                                "clip": clip,
+                                            },
                                         },
                                     },
                                     origin=page_url,
@@ -1176,6 +1313,8 @@ def capture_site_screenshots(
                                         "storagePath": storage_path,
                                         "width": width,
                                         "height": height,
+                                        "screenshotMode": screenshot_mode,
+                                        "capturedUrl": captured_url,
                                         "bytes": len(image_bytes),
                                     }
                                 )
@@ -1397,6 +1536,93 @@ def _normalize_event(
     }
 
 
+def _event_datetime(row: dict[str, Any]) -> datetime:
+    parsed = _parse_datetime(row.get("occurred_at"))
+    return parsed or datetime.now(timezone.utc)
+
+
+def _event_target_identity(row: dict[str, Any]) -> str:
+    raw_data = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else {}
+    for value in (
+        raw_data.get("targetTrackId"),
+        raw_data.get("targetCtaId"),
+        raw_data.get("targetSelector"),
+        raw_data.get("targetHref"),
+        raw_data.get("targetLabel"),
+        row.get("target_id"),
+        row.get("target_role"),
+        row.get("target_tag"),
+    ):
+        text = _normalize_text(value, 420).lower()
+        if text:
+            return text
+    x_pct = row.get("x_pct")
+    y_pct = row.get("y_pct")
+    return f"area:{round(float(x_pct or 0) * HEATMAP_TAP_DEDUPE_GRID_SIZE)}:{round(float(y_pct or 0) * HEATMAP_TAP_DEDUPE_GRID_SIZE)}"
+
+
+def _tap_dedupe_key(row: dict[str, Any]) -> str:
+    x_pct = row.get("x_pct")
+    y_pct = row.get("y_pct")
+    return "|".join(
+        [
+            _normalize_text(row.get("session_key"), 160),
+            _normalize_text(row.get("path"), 1024),
+            _event_target_identity(row),
+            str(round(float(x_pct or 0) * HEATMAP_TAP_DEDUPE_GRID_SIZE)),
+            str(round(float(y_pct or 0) * HEATMAP_TAP_DEDUPE_GRID_SIZE)),
+        ]
+    )
+
+
+def _merge_tap_duplicate(existing: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    existing_type = str(existing.get("event_type") or "")
+    candidate_type = str(candidate.get("event_type") or "")
+    keep_candidate = HEATMAP_CLICK_EVENT_PRIORITY.get(candidate_type, 0) > HEATMAP_CLICK_EVENT_PRIORITY.get(existing_type, 0)
+    primary = dict(candidate if keep_candidate else existing)
+    duplicate = existing if keep_candidate else candidate
+    raw_data = dict(primary.get("raw_data") if isinstance(primary.get("raw_data"), dict) else {})
+    duplicate_raw = duplicate.get("raw_data") if isinstance(duplicate.get("raw_data"), dict) else {}
+    duplicate_types = raw_data.get("dedupedEventTypes") if isinstance(raw_data.get("dedupedEventTypes"), list) else []
+    duplicate_types = list(duplicate_types)
+    if isinstance(duplicate_raw.get("dedupedEventTypes"), list):
+        duplicate_types.extend(duplicate_raw.get("dedupedEventTypes"))
+    for event_type in (existing_type, candidate_type, str(duplicate.get("event_type") or "")):
+        if event_type and event_type not in duplicate_types:
+            duplicate_types.append(event_type)
+    raw_data["dedupedEventTypes"] = duplicate_types
+    primary_count = int(raw_data.get("dedupedTapCount") or 1)
+    duplicate_count = int(duplicate_raw.get("dedupedTapCount") or 1)
+    raw_data["dedupedTapCount"] = primary_count + duplicate_count
+    raw_data["dedupedWithinMs"] = HEATMAP_TAP_DEDUPE_WINDOW_MS
+    primary["raw_data"] = raw_data
+    return primary
+
+
+def _dedupe_click_like_event_rows(event_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    deduped_rows: list[dict[str, Any]] = []
+    latest_by_key: dict[str, tuple[int, datetime]] = {}
+    dropped = 0
+    for row in event_rows:
+        if str(row.get("event_type") or "") not in HEATMAP_CLICK_LIKE_EVENTS:
+            deduped_rows.append(row)
+            continue
+        key = _tap_dedupe_key(row)
+        occurred_at = _event_datetime(row)
+        existing = latest_by_key.get(key)
+        if existing:
+            existing_index, existing_at = existing
+            within_window = abs((occurred_at - existing_at).total_seconds() * 1000) <= HEATMAP_TAP_DEDUPE_WINDOW_MS
+            if within_window:
+                deduped_rows[existing_index] = _merge_tap_duplicate(deduped_rows[existing_index], row)
+                latest_by_key[key] = (existing_index, max(existing_at, occurred_at))
+                dropped += 1
+                continue
+        latest_by_key[key] = (len(deduped_rows), occurred_at)
+        deduped_rows.append(row)
+    return deduped_rows, dropped
+
+
 def collect_heatmap_payload(
     payload: dict[str, Any],
     *,
@@ -1441,6 +1667,9 @@ def collect_heatmap_payload(
             for event_row in [_normalize_event(site, session_row, event, payload)]
             if event_row
         ]
+    deduped_count = 0
+    if event_rows:
+        event_rows, deduped_count = _dedupe_click_like_event_rows(event_rows)
     if event_rows:
         _json_request(
             "property_heatmap_events",
@@ -1454,7 +1683,8 @@ def collect_heatmap_payload(
         "status": "ok",
         "accepted": len(event_rows),
         "received": len(events_payload),
-        "rejected": max(0, len(events_payload) - len(event_rows)),
+        "rejected": max(0, len(events_payload) - len(event_rows) - deduped_count),
+        "deduped": deduped_count,
         "siteKey": site_key,
         "propertyId": site.get("property_id"),
         "pageId": page_row.get("id") if page_row else None,
@@ -1475,26 +1705,11 @@ def get_heatmap_pages_summary(
     if start_date > end_date:
         start_date, end_date = end_date, start_date
 
-    filters = [
-        ("select", "site_id,session_key,event_type,path,occurred_at,scroll_depth_pct"),
-        ("property_id", f"eq.{property_id}"),
-        ("occurred_at", f"gte.{start_date.isoformat()}T00:00:00+00:00"),
-        ("occurred_at", f"lte.{end_date.isoformat()}T23:59:59+00:00"),
-        ("order", "occurred_at.desc"),
-        ("limit", "10000"),
-    ]
     site_id = None
     if site_key:
         site = _fetch_site_by_key(site_key)
         if site:
             site_id = site.get("id")
-            filters.append(("site_id", f"eq.{site_id}"))
-
-    events = _fetch_json(
-        "property_heatmap_events",
-        filters,
-        headers=_supabase_anon_headers(access_token),
-    )
     page_filters = [
         ("select", "id,site_id,canonical_path,canonical_url,latest_title,latest_meta_description,latest_snapshot_id,latest_screenshot_id,last_seen_at"),
         ("property_id", f"eq.{property_id}"),
@@ -1523,12 +1738,111 @@ def get_heatmap_pages_summary(
             "events": 0,
             "sessions": set(),
             "clicks": 0,
+            "taps": 0,
             "ctaClicks": 0,
             "mouseMoves": 0,
+            "cursorSamples": 0,
             "scrolls": 0,
+            "engagements": 0,
+            "diagnostics": 0,
             "maxScrollDepthPct": 0.0,
             "lastSeenAt": inventory.get("last_seen_at"),
         }
+
+    aggregate_filters = [
+        ("select", "*"),
+        ("property_id", f"eq.{property_id}"),
+        ("activity_date", f"gte.{start_date.isoformat()}"),
+        ("activity_date", f"lte.{end_date.isoformat()}"),
+        ("limit", "10000"),
+    ]
+    if site_id:
+        aggregate_filters.append(("site_id", f"eq.{site_id}"))
+    aggregate_rows = _fetch_json(
+        "property_site_page_daily_summaries",
+        aggregate_filters,
+        headers=_supabase_anon_headers(access_token),
+    )
+    if aggregate_rows:
+        for row in aggregate_rows:
+            page_path = str(row.get("canonical_path") or "/")
+            page = page_map.setdefault(
+                page_path,
+                {
+                    "id": row.get("page_id"),
+                    "path": page_path,
+                    "url": None,
+                    "title": None,
+                    "metaDescription": None,
+                    "latestSnapshotId": None,
+                    "latestScreenshotId": None,
+                    "events": 0,
+                    "sessions": 0,
+                    "clicks": 0,
+                    "taps": 0,
+                    "ctaClicks": 0,
+                    "mouseMoves": 0,
+                    "cursorSamples": 0,
+                    "scrolls": 0,
+                    "engagements": 0,
+                    "diagnostics": 0,
+                    "maxScrollDepthPct": 0.0,
+                    "lastSeenAt": None,
+                },
+            )
+            page["events"] += int(row.get("event_count") or 0)
+            existing_sessions = page.get("sessions")
+            page["sessions"] = (len(existing_sessions) if isinstance(existing_sessions, set) else int(existing_sessions or 0)) + int(row.get("session_count") or 0)
+            page["clicks"] += int(row.get("click_count") or 0)
+            page["taps"] += int(row.get("tap_event_count") or 0)
+            page["ctaClicks"] += int(row.get("cta_click_count") or 0)
+            page["mouseMoves"] += int(row.get("cursor_sample_count") or 0)
+            page["cursorSamples"] += int(row.get("cursor_sample_count") or 0)
+            page["scrolls"] += int(row.get("scroll_event_count") or 0)
+            page["engagements"] += int(row.get("engagement_event_count") or 0)
+            page["diagnostics"] += int(row.get("diagnostic_event_count") or 0)
+            page["maxScrollDepthPct"] = max(float(page.get("maxScrollDepthPct") or 0), float(row.get("max_scroll_depth_pct") or 0))
+            activity_date = row.get("activity_date")
+            if activity_date and (not page.get("lastSeenAt") or str(activity_date) > str(page.get("lastSeenAt") or "")):
+                page["lastSeenAt"] = activity_date
+        pages = [
+            {
+                **page,
+                "sessions": len(page.get("sessions")) if isinstance(page.get("sessions"), set) else int(page.get("sessions") or 0),
+            }
+            for page in page_map.values()
+        ]
+        pages.sort(key=lambda item: item["events"], reverse=True)
+        return {
+            "status": "ok",
+            "property_id": str(property_id),
+            "range": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+            },
+            "filters": {
+                "siteKey": site_key or "",
+            },
+            "dataSource": "daily_aggregates",
+            "pages": pages,
+            "staging_only": True,
+        }
+
+    filters = [
+        ("select", "site_id,session_key,event_type,path,occurred_at,scroll_depth_pct"),
+        ("property_id", f"eq.{property_id}"),
+        ("occurred_at", f"gte.{start_date.isoformat()}T00:00:00+00:00"),
+        ("occurred_at", f"lte.{end_date.isoformat()}T23:59:59+00:00"),
+        ("order", "occurred_at.desc"),
+        ("limit", "10000"),
+    ]
+    if site_id:
+        filters.append(("site_id", f"eq.{site_id}"))
+    events = _fetch_json(
+        "property_heatmap_events",
+        filters,
+        headers=_supabase_anon_headers(access_token),
+    )
     for event in events:
         page_path = str(event.get("path") or "/")
         page = page_map.setdefault(
@@ -1544,9 +1858,13 @@ def get_heatmap_pages_summary(
                 "events": 0,
                 "sessions": set(),
                 "clicks": 0,
+                "taps": 0,
                 "ctaClicks": 0,
                 "mouseMoves": 0,
+                "cursorSamples": 0,
                 "scrolls": 0,
+                "engagements": 0,
+                "diagnostics": 0,
                 "maxScrollDepthPct": 0.0,
                 "lastSeenAt": event.get("occurred_at"),
             },
@@ -1555,14 +1873,21 @@ def get_heatmap_pages_summary(
         if event.get("session_key"):
             page["sessions"].add(str(event.get("session_key")))
         event_type = event.get("event_type")
-        if event_type == "click":
+        if event_type in {"click", "pointerdown", "touchstart"}:
             page["clicks"] += 1
+            if event_type in {"pointerdown", "touchstart"}:
+                page["taps"] += 1
         elif event_type == "cta_click":
             page["ctaClicks"] += 1
-        elif event_type == "mousemove":
+        elif event_type in {"mousemove", "pointermove"}:
             page["mouseMoves"] += 1
+            page["cursorSamples"] += 1
         elif event_type == "scroll":
             page["scrolls"] += 1
+        elif event_type in {"engagement", "first_interaction", "page_duration"}:
+            page["engagements"] += 1
+        elif event_type == "tracker_diagnostic":
+            page["diagnostics"] += 1
         if event.get("scroll_depth_pct") is not None:
             page["maxScrollDepthPct"] = max(page["maxScrollDepthPct"], float(event.get("scroll_depth_pct") or 0))
         if not page.get("lastSeenAt") or str(event.get("occurred_at") or "") > str(page.get("lastSeenAt") or ""):
@@ -1593,6 +1918,460 @@ def get_heatmap_pages_summary(
     }
 
 
+HEATMAP_AGGREGATE_GRID_SIZE = 24
+HEATMAP_RAGE_CLICK_WINDOW_SECONDS = 5
+HEATMAP_CTA_FRUSTRATION_WINDOW_SECONDS = 12
+HEATMAP_ANOMALY_GRID_SIZE = 32
+HEATMAP_ANOMALY_EVENT_TYPES = {"click", "cta_click", "pointerdown", "touchstart", "pageview"}
+
+
+def _numeric(value: Any, default: float = 0.0) -> float:
+    parsed = _to_float(value)
+    return parsed if parsed is not None else default
+
+
+def _aggregate_layer_for_event_type(event_type: str) -> str:
+    if event_type in {"click", "cta_click", "pointerdown", "touchstart"}:
+        return "click"
+    if event_type in {"mousemove", "pointermove"}:
+        return "cursor"
+    if event_type == "scroll":
+        return "scroll"
+    if event_type in {"engagement", "first_interaction", "page_duration"}:
+        return "engagement"
+    return event_type
+
+
+def _merge_top_targets(page_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    target_counts: dict[str, dict[str, Any]] = {}
+    for row in page_rows:
+        targets = row.get("top_targets") if isinstance(row.get("top_targets"), list) else []
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+            label = _normalize_text(target.get("label") or target.get("targetLabel"), 160)
+            if not label or label == "unknown":
+                continue
+            key = label.lower()
+            current = target_counts.get(key) or {"label": label, "clicks": 0}
+            current["clicks"] += int(target.get("clicks") or target.get("count") or 0)
+            target_counts[key] = current
+    return sorted(target_counts.values(), key=lambda item: item.get("clicks", 0), reverse=True)[:20]
+
+
+def _target_identity_from_event(event: dict[str, Any]) -> str:
+    raw_data = event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}
+    for value in (
+        raw_data.get("targetTrackId"),
+        raw_data.get("targetCtaId"),
+        raw_data.get("targetSelector"),
+        raw_data.get("targetHref"),
+        raw_data.get("targetLabel"),
+        event.get("target_id"),
+        event.get("target_role"),
+        event.get("target_tag"),
+    ):
+        text = _normalize_text(value, 420).lower()
+        if text:
+            return text
+    grid_x = round(float(event.get("x_pct") or 0) * HEATMAP_ANOMALY_GRID_SIZE)
+    grid_y = round(float(event.get("y_pct") or 0) * HEATMAP_ANOMALY_GRID_SIZE)
+    return f"area:{grid_x}:{grid_y}"
+
+
+def _target_label_from_event(event: dict[str, Any]) -> str:
+    raw_data = event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}
+    return _normalize_text(
+        raw_data.get("targetLabel")
+        or raw_data.get("targetTrackId")
+        or raw_data.get("targetSelector")
+        or raw_data.get("targetHref")
+        or event.get("target_tag")
+        or "Unknown element",
+        180,
+    )
+
+
+def _is_dead_click_candidate(event: dict[str, Any]) -> bool:
+    raw_data = event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}
+    if raw_data.get("targetHref") or raw_data.get("targetTrackId") or raw_data.get("targetCtaId") or raw_data.get("isCta"):
+        return False
+    category = _normalize_text(raw_data.get("targetCategory"), 80).lower()
+    if category in {"cta", "phone", "form", "floorplan", "gallery", "map", "nav", "link"}:
+        return False
+    selector = _normalize_text(raw_data.get("targetSelector"), 420).lower()
+    role = _normalize_text(event.get("target_role") or raw_data.get("targetRole"), 80).lower()
+    tag = _normalize_text(event.get("target_tag") or raw_data.get("targetTag"), 40).upper()
+    label = _normalize_text(raw_data.get("targetLabel"), 120)
+    clickable_hint = (
+        tag in {"A", "BUTTON"}
+        or role in {"button", "link", "menuitem"}
+        or "button" in selector
+        or "[role=\"button\"]" in selector
+        or ".btn" in selector
+        or ".button" in selector
+        or bool(label)
+    )
+    return clickable_hint
+
+
+def _has_page_transition(events: list[dict[str, Any]], session_key: str, start_at: datetime, current_path: str) -> bool:
+    end_at = start_at + timedelta(seconds=HEATMAP_CTA_FRUSTRATION_WINDOW_SECONDS)
+    for event in events:
+        if str(event.get("session_key") or "") != session_key:
+            continue
+        if str(event.get("event_type") or "") != "pageview":
+            continue
+        occurred_at = _parse_datetime(event.get("occurred_at"))
+        if not occurred_at or occurred_at < start_at or occurred_at > end_at:
+            continue
+        if str(event.get("path") or "/") != current_path:
+            return True
+    return False
+
+
+def _detect_heatmap_click_anomalies(events: list[dict[str, Any]]) -> dict[str, Any]:
+    click_events = [
+        event for event in events
+        if str(event.get("event_type") or "") in {"click", "cta_click", "pointerdown", "touchstart"}
+    ]
+    sorted_clicks = sorted(click_events, key=lambda event: str(event.get("occurred_at") or ""))
+    rage_clusters: list[dict[str, Any]] = []
+    cta_frustrations: list[dict[str, Any]] = []
+    dead_clicks: list[dict[str, Any]] = []
+
+    dead_counts: dict[str, dict[str, Any]] = {}
+    for event in sorted_clicks:
+        if not _is_dead_click_candidate(event):
+            continue
+        key = _target_identity_from_event(event)
+        current = dead_counts.get(key) or {
+            "targetKey": key,
+            "label": _target_label_from_event(event),
+            "count": 0,
+            "path": event.get("path") or "/",
+            "lastSeenAt": event.get("occurred_at"),
+        }
+        current["count"] += 1
+        current["lastSeenAt"] = event.get("occurred_at") or current.get("lastSeenAt")
+        dead_counts[key] = current
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in sorted_clicks:
+        session_key = str(event.get("session_key") or "")
+        if not session_key:
+            continue
+        x_grid = round(float(event.get("x_pct") or 0) * HEATMAP_ANOMALY_GRID_SIZE)
+        y_grid = round(float(event.get("y_pct") or 0) * HEATMAP_ANOMALY_GRID_SIZE)
+        key = "|".join([session_key, str(event.get("path") or "/"), _target_identity_from_event(event), str(x_grid), str(y_grid)])
+        grouped.setdefault(key, []).append(event)
+
+    for grouped_events in grouped.values():
+        if len(grouped_events) < 3:
+            continue
+        parsed_events = [(event, _parse_datetime(event.get("occurred_at"))) for event in grouped_events]
+        parsed_events = [(event, occurred_at) for event, occurred_at in parsed_events if occurred_at]
+        for index in range(0, len(parsed_events)):
+            window = [
+                item for item in parsed_events[index:]
+                if (item[1] - parsed_events[index][1]).total_seconds() <= HEATMAP_RAGE_CLICK_WINDOW_SECONDS
+            ]
+            if len(window) >= 3:
+                first_event = window[0][0]
+                rage_clusters.append(
+                    {
+                        "sessionKey": first_event.get("session_key"),
+                        "path": first_event.get("path") or "/",
+                        "targetKey": _target_identity_from_event(first_event),
+                        "label": _target_label_from_event(first_event),
+                        "count": len(window),
+                        "windowSeconds": HEATMAP_RAGE_CLICK_WINDOW_SECONDS,
+                        "startedAt": first_event.get("occurred_at"),
+                    }
+                )
+                break
+
+    cta_grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in sorted_clicks:
+        if str(event.get("event_type") or "") != "cta_click":
+            continue
+        session_key = str(event.get("session_key") or "")
+        if not session_key:
+            continue
+        key = "|".join([session_key, str(event.get("path") or "/"), _target_identity_from_event(event)])
+        cta_grouped.setdefault(key, []).append(event)
+
+    for grouped_events in cta_grouped.values():
+        if len(grouped_events) < 2:
+            continue
+        parsed_events = [(event, _parse_datetime(event.get("occurred_at"))) for event in grouped_events]
+        parsed_events = [(event, occurred_at) for event, occurred_at in parsed_events if occurred_at]
+        for index in range(0, len(parsed_events)):
+            first_event, started_at = parsed_events[index]
+            window = [
+                item for item in parsed_events[index:]
+                if (item[1] - started_at).total_seconds() <= HEATMAP_CTA_FRUSTRATION_WINDOW_SECONDS
+            ]
+            if len(window) >= 2 and not _has_page_transition(events, str(first_event.get("session_key") or ""), started_at, str(first_event.get("path") or "/")):
+                cta_frustrations.append(
+                    {
+                        "sessionKey": first_event.get("session_key"),
+                        "path": first_event.get("path") or "/",
+                        "targetKey": _target_identity_from_event(first_event),
+                        "label": _target_label_from_event(first_event),
+                        "count": len(window),
+                        "windowSeconds": HEATMAP_CTA_FRUSTRATION_WINDOW_SECONDS,
+                        "startedAt": first_event.get("occurred_at"),
+                    }
+                )
+                break
+
+    return {
+        "rageClicks": {
+            "count": len(rage_clusters),
+            "clusters": sorted(rage_clusters, key=lambda item: item.get("count", 0), reverse=True)[:20],
+            "definition": f"At least 3 repeated click/tap events in the same session, element/page area, and {HEATMAP_RAGE_CLICK_WINDOW_SECONDS}s window.",
+        },
+        "deadClicks": {
+            "count": sum(int(item.get("count") or 0) for item in dead_counts.values()),
+            "targets": sorted(dead_counts.values(), key=lambda item: item.get("count", 0), reverse=True)[:20],
+            "definition": "Click/tap events on clickable-looking elements without href, CTA, or tracked action signals.",
+        },
+        "ctaFrustration": {
+            "count": len(cta_frustrations),
+            "clusters": sorted(cta_frustrations, key=lambda item: item.get("count", 0), reverse=True)[:20],
+            "definition": f"Repeated CTA clicks in the same session/target within {HEATMAP_CTA_FRUSTRATION_WINDOW_SECONDS}s without a page transition.",
+        },
+    }
+
+
+def _fetch_heatmap_anomaly_events(
+    property_id: str,
+    *,
+    start_date: date,
+    end_date: date,
+    site_id: str | None = None,
+    path: str | None = None,
+    normalized_device_type: str = "",
+    access_token: str | None = None,
+) -> list[dict[str, Any]]:
+    filters = [
+        ("select", "event_type,occurred_at,path,raw_data,session_key,x_pct,y_pct,target_tag,target_id,target_role"),
+        ("property_id", f"eq.{property_id}"),
+        ("occurred_at", f"gte.{start_date.isoformat()}T00:00:00+00:00"),
+        ("occurred_at", f"lte.{end_date.isoformat()}T23:59:59+00:00"),
+        ("event_type", "in.(click,cta_click,pointerdown,touchstart,pageview)"),
+        ("order", "occurred_at.asc"),
+        ("limit", "5000"),
+    ]
+    if site_id:
+        filters.append(("site_id", f"eq.{site_id}"))
+    events = _fetch_json("property_heatmap_events", filters, headers=_supabase_anon_headers(access_token))
+    if path:
+        canonical_path = _normalize_text(path, 1024)
+        events = [
+            event for event in events
+            if str(event.get("event_type") or "") == "pageview"
+            or str(event.get("path") or "/") == canonical_path
+        ]
+    if normalized_device_type in {"desktop", "mobile", "tablet"}:
+        events = [
+            event for event in events
+            if str(event.get("event_type") or "") == "pageview"
+            or (event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}).get("deviceType") == normalized_device_type
+        ]
+    return events
+
+
+def _heatmap_summary_from_aggregates(
+    property_id: str,
+    *,
+    start_date: date,
+    end_date: date,
+    site_id: str | None = None,
+    site_key: str | None = None,
+    path: str | None = None,
+    event_type: str | None = None,
+    normalized_device_type: str = "",
+    access_token: str | None = None,
+) -> dict[str, Any] | None:
+    cell_filters = [
+        ("select", "*"),
+        ("property_id", f"eq.{property_id}"),
+        ("activity_date", f"gte.{start_date.isoformat()}"),
+        ("activity_date", f"lte.{end_date.isoformat()}"),
+        ("limit", "10000"),
+    ]
+    page_filters = [
+        ("select", "*"),
+        ("property_id", f"eq.{property_id}"),
+        ("activity_date", f"gte.{start_date.isoformat()}"),
+        ("activity_date", f"lte.{end_date.isoformat()}"),
+        ("limit", "10000"),
+    ]
+    if site_id:
+        cell_filters.append(("site_id", f"eq.{site_id}"))
+        page_filters.append(("site_id", f"eq.{site_id}"))
+    if path:
+        canonical_path = _normalize_text(path, 1024)
+        cell_filters.append(("canonical_path", f"eq.{canonical_path}"))
+        page_filters.append(("canonical_path", f"eq.{canonical_path}"))
+    if normalized_device_type in {"desktop", "mobile", "tablet"}:
+        cell_filters.append(("device_type", f"eq.{normalized_device_type}"))
+        page_filters.append(("device_type", f"eq.{normalized_device_type}"))
+    if event_type and event_type in HEATMAP_EVENT_TYPES:
+        cell_filters.append(("event_type", f"eq.{event_type}"))
+
+    headers = _supabase_anon_headers(access_token)
+    cell_rows = _fetch_json("property_heatmap_daily_cells", cell_filters, headers=headers)
+    page_rows = _fetch_json("property_site_page_daily_summaries", page_filters, headers=headers)
+    if not cell_rows and not page_rows:
+        return None
+
+    counts_by_type: dict[str, int] = {}
+    counts_by_path: dict[str, int] = {}
+    cell_groups: dict[str, dict[str, Any]] = {}
+    scroll_band_distribution: dict[str, int] = {}
+    max_scroll_depth = 0.0
+    for row in cell_rows:
+        row_event_type = str(row.get("event_type") or "")
+        row_path = str(row.get("canonical_path") or "/")
+        count = int(row.get("event_count") or 0)
+        counts_by_type[row_event_type] = counts_by_type.get(row_event_type, 0) + count
+        counts_by_path[row_path] = counts_by_path.get(row_path, 0) + count
+        layer = _aggregate_layer_for_event_type(row_event_type)
+        grid_x = int(row.get("grid_x") or 0)
+        grid_y = int(row.get("grid_y") or 0)
+        if row_event_type == "scroll":
+            band_key = f"{round((grid_y / HEATMAP_AGGREGATE_GRID_SIZE) * 100)}-{round(((grid_y + 1) / HEATMAP_AGGREGATE_GRID_SIZE) * 100)}"
+            scroll_band_distribution[band_key] = scroll_band_distribution.get(band_key, 0) + count
+            max_scroll_depth = max(max_scroll_depth, _numeric(row.get("max_scroll_depth_pct"), (grid_y + 1) / HEATMAP_AGGREGATE_GRID_SIZE))
+            continue
+        if layer not in {"click", "cursor", "engagement"}:
+            continue
+        key = f"{layer}:{grid_x}:{grid_y}"
+        current = cell_groups.get(key) or {
+            "key": key,
+            "type": row_event_type,
+            "eventType": row_event_type,
+            "layer": layer,
+            "gridX": grid_x,
+            "gridY": grid_y,
+            "gridSize": HEATMAP_AGGREGATE_GRID_SIZE,
+            "count": 0,
+            "eventCount": 0,
+            "sessionCount": 0,
+            "xWeighted": 0.0,
+            "yWeighted": 0.0,
+        }
+        x_pct = _numeric(row.get("avg_x_pct"), (grid_x + 0.5) / HEATMAP_AGGREGATE_GRID_SIZE)
+        y_pct = _numeric(row.get("avg_y_pct"), (grid_y + 0.5) / HEATMAP_AGGREGATE_GRID_SIZE)
+        current["count"] += count
+        current["eventCount"] += count
+        current["sessionCount"] += int(row.get("session_count") or 0)
+        current["xWeighted"] += x_pct * count
+        current["yWeighted"] += y_pct * count
+        cell_groups[key] = current
+
+    cells = []
+    max_cell_count = max(1, *[int(item.get("count") or 0) for item in cell_groups.values()])
+    for cell in cell_groups.values():
+        count = max(1, int(cell.get("count") or 0))
+        cells.append(
+            {
+                "key": cell.get("key"),
+                "type": cell.get("eventType"),
+                "eventType": cell.get("eventType"),
+                "layer": cell.get("layer"),
+                "gridX": cell.get("gridX"),
+                "gridY": cell.get("gridY"),
+                "gridSize": cell.get("gridSize"),
+                "count": cell.get("count"),
+                "eventCount": cell.get("eventCount"),
+                "sessionCount": cell.get("sessionCount"),
+                "xPct": _clamp_percent(float(cell.get("xWeighted") or 0) / count),
+                "yPct": _clamp_percent(float(cell.get("yWeighted") or 0) / count),
+                "intensity": float(cell.get("count") or 0) / max_cell_count,
+            }
+        )
+
+    total_events = sum(int(row.get("event_count") or 0) for row in page_rows) if page_rows else sum(counts_by_type.values())
+    total_sessions = sum(int(row.get("session_count") or 0) for row in page_rows)
+    total_scroll_events = sum(int(row.get("scroll_event_count") or 0) for row in page_rows)
+    scroll_weighted_total = sum(_numeric(row.get("avg_scroll_depth_pct")) * int(row.get("scroll_event_count") or 0) for row in page_rows)
+    page_max_scroll_values = [_numeric(row.get("max_scroll_depth_pct")) for row in page_rows]
+    max_scroll_depth = max(max_scroll_depth, *(page_max_scroll_values or [0.0]))
+    top_paths_map: dict[str, int] = {}
+    for row in page_rows:
+        row_path = str(row.get("canonical_path") or "/")
+        top_paths_map[row_path] = top_paths_map.get(row_path, 0) + int(row.get("event_count") or 0)
+
+    return {
+        "status": "ok",
+        "property_id": str(property_id),
+        "range": {"start_date": start_date.isoformat(), "end_date": end_date.isoformat()},
+        "filters": {
+            "siteKey": site_key or "",
+            "path": path or "",
+            "eventType": event_type or "",
+            "deviceType": normalized_device_type if normalized_device_type in {"desktop", "mobile", "tablet"} else "",
+        },
+        "dataSource": "daily_aggregates",
+        "aggregate": {
+            "gridSize": HEATMAP_AGGREGATE_GRID_SIZE,
+            "cellCount": len(cells),
+            "pageSummaryRows": len(page_rows),
+        },
+        "totals": {
+            "sessions": total_sessions,
+            "events": total_events,
+            "clicks": sum(int(row.get("click_count") or 0) for row in page_rows) or counts_by_type.get("click", 0),
+            "taps": sum(int(row.get("tap_event_count") or 0) for row in page_rows)
+            or counts_by_type.get("pointerdown", 0)
+            + counts_by_type.get("touchstart", 0),
+            "ctaClicks": sum(int(row.get("cta_click_count") or 0) for row in page_rows) or counts_by_type.get("cta_click", 0),
+            "pointerDowns": counts_by_type.get("pointerdown", 0),
+            "touchStarts": counts_by_type.get("touchstart", 0),
+            "mouseMoves": counts_by_type.get("mousemove", 0),
+            "pointerMoves": counts_by_type.get("pointermove", 0),
+            "cursorSamples": sum(int(row.get("cursor_sample_count") or 0) for row in page_rows)
+            or counts_by_type.get("mousemove", 0)
+            + counts_by_type.get("pointermove", 0),
+            "engagements": sum(int(row.get("engagement_event_count") or 0) for row in page_rows)
+            or counts_by_type.get("engagement", 0)
+            + counts_by_type.get("first_interaction", 0)
+            + counts_by_type.get("page_duration", 0),
+            "scrolls": total_scroll_events or counts_by_type.get("scroll", 0),
+            "viewportEvents": counts_by_type.get("viewport", 0),
+            "firstInteractions": counts_by_type.get("first_interaction", 0),
+            "trackerDiagnostics": sum(int(row.get("diagnostic_event_count") or 0) for row in page_rows)
+            or counts_by_type.get("tracker_diagnostic", 0),
+            "pageDurationEvents": counts_by_type.get("page_duration", 0),
+            "avgScrollDepthPct": (scroll_weighted_total / total_scroll_events) if total_scroll_events else 0.0,
+            "maxScrollDepthPct": max_scroll_depth,
+            "avgAbandonmentDepthPct": 0.0,
+            "firstMeaningfulScrolls": 0,
+            "avgFirstMeaningfulScrollMs": 0,
+        },
+        "scroll": {
+            "milestones": {},
+            "bandDistribution": scroll_band_distribution,
+            "bandDurationsMs": {},
+            "topSections": [],
+        },
+        "countsByType": counts_by_type,
+        "topPaths": [
+            {"path": item_path, "events": count}
+            for item_path, count in sorted((top_paths_map or counts_by_path).items(), key=lambda item: item[1], reverse=True)[:20]
+        ],
+        "topTargets": _merge_top_targets(page_rows),
+        "cells": sorted(cells, key=lambda item: item.get("count", 0), reverse=True)[:2500],
+        "points": [],
+        "sessions": [],
+        "staging_only": True,
+    }
+
+
 def get_heatmap_summary(
     property_id: str,
     *,
@@ -1609,6 +2388,37 @@ def get_heatmap_summary(
     if start_date > end_date:
         start_date, end_date = end_date, start_date
 
+    site_id = None
+    if site_key:
+        site = _fetch_site_by_key(site_key)
+        if site:
+            site_id = site.get("id")
+    normalized_device_type = _normalize_text(device_type, 40).lower()
+    anomaly_events = _fetch_heatmap_anomaly_events(
+        property_id,
+        start_date=start_date,
+        end_date=end_date,
+        site_id=site_id,
+        path=path,
+        normalized_device_type=normalized_device_type,
+        access_token=access_token,
+    )
+    anomalies = _detect_heatmap_click_anomalies(anomaly_events)
+    aggregate_summary = _heatmap_summary_from_aggregates(
+        property_id,
+        start_date=start_date,
+        end_date=end_date,
+        site_id=site_id,
+        site_key=site_key,
+        path=path,
+        event_type=event_type,
+        normalized_device_type=normalized_device_type,
+        access_token=access_token,
+    )
+    if aggregate_summary:
+        aggregate_summary["anomalies"] = anomalies
+        return aggregate_summary
+
     filters = [
         ("select", "*"),
         ("property_id", f"eq.{property_id}"),
@@ -1617,10 +2427,8 @@ def get_heatmap_summary(
         ("order", "occurred_at.desc"),
         ("limit", "5000"),
     ]
-    if site_key:
-        site = _fetch_site_by_key(site_key)
-        if site:
-            filters.append(("site_id", f"eq.{site.get('id')}"))
+    if site_id:
+        filters.append(("site_id", f"eq.{site_id}"))
     if path:
         filters.append(("path", f"eq.{_normalize_text(path, 1024)}"))
     if event_type and event_type in HEATMAP_EVENT_TYPES:
@@ -1631,7 +2439,6 @@ def get_heatmap_summary(
         filters,
         headers=_supabase_anon_headers(access_token),
     )
-    normalized_device_type = _normalize_text(device_type, 40).lower()
     if normalized_device_type in {"desktop", "mobile", "tablet"}:
         events = [
             event for event in events
@@ -1640,11 +2447,18 @@ def get_heatmap_summary(
 
     counts_by_type: dict[str, int] = {}
     counts_by_path: dict[str, int] = {}
-    target_counts: dict[str, int] = {}
+    target_counts: dict[str, dict[str, Any]] = {}
     session_keys: set[str] = set()
     max_scroll_depth = 0.0
     scroll_depth_total = 0.0
     scroll_depth_count = 0
+    scroll_milestones: dict[str, int] = {"25": 0, "50": 0, "75": 0, "90": 0, "100": 0}
+    scroll_band_duration_totals: dict[str, int] = {}
+    section_exposure_totals: dict[str, dict[str, Any]] = {}
+    first_meaningful_scroll_count = 0
+    first_meaningful_scroll_total = 0
+    abandonment_depth_total = 0.0
+    abandonment_depth_count = 0
     points = []
     for event in events:
         event_kind = str(event.get("event_type") or "")
@@ -1655,14 +2469,59 @@ def get_heatmap_summary(
         counts_by_type[event_kind] = counts_by_type.get(event_kind, 0) + 1
         counts_by_path[event_path] = counts_by_path.get(event_path, 0) + 1
         if event_kind in {"click", "cta_click", "pointerdown", "touchstart"}:
-            target_label = _normalize_text(raw_data.get("targetLabel") or event.get("target_id") or event.get("target_classes") or event.get("target_tag"), 160)
-            if target_label:
-                target_counts[target_label] = target_counts.get(target_label, 0) + 1
+            target_label = _normalize_text(
+                raw_data.get("targetLabel")
+                or raw_data.get("targetTrackId")
+                or raw_data.get("targetSelector")
+                or event.get("target_id")
+                or event.get("target_classes")
+                or event.get("target_tag"),
+                160,
+            )
+            target_key = _normalize_text(raw_data.get("targetTrackId") or raw_data.get("targetSelector") or target_label, 240)
+            if target_label and target_key:
+                current = target_counts.get(target_key) or {
+                    "label": target_label,
+                    "clicks": 0,
+                    "category": _normalize_text(raw_data.get("targetCategory"), 80),
+                    "selector": _normalize_text(raw_data.get("targetSelector"), 420),
+                    "trackId": _normalize_text(raw_data.get("targetTrackId"), 120),
+                    "href": _normalize_text(raw_data.get("targetHref"), 1024),
+                }
+                current["clicks"] += 1
+                target_counts[target_key] = current
         if event.get("scroll_depth_pct") is not None:
             scroll_depth = float(event.get("scroll_depth_pct") or 0)
             max_scroll_depth = max(max_scroll_depth, scroll_depth)
             scroll_depth_total += scroll_depth
             scroll_depth_count += 1
+        milestone = raw_data.get("scrollMilestone")
+        if milestone is not None:
+            milestone_key = str(round(float(milestone) * 100))
+            if milestone_key in scroll_milestones:
+                scroll_milestones[milestone_key] += 1
+        if raw_data.get("firstMeaningfulScroll"):
+            first_meaningful_scroll_count += 1
+            first_meaningful_scroll_total += int(raw_data.get("firstMeaningfulScrollMs") or 0)
+        if raw_data.get("abandonmentDepthPct") is not None:
+            abandonment_depth_total += float(raw_data.get("abandonmentDepthPct") or 0)
+            abandonment_depth_count += 1
+        band_durations = raw_data.get("scrollBandDurations") if isinstance(raw_data.get("scrollBandDurations"), dict) else {}
+        for band, duration_ms in band_durations.items():
+            scroll_band_duration_totals[str(band)] = scroll_band_duration_totals.get(str(band), 0) + int(duration_ms or 0)
+        section_exposure = raw_data.get("sectionExposure") if isinstance(raw_data.get("sectionExposure"), list) else []
+        for section in section_exposure:
+            if not isinstance(section, dict):
+                continue
+            label = _normalize_text(section.get("label"), 120)
+            if not label:
+                continue
+            current = section_exposure_totals.get(label) or {"label": label, "visibleMs": 0, "maxVisiblePct": 0.0, "topPct": section.get("topPct")}
+            current["visibleMs"] += int(section.get("visibleMs") or 0)
+            current["maxVisiblePct"] = max(float(current.get("maxVisiblePct") or 0), float(section.get("maxVisiblePct") or 0))
+            if current.get("topPct") is None:
+                current["topPct"] = section.get("topPct")
+            section_exposure_totals[label] = current
         if event.get("x_pct") is not None or event.get("y_pct") is not None:
             points.append(
                 {
@@ -1684,6 +2543,11 @@ def get_heatmap_summary(
                     "targetId": event.get("target_id"),
                     "targetLabel": raw_data.get("targetLabel") or "",
                     "targetHref": raw_data.get("targetHref") or "",
+                    "targetSelector": raw_data.get("targetSelector") or "",
+                    "targetTrackId": raw_data.get("targetTrackId") or "",
+                    "targetCtaId": raw_data.get("targetCtaId") or "",
+                    "targetCategory": raw_data.get("targetCategory") or "",
+                    "targetBounds": raw_data.get("targetBounds") if isinstance(raw_data.get("targetBounds"), dict) else None,
                     "deviceType": raw_data.get("deviceType") or "",
                     "occurredAt": event.get("occurred_at"),
                 }
@@ -1702,16 +2566,26 @@ def get_heatmap_summary(
             "eventType": event_type or "",
             "deviceType": normalized_device_type if normalized_device_type in {"desktop", "mobile", "tablet"} else "",
         },
+        "dataSource": "raw_sample",
+        "aggregate": {
+            "gridSize": HEATMAP_AGGREGATE_GRID_SIZE,
+            "cellCount": 0,
+            "pageSummaryRows": 0,
+        },
         "totals": {
             "sessions": len(session_keys),
             "events": len(events),
-            "clicks": counts_by_type.get("click", 0),
+            "clicks": counts_by_type.get("click", 0) + counts_by_type.get("pointerdown", 0) + counts_by_type.get("touchstart", 0),
+            "taps": counts_by_type.get("pointerdown", 0) + counts_by_type.get("touchstart", 0),
             "ctaClicks": counts_by_type.get("cta_click", 0),
             "pointerDowns": counts_by_type.get("pointerdown", 0),
             "touchStarts": counts_by_type.get("touchstart", 0),
             "mouseMoves": counts_by_type.get("mousemove", 0),
             "pointerMoves": counts_by_type.get("pointermove", 0),
-            "engagements": counts_by_type.get("engagement", 0),
+            "cursorSamples": counts_by_type.get("mousemove", 0) + counts_by_type.get("pointermove", 0),
+            "engagements": counts_by_type.get("engagement", 0)
+            + counts_by_type.get("first_interaction", 0)
+            + counts_by_type.get("page_duration", 0),
             "scrolls": counts_by_type.get("scroll", 0),
             "viewportEvents": counts_by_type.get("viewport", 0),
             "firstInteractions": counts_by_type.get("first_interaction", 0),
@@ -1719,6 +2593,14 @@ def get_heatmap_summary(
             "pageDurationEvents": counts_by_type.get("page_duration", 0),
             "avgScrollDepthPct": (scroll_depth_total / scroll_depth_count) if scroll_depth_count else 0.0,
             "maxScrollDepthPct": max_scroll_depth,
+            "avgAbandonmentDepthPct": (abandonment_depth_total / abandonment_depth_count) if abandonment_depth_count else 0.0,
+            "firstMeaningfulScrolls": first_meaningful_scroll_count,
+            "avgFirstMeaningfulScrollMs": (first_meaningful_scroll_total / first_meaningful_scroll_count) if first_meaningful_scroll_count else 0,
+        },
+        "scroll": {
+            "milestones": scroll_milestones,
+            "bandDurationsMs": scroll_band_duration_totals,
+            "topSections": sorted(section_exposure_totals.values(), key=lambda item: item.get("visibleMs", 0), reverse=True)[:12],
         },
         "countsByType": counts_by_type,
         "topPaths": [
@@ -1726,9 +2608,11 @@ def get_heatmap_summary(
             for item_path, count in sorted(counts_by_path.items(), key=lambda item: item[1], reverse=True)[:20]
         ],
         "topTargets": [
-            {"label": label, "clicks": count}
-            for label, count in sorted(target_counts.items(), key=lambda item: item[1], reverse=True)[:20]
+            target
+            for target in sorted(target_counts.values(), key=lambda item: item.get("clicks", 0), reverse=True)[:20]
         ],
+        "anomalies": anomalies,
+        "cells": [],
         "points": points[:2500],
         "sessions": sorted(session_keys)[:100],
         "staging_only": True,
@@ -1794,7 +2678,9 @@ def get_heatmap_tracker_health_summary(
     latest_event_at = None
     latest_collect_status = ""
     latest_diagnostic_at = None
+    latest_diagnostic_data: dict[str, Any] = {}
     coordinate_events = 0
+    deduped_tap_count = 0
     session_keys: set[str] = set()
     for event in events:
         event_type = str(event.get("event_type") or "")
@@ -1806,9 +2692,12 @@ def get_heatmap_tracker_health_summary(
         occurred_at = event.get("occurred_at")
         latest_event_at = latest_event_at or occurred_at
         raw_data = event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}
+        deduped_tap_count += max(0, int(raw_data.get("dedupedTapCount") or 1) - 1)
         if event_type == "tracker_diagnostic":
             latest_diagnostic_at = latest_diagnostic_at or occurred_at
             latest_collect_status = latest_collect_status or _normalize_text(raw_data.get("lastCollectStatus") or raw_data.get("stage"), 80)
+            if not latest_diagnostic_data:
+                latest_diagnostic_data = raw_data
 
     allowed_domains = shaped_site.get("allowedDomains") if shaped_site else []
     missing_domain_variants: list[str] = []
@@ -1837,6 +2726,42 @@ def get_heatmap_tracker_health_summary(
     if not latest_event_at:
         recommendations.append("No tracker event has been observed in the selected range yet.")
 
+    script_detected = bool(latest_event_at)
+    sample_accepted = bool(
+        latest_diagnostic_data.get("sampleAccepted") is True
+        or (latest_event_at and (not sampling_rate or sampling_rate > 0))
+    )
+    consent_dnt_allowed = bool(
+        latest_diagnostic_data.get("consentAllowed") is True
+        or latest_event_at
+        or (shaped_site and not shaped_site.get("respectDnt") and shaped_site.get("consentMode") != "required")
+    )
+    collect_accepted_statuses = {"ok", "beacon_queued", "loaded", "hidden_flush", "pagehide_flush"}
+    last_collect_accepted = bool(latest_collect_status in collect_accepted_statuses or len(events) > 0)
+    domain_accepted = bool(latest_event_at)
+    events_stored = len(events) > 0
+    top_missing_reason = ""
+    if not shaped_site:
+        top_missing_reason = "No heatmap site configuration found."
+    elif not shaped_site.get("trackingEnabled"):
+        top_missing_reason = "Tracking is disabled for this site."
+    elif not allowed_domains:
+        top_missing_reason = "No allowed domain is configured."
+    elif missing_domain_variants:
+        top_missing_reason = f"Missing matching allowed domain variant: {missing_domain_variants[0]}."
+    elif not consent_dnt_allowed:
+        top_missing_reason = "Consent or Do Not Track may be blocking the tracker."
+    elif not sample_accepted:
+        top_missing_reason = "Sampling may be excluding this test session."
+    elif not script_detected:
+        top_missing_reason = "The tracker script has not produced an event for this page/range."
+    elif not last_collect_accepted:
+        top_missing_reason = "The last collect attempt was not accepted."
+    elif not events_stored:
+        top_missing_reason = "No heatmap events have been stored yet."
+    else:
+        top_missing_reason = "No blocker detected."
+
     return {
         "status": "ok",
         "property_id": str(property_id),
@@ -1855,6 +2780,7 @@ def get_heatmap_tracker_health_summary(
             "latestCollectStatus": latest_collect_status,
             "eventsAccepted": len(events),
             "eventsWithCoordinates": coordinate_events,
+            "dedupedTapEvents": deduped_tap_count,
             "sessionsObserved": len(session_keys),
             "sampleRate": sampling_rate,
             "sampleMayRejectQaSessions": bool(sampling_rate and sampling_rate < 1),
@@ -1863,6 +2789,39 @@ def get_heatmap_tracker_health_summary(
             "allowedDomains": allowed_domains,
             "missingDomainVariants": missing_domain_variants,
             "countsByType": counts_by_type,
+            "statuses": {
+                "scriptDetected": {
+                    "ok": script_detected,
+                    "label": "Detected" if script_detected else "Not detected",
+                    "detail": latest_event_at or "No tracker event observed",
+                },
+                "sampleAccepted": {
+                    "ok": sample_accepted,
+                    "label": "Accepted" if sample_accepted else "Not confirmed",
+                    "detail": f"{round(sampling_rate * 100)}% sample rate" if sampling_rate else "No sample rate",
+                },
+                "consentDntAllowed": {
+                    "ok": consent_dnt_allowed,
+                    "label": "Allowed" if consent_dnt_allowed else "Blocked or unknown",
+                    "detail": f"Consent {shaped_site.get('consentMode') if shaped_site else 'unknown'}; DNT {'on' if shaped_site and shaped_site.get('respectDnt') else 'off'}",
+                },
+                "lastCollectAccepted": {
+                    "ok": last_collect_accepted,
+                    "label": "Accepted" if last_collect_accepted else "Not accepted",
+                    "detail": latest_collect_status or "No collect status",
+                },
+                "domainAccepted": {
+                    "ok": domain_accepted,
+                    "label": "Accepted" if domain_accepted else "Not confirmed",
+                    "detail": f"{len(allowed_domains)} allowed domain(s)",
+                },
+                "eventsStored": {
+                    "ok": events_stored,
+                    "label": "Stored" if events_stored else "None stored",
+                    "detail": f"{len(events)} event(s)",
+                },
+            },
+            "topMissingReason": top_missing_reason,
         },
         "recommendations": recommendations,
         "staging_only": True,
@@ -1962,6 +2921,12 @@ def get_site_screenshot_preview_summary(
     if not signed_path:
         raise RuntimeError("Supabase did not return a signed screenshot preview URL.")
     preview_url = _resolve_storage_signed_url(signed_path)
+    capture_metrics = _screenshot_capture_metrics(
+        screenshot,
+        device_type=str(screenshot.get("device_type") or ""),
+        fallback_width=_to_int(screenshot.get("width")),
+        fallback_height=_to_int(screenshot.get("height")),
+    )
 
     return {
         "status": "ok",
@@ -1976,13 +2941,9 @@ def get_site_screenshot_preview_summary(
             "storagePath": storage_path,
             "width": screenshot.get("width"),
             "height": screenshot.get("height"),
-            "captureMetrics": {
-                "viewportWidth": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(screenshot.get("device_type") or ""), {}).get("width"),
-                "viewportHeight": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(screenshot.get("device_type") or ""), {}).get("height"),
-                "documentWidth": screenshot.get("width"),
-                "documentHeight": screenshot.get("height"),
-                "deviceScaleFactor": 1,
-            },
+            "captureMetrics": capture_metrics,
+            "screenshotMode": capture_metrics.get("screenshotMode"),
+            "capturedUrl": capture_metrics.get("capturedUrl"),
             "contentHash": screenshot.get("content_hash"),
             "capturedAt": screenshot.get("captured_at"),
         },
@@ -2015,13 +2976,12 @@ def _shape_audit_page(page: dict[str, Any], snapshot: dict[str, Any] | None, scr
                 "storagePath": item.get("storage_path"),
                 "width": item.get("width"),
                 "height": item.get("height"),
-                "captureMetrics": {
-                    "viewportWidth": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(item.get("device_type") or ""), {}).get("width"),
-                    "viewportHeight": SCREENSHOT_CAPTURE_VIEWPORTS.get(str(item.get("device_type") or ""), {}).get("height"),
-                    "documentWidth": item.get("width"),
-                    "documentHeight": item.get("height"),
-                    "deviceScaleFactor": 1,
-                },
+                "captureMetrics": _screenshot_capture_metrics(
+                    item,
+                    device_type=str(item.get("device_type") or ""),
+                    fallback_width=_to_int(item.get("width")),
+                    fallback_height=_to_int(item.get("height")),
+                ),
                 "contentHash": item.get("content_hash"),
                 "capturedAt": item.get("captured_at"),
             }
@@ -2494,7 +3454,17 @@ def build_tracker_script(
   var MOVE_THROTTLE_MS = 750;
   var SCROLL_THROTTLE_MS = 1000;
   var DWELL_MS = 2000;
+  var SCROLL_MILESTONES = [0.25, 0.5, 0.75, 0.9, 1];
+  var SCROLL_BANDS = [
+    {{ key: '0-25', min: 0, max: 0.25 }},
+    {{ key: '25-50', min: 0.25, max: 0.5 }},
+    {{ key: '50-75', min: 0.5, max: 0.75 }},
+    {{ key: '75-90', min: 0.75, max: 0.9 }},
+    {{ key: '90-100', min: 0.9, max: 1.01 }}
+  ];
   var startedAt = Date.now();
+  var currentRouteKey = '';
+  var routeChangeTimer = null;
   var status = window.__REDSTONE_TRACKER_STATUS = {{
     loaded: true,
     siteKey: SITE_KEY,
@@ -2569,6 +3539,13 @@ def build_tracker_script(
   var lastPointer = null;
   var lastDwellKey = '';
   var firstInteractionSent = false;
+  var firstMeaningfulScrollSent = false;
+  var reachedScrollMilestones = {{}};
+  var scrollBandStartedAt = Date.now();
+  var activeScrollBand = '';
+  var scrollBandDurations = {{}};
+  var sectionExposure = {{}};
+  var lastSectionExposureAt = Date.now();
   var pageSent = false;
 
   function absoluteUrl(value) {{
@@ -2579,14 +3556,36 @@ def build_tracker_script(
     }}
   }}
 
-  function canonicalPath() {{
+  function routePath() {{
+    return location.pathname || '/';
+  }}
+
+  function routeKey() {{
+    return [location.pathname || '/', location.search || ''].join('');
+  }}
+
+  function routeKeyFromUrl(value) {{
+    if (!value) return routeKey();
+    try {{
+      var parsed = new URL(value, location.href);
+      return [parsed.pathname || '/', parsed.search || ''].join('');
+    }} catch (e) {{
+      return routeKey();
+    }}
+  }}
+
+  function canonicalUrl() {{
     var canonical = document.querySelector('link[rel="canonical"]');
     var href = canonical && canonical.href ? canonical.href : location.href;
     try {{
-      return new URL(href, location.href).pathname || '/';
+      return new URL(href, location.href).href;
     }} catch (e) {{
-      return location.pathname || '/';
+      return location.href;
     }}
+  }}
+
+  function canonicalPath() {{
+    return routePath();
   }}
 
   function deviceType() {{
@@ -2608,7 +3607,7 @@ def build_tracker_script(
     return {{
       propertyId: PROPERTY_ID,
       url: location.href,
-      path: location.pathname || '/',
+      path: routePath(),
       canonicalPath: canonicalPath(),
       viewportWidth: window.innerWidth,
       viewportHeight: window.innerHeight,
@@ -2638,32 +3637,136 @@ def build_tracker_script(
     var text = cleanText(target.getAttribute && (target.getAttribute('aria-label') || target.getAttribute('title')), 100);
     if (text) return text;
     if (/^(A|BUTTON)$/i.test(target.tagName || '')) return cleanText(target.textContent, 100);
-    var action = target.closest && target.closest('a, button, [role="button"]');
+    var action = target.closest && target.closest('a, button, [role="button"], [data-redstone-track-id], [data-redstone-cta], [data-cta]');
     return action ? cleanText(action.textContent, 100) : '';
   }}
 
   function isCta(target) {{
     if (!target || isSensitiveElement(target)) return false;
-    var action = target.closest && target.closest('a, button, [role="button"], [data-cta], .cta, .button, .btn');
+    var action = target.closest && target.closest('a, button, [role="button"], [data-redstone-cta], [data-redstone-track-id], [data-cta], .cta, .button, .btn');
     if (!action) return false;
     var label = actionLabel(action).toLowerCase();
     var href = action.href || '';
-    return Boolean(action.hasAttribute && action.hasAttribute('data-cta')) ||
+    return Boolean(action.hasAttribute && (action.hasAttribute('data-redstone-cta') || action.hasAttribute('data-cta'))) ||
       /apply|lease|tour|schedule|availability|floor\\s*plan|contact|call|text|book|reserve|special|offer/.test(label + ' ' + href);
+  }}
+
+  function safeSelectorValue(value) {{
+    return cleanText(value, 80).replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  }}
+
+  function selectorSegment(node) {{
+    if (!node || !node.tagName) return '';
+    var tag = String(node.tagName).toLowerCase();
+    var trackId = node.getAttribute && node.getAttribute('data-redstone-track-id');
+    if (trackId) return '[data-redstone-track-id="' + safeSelectorValue(trackId) + '"]';
+    if (node.id) return '#' + safeSelectorValue(node.id);
+    var cta = node.getAttribute && node.getAttribute('data-redstone-cta');
+    if (cta !== null && cta !== undefined) return tag + '[data-redstone-cta]';
+    var role = node.getAttribute && node.getAttribute('role');
+    if (role) return tag + '[role="' + safeSelectorValue(role) + '"]';
+    var classes = [];
+    if (node.classList && node.classList.length) {{
+      classes = Array.prototype.slice.call(node.classList)
+        .map(safeSelectorValue)
+        .filter(function(item) {{ return item && item.length <= 42 && !/^\\d+$/.test(item); }})
+        .slice(0, 2);
+    }}
+    var segment = tag + (classes.length ? '.' + classes.join('.') : '');
+    if (!classes.length && node.parentElement) {{
+      var index = 1;
+      var sibling = node;
+      while ((sibling = sibling.previousElementSibling)) {{
+        if (sibling.tagName === node.tagName) index += 1;
+      }}
+      segment += ':nth-of-type(' + index + ')';
+    }}
+    return segment;
+  }}
+
+  function selectorPath(node) {{
+    if (!node || !node.closest || isSensitiveElement(node)) return '';
+    var parts = [];
+    var current = node;
+    var depth = 0;
+    while (current && current.nodeType === 1 && depth < 6) {{
+      var segment = selectorSegment(current);
+      if (segment) parts.unshift(segment);
+      if (segment.charAt(0) === '#' || segment.indexOf('[data-redstone-track-id=') === 0) break;
+      current = current.parentElement;
+      if (current && /^(HTML|BODY)$/i.test(current.tagName || '')) break;
+      depth += 1;
+    }}
+    return parts.join(' > ').slice(0, 420);
+  }}
+
+  function trackedElement(target) {{
+    if (!target || !target.closest) return target;
+    return target.closest('[data-redstone-track-id], [data-redstone-cta], [data-cta], a, button, [role="button"]') || target;
+  }}
+
+  function elementBounds(node) {{
+    if (!node || !node.getBoundingClientRect || isSensitiveElement(node)) return null;
+    var rect = node.getBoundingClientRect();
+    var size = docSize();
+    var left = rect.left + window.scrollX;
+    var top = rect.top + window.scrollY;
+    return {{
+      left: Math.round(left),
+      top: Math.round(top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      leftPct: left / Math.max(1, size.documentWidth),
+      topPct: top / Math.max(1, size.documentHeight),
+      widthPct: rect.width / Math.max(1, size.documentWidth),
+      heightPct: rect.height / Math.max(1, size.documentHeight)
+    }};
+  }}
+
+  function targetCategory(target) {{
+    if (!target || !target.closest) return 'unknown';
+    var action = trackedElement(target);
+    var href = action && action.href ? String(action.href).toLowerCase() : '';
+    var label = actionLabel(action || target).toLowerCase();
+    var descriptor = [
+      label,
+      href,
+      action && action.id || '',
+      action && typeof action.className === 'string' ? action.className : '',
+      action && action.getAttribute ? (action.getAttribute('data-redstone-track-id') || action.getAttribute('data-redstone-cta') || '') : ''
+    ].join(' ').toLowerCase();
+    if (/^tel:|\\b(call|phone|text|sms)\\b/.test(href + ' ' + descriptor)) return 'phone';
+    if (action && action.closest && action.closest('form, [role="form"]')) return 'form';
+    if (/floor\\s*plans?|availability|unit|pricing/.test(descriptor)) return 'floorplan';
+    if (/map|directions|location/.test(descriptor) || (action && action.closest && action.closest('[class*="map"], [id*="map"]'))) return 'map';
+    if (/gallery|photo|virtual\\s*tour|video/.test(descriptor) || (action && action.closest && action.closest('[class*="gallery"], [class*="carousel"], [class*="slider"]'))) return 'gallery';
+    if (action && action.closest && action.closest('nav, header, [role="navigation"], .menu')) return 'nav';
+    if (isCta(target)) return 'cta';
+    if (action && /^(A)$/i.test(action.tagName || '')) return 'link';
+    if (action && /^(BUTTON)$/i.test(action.tagName || '')) return 'button';
+    return 'content';
   }}
 
   function targetMeta(target) {{
     if (!target || target === document || target === window) return {{}};
     var tag = target.tagName || '';
     if (isSensitiveElement(target)) return {{ targetTag: tag, sensitive: true }};
-    var action = target.closest && target.closest('a, button, [role="button"]');
+    var action = trackedElement(target);
+    var trackId = action && action.getAttribute ? cleanText(action.getAttribute('data-redstone-track-id'), 120) : '';
+    var ctaId = action && action.getAttribute ? cleanText(action.getAttribute('data-redstone-cta'), 120) : '';
+    var bounds = elementBounds(action || target);
     return {{
       targetTag: tag,
-      targetId: target.id || '',
-      targetClass: typeof target.className === 'string' ? target.className.slice(0, 300) : '',
-      targetRole: target.getAttribute ? (target.getAttribute('role') || '') : '',
+      targetId: (action && action.id) || target.id || '',
+      targetClass: action && typeof action.className === 'string' ? action.className.slice(0, 300) : (typeof target.className === 'string' ? target.className.slice(0, 300) : ''),
+      targetRole: action && action.getAttribute ? (action.getAttribute('role') || '') : (target.getAttribute ? (target.getAttribute('role') || '') : ''),
       targetHref: action && action.href ? absoluteUrl(action.href).slice(0, 1024) : '',
       targetLabel: actionLabel(action || target),
+      targetSelector: selectorPath(action || target),
+      targetTrackId: trackId,
+      targetCtaId: ctaId,
+      targetCategory: targetCategory(target),
+      targetBounds: bounds,
       isCta: isCta(target)
     }};
   }}
@@ -2778,7 +3881,7 @@ def build_tracker_script(
   function collectPageSnapshot() {{
     return {{
       url: location.href,
-      canonicalUrl: absoluteUrl((document.querySelector('link[rel="canonical"]') || {{}}).href || location.href),
+      canonicalUrl: canonicalUrl(),
       canonicalPath: canonicalPath(),
       title: cleanText(document.title, 220),
       metaDescription: findMetaDescription(),
@@ -2795,6 +3898,175 @@ def build_tracker_script(
   function scrollDepth() {{
     var size = docSize();
     return Math.min(1, (window.scrollY + window.innerHeight) / Math.max(1, size.documentHeight));
+  }}
+
+  function scrollBandForDepth(depth) {{
+    for (var i = 0; i < SCROLL_BANDS.length; i += 1) {{
+      if (depth >= SCROLL_BANDS[i].min && depth < SCROLL_BANDS[i].max) return SCROLL_BANDS[i].key;
+    }}
+    return 'unknown';
+  }}
+
+  function updateScrollBandTime() {{
+    var now = Date.now();
+    var depth = scrollDepth();
+    var band = scrollBandForDepth(depth);
+    if (!activeScrollBand) {{
+      activeScrollBand = band;
+      scrollBandStartedAt = now;
+      return band;
+    }}
+    if (band !== activeScrollBand) {{
+      scrollBandDurations[activeScrollBand] = (scrollBandDurations[activeScrollBand] || 0) + Math.max(0, now - scrollBandStartedAt);
+      activeScrollBand = band;
+      scrollBandStartedAt = now;
+    }}
+    return band;
+  }}
+
+  function currentScrollBandDurations() {{
+    updateScrollBandTime();
+    var durations = Object.assign({{}}, scrollBandDurations);
+    if (activeScrollBand) {{
+      durations[activeScrollBand] = (durations[activeScrollBand] || 0) + Math.max(0, Date.now() - scrollBandStartedAt);
+    }}
+    return durations;
+  }}
+
+  function sectionLabel(node) {{
+    if (!node || !node.getAttribute) return '';
+    var trackId = node.getAttribute('data-redstone-track-id');
+    if (trackId) return 'track:' + cleanText(trackId, 80);
+    var id = node.id ? safeSelectorValue(node.id) : '';
+    if (id) return '#' + id;
+    var role = node.getAttribute('role');
+    if (role) return String(node.tagName || '').toLowerCase() + '[role="' + safeSelectorValue(role) + '"]';
+    var heading = node.querySelector && node.querySelector('h1, h2, h3');
+    if (heading) return String(heading.tagName || '').toLowerCase() + ':' + cleanText(heading.textContent, 80);
+    var classes = node.classList && node.classList.length
+      ? Array.prototype.slice.call(node.classList).map(safeSelectorValue).filter(Boolean).slice(0, 2).join('.')
+      : '';
+    return String(node.tagName || 'section').toLowerCase() + (classes ? '.' + classes : '');
+  }}
+
+  function visibleSections() {{
+    var viewportHeight = Math.max(1, window.innerHeight || 1);
+    return Array.prototype.slice.call(document.querySelectorAll('[data-redstone-track-id], main, section, article, header, footer, nav, [role="main"], [role="region"]'), 0, 80)
+      .filter(function(node) {{
+        if (!isVisibleElement(node) || isSensitiveElement(node) || !node.getBoundingClientRect) return false;
+        var rect = node.getBoundingClientRect();
+        return rect.height > 40 && rect.bottom > 0 && rect.top < viewportHeight;
+      }})
+      .slice(0, 8)
+      .map(function(node) {{
+        var rect = node.getBoundingClientRect();
+        var visiblePx = Math.max(0, Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0));
+        return {{
+          label: sectionLabel(node).slice(0, 120),
+          visiblePct: Math.min(1, visiblePx / Math.max(1, Math.min(rect.height, viewportHeight))),
+          topPct: (rect.top + window.scrollY) / Math.max(1, docSize().documentHeight)
+        }};
+      }})
+      .filter(function(item) {{ return item.label && item.visiblePct > 0.05; }});
+  }}
+
+  function updateSectionExposure() {{
+    var now = Date.now();
+    var delta = Math.max(0, now - lastSectionExposureAt);
+    lastSectionExposureAt = now;
+    visibleSections().forEach(function(section) {{
+      var current = sectionExposure[section.label] || {{ label: section.label, visibleMs: 0, maxVisiblePct: 0, topPct: section.topPct }};
+      current.visibleMs += Math.round(delta * section.visiblePct);
+      current.maxVisiblePct = Math.max(current.maxVisiblePct || 0, section.visiblePct);
+      current.topPct = section.topPct;
+      sectionExposure[section.label] = current;
+    }});
+  }}
+
+  function sectionExposureSnapshot() {{
+    updateSectionExposure();
+    return Object.keys(sectionExposure).map(function(key) {{ return sectionExposure[key]; }})
+      .sort(function(a, b) {{ return (b.visibleMs || 0) - (a.visibleMs || 0); }})
+      .slice(0, 20);
+  }}
+
+  function scrollPayload(extra) {{
+    var depth = scrollDepth();
+    return Object.assign({{
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+      scrollDepthPct: depth,
+      scrollBand: updateScrollBandTime(),
+      scrollBandDurations: currentScrollBandDurations(),
+      visibleSections: visibleSections(),
+      sectionExposure: sectionExposureSnapshot()
+    }}, extra || {{}});
+  }}
+
+  function resetPageState(reason) {{
+    startedAt = Date.now();
+    pageSent = false;
+    firstInteractionSent = false;
+    firstMeaningfulScrollSent = false;
+    reachedScrollMilestones = {{}};
+    scrollBandDurations = {{}};
+    sectionExposure = {{}};
+    lastSectionExposureAt = Date.now();
+    activeScrollBand = scrollBandForDepth(scrollDepth());
+    scrollBandStartedAt = Date.now();
+    lastDwellKey = '';
+    lastPointer = null;
+    updateSectionExposure();
+    enqueue('pageview', scrollPayload({{ scrollMilestone: 0, routeChangeReason: reason || 'route_change' }}));
+    enqueue('tracker_diagnostic', {{
+      stage: 'route_change',
+      routeChangeReason: reason || 'route_change',
+      path: routePath(),
+      canonicalPath: canonicalPath(),
+      url: location.href,
+      changedAt: new Date().toISOString()
+    }});
+  }}
+
+  function handleRouteChange(reason) {{
+    if (routeChangeTimer) window.clearTimeout(routeChangeTimer);
+    routeChangeTimer = window.setTimeout(function() {{
+      var nextRouteKey = routeKey();
+      if (nextRouteKey === currentRouteKey) return;
+      currentRouteKey = nextRouteKey;
+      resetPageState(reason);
+    }}, 250);
+  }}
+
+  function beforeVirtualRouteLeave(reason) {{
+    enqueue('page_duration', Object.assign({{
+      engagementMs: Date.now() - startedAt,
+      abandonmentDepthPct: scrollDepth(),
+      routeChangeReason: reason || 'route_change',
+      virtualRouteEnd: true
+    }}, scrollPayload({{ finalScrollEvent: true }})));
+    flush();
+  }}
+
+  function installHistoryListener() {{
+    if (!window.history || window.history.__redstoneTrackerPatched) return;
+    var originalPushState = history.pushState;
+    var originalReplaceState = history.replaceState;
+    history.pushState = function() {{
+      if (routeKeyFromUrl(arguments[2]) !== currentRouteKey) beforeVirtualRouteLeave('pushState');
+      var result = originalPushState.apply(this, arguments);
+      handleRouteChange('pushState');
+      return result;
+    }};
+    history.replaceState = function() {{
+      if (routeKeyFromUrl(arguments[2]) !== currentRouteKey) beforeVirtualRouteLeave('replaceState');
+      var result = originalReplaceState.apply(this, arguments);
+      handleRouteChange('replaceState');
+      return result;
+    }};
+    window.addEventListener('popstate', function() {{ handleRouteChange('popstate'); }});
+    window.addEventListener('hashchange', function() {{ handleRouteChange('hashchange'); }});
+    history.__redstoneTrackerPatched = true;
   }}
 
   function enqueue(type, data) {{
@@ -2854,7 +4126,11 @@ def build_tracker_script(
     }}
   }}
 
-  enqueue('pageview', {{ scrollY: window.scrollY, scrollDepthPct: scrollDepth() }});
+  currentRouteKey = routeKey();
+  installHistoryListener();
+  activeScrollBand = scrollBandForDepth(scrollDepth());
+  updateSectionExposure();
+  enqueue('pageview', scrollPayload({{ scrollMilestone: 0 }}));
   enqueue('tracker_diagnostic', {{
     stage: 'loaded',
     sampleAccepted: true,
@@ -2913,17 +4189,26 @@ def build_tracker_script(
     if (now - lastScroll < 1000) return;
     lastScroll = now;
     markFirstInteraction('scroll', document.documentElement);
-    enqueue('scroll', {{
-      scrollX: window.scrollX,
-      scrollY: window.scrollY,
-      scrollDepthPct: scrollDepth()
+    var depth = scrollDepth();
+    var payload = scrollPayload();
+    if (!firstMeaningfulScrollSent && (window.scrollY || 0) > Math.max(120, (window.innerHeight || 0) * 0.2)) {{
+      firstMeaningfulScrollSent = true;
+      enqueue('scroll', Object.assign({{ firstMeaningfulScroll: true, firstMeaningfulScrollMs: now - startedAt }}, payload));
+    }}
+    SCROLL_MILESTONES.forEach(function(milestone) {{
+      if (depth >= milestone && !reachedScrollMilestones[String(milestone)]) {{
+        reachedScrollMilestones[String(milestone)] = true;
+        enqueue('scroll', Object.assign({{ scrollMilestone: milestone }}, payload));
+      }}
     }});
+    enqueue('scroll', payload);
   }}, {{ passive: true }});
   function enqueueViewport(reason) {{
     enqueue('viewport', Object.assign({{
       reason: reason || 'resize',
       orientation: window.screen && window.screen.orientation ? window.screen.orientation.type : '',
-      scrollDepthPct: scrollDepth()
+      scrollDepthPct: scrollDepth(),
+      scrollBand: updateScrollBandTime()
     }}, docSize()));
   }}
   window.addEventListener('resize', function() {{ enqueueViewport('resize'); }}, {{ passive: true }});
@@ -2952,12 +4237,13 @@ def build_tracker_script(
   window.addEventListener('visibilitychange', function() {{
     if (document.visibilityState === 'hidden') {{
       enqueue('visibility', {{ state: 'hidden' }});
+      enqueue('scroll', scrollPayload({{ abandonmentDepthPct: scrollDepth(), finalScrollEvent: true }}));
       enqueue('tracker_diagnostic', {{ stage: 'hidden_flush', lastCollectStatus: status.lastCollectStatus, eventsQueued: status.eventsQueued, eventsAccepted: status.eventsAccepted }});
       flush();
     }}
   }});
   window.addEventListener('pagehide', function() {{
-    enqueue('page_duration', {{ engagementMs: Date.now() - startedAt, scrollDepthPct: scrollDepth() }});
+    enqueue('page_duration', Object.assign({{ engagementMs: Date.now() - startedAt, abandonmentDepthPct: scrollDepth() }}, scrollPayload({{ finalScrollEvent: true }})));
     enqueue('tracker_diagnostic', {{ stage: 'pagehide_flush', lastCollectStatus: status.lastCollectStatus, eventsQueued: status.eventsQueued, eventsAccepted: status.eventsAccepted }});
     flush();
   }});

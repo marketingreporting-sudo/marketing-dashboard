@@ -1093,6 +1093,161 @@ h1, h2, h3 {
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
 
+.heatmap-layer-toggle strong {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.82;
+}
+
+.heatmap-analyst-strip {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(260px, 1.6fr);
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.heatmap-confidence,
+.heatmap-layer-legend {
+  min-width: 0;
+  border: 1px solid rgba(16, 33, 38, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 0.72rem 0.8rem;
+}
+
+.heatmap-confidence {
+  display: grid;
+  gap: 0.24rem;
+}
+
+.heatmap-confidence strong {
+  color: var(--primary);
+  font-size: 0.88rem;
+}
+
+.heatmap-confidence span {
+  color: rgba(16, 33, 38, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.heatmap-confidence--low {
+  border-color: rgba(238, 196, 94, 0.42);
+}
+
+.heatmap-confidence--high {
+  border-color: rgba(71, 190, 125, 0.34);
+}
+
+.heatmap-layer-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  align-items: center;
+}
+
+.heatmap-layer-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: rgba(16, 33, 38, 0.72);
+  font-size: 0.78rem;
+}
+
+.heatmap-layer-legend i {
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+  background: rgb(var(--layer-rgb));
+  box-shadow: 0 0 0 3px rgba(var(--layer-rgb), 0.14);
+}
+
+.heatmap-cell-detail {
+  position: sticky;
+  top: 12px;
+  float: right;
+  z-index: 8;
+  width: min(320px, calc(100% - 24px));
+  margin: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(6, 14, 17, 0.9);
+  color: var(--white);
+  padding: 0.78rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.heatmap-cell-detail > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+
+.heatmap-cell-detail span {
+  color: var(--primary-tan);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.heatmap-cell-detail button {
+  width: 1.55rem;
+  height: 1.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--white);
+  cursor: pointer;
+}
+
+.heatmap-cell-detail strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.heatmap-cell-detail small,
+.heatmap-cell-detail dd {
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.35;
+}
+
+.heatmap-cell-detail dl {
+  display: grid;
+  grid-template-columns: 5rem 1fr;
+  gap: 0.3rem 0.6rem;
+  margin: 0.65rem 0 0;
+}
+
+.heatmap-cell-detail dt {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 0.72rem;
+}
+
+.heatmap-cell-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.74rem;
+}
+
+.heatmap-target-row {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.heatmap-target-row:hover,
+.heatmap-target-row:focus-visible {
+  outline: 1px solid rgba(238, 196, 94, 0.48);
+  background: rgba(238, 196, 94, 0.08);
+}
+
 .heatmap-layer-toggle:hover,
 .heatmap-zoom-toggle:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -1156,6 +1311,10 @@ h1, h2, h3 {
   }
 
   .heatmap-audit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .heatmap-analyst-strip {
     grid-template-columns: 1fr;
   }
 
@@ -5846,6 +6005,21 @@ th {
   background: var(--panel-deep) !important;
   color: var(--text-soft) !important;
   border-color: var(--surface-line) !important;
+}
+
+.dashboard-container--reports .heatmap-confidence,
+.dashboard-container--reports .heatmap-layer-legend {
+  background: var(--panel-deep) !important;
+  border-color: var(--surface-line) !important;
+}
+
+.dashboard-container--reports .heatmap-confidence strong {
+  color: var(--text-main) !important;
+}
+
+.dashboard-container--reports .heatmap-confidence span,
+.dashboard-container--reports .heatmap-layer-legend span {
+  color: var(--text-soft) !important;
 }
 
 .dashboard-container--reports .heatmap-layer-toggle.is-active {

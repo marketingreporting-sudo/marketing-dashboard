@@ -1318,6 +1318,7 @@ const DashboardApp = ({
   });
   const [heatmapLayersTouched, setHeatmapLayersTouched] = useState(false);
   const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
+  const [highlightedHeatmapTarget, setHighlightedHeatmapTarget] = useState(null);
   const heatmapPageOptions = heatmapPagesData?.pages || [];
   const auditPageOptions = siteAuditPagesData?.pages || [];
   const selectedAuditPage = useMemo(() => (
@@ -3898,12 +3899,32 @@ const DashboardApp = ({
   const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
     ? heatmapTrackerHealthData.recommendations
     : [];
+  const trackerHealthStatuses = trackerHealth.statuses || {};
+  const trackerHealthStatusRows = [
+    ['Script detected', trackerHealthStatuses.scriptDetected],
+    ['Sample accepted', trackerHealthStatuses.sampleAccepted],
+    ['Consent/DNT allowed', trackerHealthStatuses.consentDntAllowed],
+    ['Last collect accepted', trackerHealthStatuses.lastCollectAccepted],
+    ['Domain accepted', trackerHealthStatuses.domainAccepted],
+    ['Events stored', trackerHealthStatuses.eventsStored],
+  ];
+  const heatmapScrollSummary = heatmapSummaryData?.scroll || {};
+  const heatmapScrollMilestones = heatmapScrollSummary.milestones || {};
+  const heatmapTopSections = Array.isArray(heatmapScrollSummary.topSections) ? heatmapScrollSummary.topSections : [];
+  const heatmapBandDurations = heatmapScrollSummary.bandDurationsMs || {};
+  const topScrollBand = Object.entries(heatmapBandDurations)
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || null;
   const heatmapPoints = useMemo(() => (
     (heatmapSummaryData?.points || [])
       .filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice)
   ), [heatmapSummaryData, selectedHeatmapDevice]);
+  const heatmapCells = useMemo(() => (
+    (heatmapSummaryData?.cells || [])
+      .filter((cell) => !cell.deviceType || cell.deviceType === selectedHeatmapDevice)
+  ), [heatmapSummaryData, selectedHeatmapDevice]);
   const heatmapCoordinateDiagnostics = useMemo(() => {
     const allPoints = Array.isArray(heatmapSummaryData?.points) ? heatmapSummaryData.points : [];
+    const allCells = Array.isArray(heatmapSummaryData?.cells) ? heatmapSummaryData.cells : [];
     const selectedDevicePoints = allPoints.filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice);
     const deviceMismatchCount = allPoints.length - selectedDevicePoints.length;
     const parseCoordinate = (value) => {
@@ -3920,15 +3941,17 @@ const DashboardApp = ({
     };
     const coordinateCount = selectedDevicePoints.filter((point) => point.xPct != null || point.yPct != null).length;
     const rendererAcceptedCount = selectedDevicePoints.filter(hasRendererCoordinate).length;
+    const aggregateCoordinateCount = allCells.filter((cell) => cell.xPct != null && cell.yPct != null).length;
     return {
       rawEvents: Number(heatmapTotals.events || 0),
-      withCoordinates: coordinateCount,
+      withCoordinates: aggregateCoordinateCount || coordinateCount,
       rejectedFromRenderer: Math.max(0, coordinateCount - rendererAcceptedCount),
       deviceMismatch: Math.max(0, deviceMismatchCount),
     };
   }, [heatmapSummaryData, selectedHeatmapDevice, heatmapTotals.events]);
   useEffect(() => {
     setHeatmapLayersTouched(false);
+    setHighlightedHeatmapTarget(null);
   }, [rangeDates, selectedHeatmapDevice, selectedHeatmapPath, selectedPropertyId]);
   useEffect(() => {
     if (heatmapLayersTouched || heatmapSummaryLoading || !heatmapSummaryData) return;
@@ -3946,18 +3969,29 @@ const DashboardApp = ({
     setHeatmapLayers({ click: false, cursor: false, scroll: false, engagement: false });
   }, [heatmapLayersTouched, heatmapSummaryData, heatmapSummaryLoading, heatmapTotals.clicks, heatmapTotals.ctaClicks, heatmapTotals.scrolls, heatmapTotals.maxScrollDepthPct]);
   const heatmapClickAnomalies = useMemo(() => {
-    const clickPoints = heatmapPoints.filter((point) => point.type === 'click');
-    const deadClicks = clickPoints.filter((point) => !point.targetHref && !point.targetLabel).length;
+    const serverAnomalies = heatmapSummaryData?.anomalies;
+    if (serverAnomalies) {
+      return {
+        deadClicks: Number(serverAnomalies.deadClicks?.count || 0),
+        rageClusters: Number(serverAnomalies.rageClicks?.count || 0),
+        ctaFrustrations: Number(serverAnomalies.ctaFrustration?.count || 0),
+        deadClickTargets: serverAnomalies.deadClicks?.targets || [],
+        rageClickClusters: serverAnomalies.rageClicks?.clusters || [],
+        ctaFrustrationClusters: serverAnomalies.ctaFrustration?.clusters || [],
+      };
+    }
+    const clickPoints = heatmapPoints.filter((point) => ['click', 'pointerdown', 'touchstart'].includes(point.type));
+    const deadClicks = clickPoints.filter((point) => !point.targetHref && !point.targetLabel && !point.targetTrackId && !point.targetSelector).length;
     const clusterMap = new Map();
     clickPoints.forEach((point) => {
       const x = Math.round(Number(point.xPct || 0) * 25);
       const y = Math.round(Number(point.yPct || 0) * 25);
-      const key = `${point.sessionKey || 'unknown'}:${point.targetLabel || point.targetId || point.targetTag || 'unknown'}:${x}:${y}`;
+      const key = `${point.sessionKey || 'unknown'}:${point.targetTrackId || point.targetSelector || point.targetLabel || point.targetId || point.targetTag || 'unknown'}:${x}:${y}`;
       clusterMap.set(key, (clusterMap.get(key) || 0) + 1);
     });
     const rageClusters = Array.from(clusterMap.values()).filter((count) => count >= 3).length;
-    return { deadClicks, rageClusters };
-  }, [heatmapPoints]);
+    return { deadClicks, rageClusters, ctaFrustrations: 0, deadClickTargets: [], rageClickClusters: [], ctaFrustrationClusters: [] };
+  }, [heatmapPoints, heatmapSummaryData]);
   const heatmapTopTargets = heatmapSummaryData?.topTargets || [];
   const latestAudit = siteAuditSummaryData?.audit || null;
   const auditPageResult = useMemo(() => {
@@ -5581,12 +5615,25 @@ const DashboardApp = ({
             <strong>Coordinate diagnostics</strong>
             <small>Admin-only tracker validation for the selected page/device/range.</small>
           </div>
+          <div className="heatmap-coordinate-diagnostics__grid" style={{ marginBottom: '0.75rem' }}>
+            {trackerHealthStatusRows.map(([label, status]) => (
+              <div key={label}>
+                <span>{label}</span>
+                <strong style={{ color: status?.ok ? 'var(--success-green)' : 'var(--primary-tan)' }}>{status?.label || 'Unknown'}</strong>
+                <small>{status?.detail || 'No signal yet'}</small>
+              </div>
+            ))}
+          </div>
+          <div className="reports-empty" style={{ marginBottom: '0.75rem' }}>
+            <strong>Top missing-data reason:</strong> {trackerHealth.topMissingReason || 'No tracker health result yet.'}
+          </div>
           <div className="heatmap-coordinate-diagnostics__grid">
             <div><span>Raw events received</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rawEvents)}</strong></div>
             <div><span>Events with coordinates</span><strong>{formatNumber(heatmapCoordinateDiagnostics.withCoordinates)}</strong></div>
             <div><span>Rejected from renderer</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rejectedFromRenderer)}</strong></div>
             <div><span>Device mismatch count</span><strong>{formatNumber(heatmapCoordinateDiagnostics.deviceMismatch)}</strong></div>
             <div><span>Tracker diagnostics</span><strong>{formatNumber(trackerHealth.countsByType?.tracker_diagnostic || 0)}</strong></div>
+            <div><span>Deduped taps</span><strong>{formatNumber(trackerHealth.dedupedTapEvents || 0)}</strong></div>
             <div><span>Sample rate</span><strong>{trackerHealth.sampleRate != null ? `${Math.round(Number(trackerHealth.sampleRate || 0) * 100)}%` : '—'}</strong></div>
             <div><span>DNT respected</span><strong>{trackerHealth.respectDnt ? 'Yes' : 'No'}</strong></div>
             <div><span>Allowed domains</span><strong>{formatNumber((trackerHealth.allowedDomains || []).length)}</strong></div>
@@ -5610,6 +5657,7 @@ const DashboardApp = ({
           </div>
           <HeatmapRenderer
             points={heatmapPoints}
+            cells={heatmapCells}
             totals={heatmapTotals}
             deviceType={selectedHeatmapDevice}
             screenshotUrl={screenshotPreviewUrl}
@@ -5618,6 +5666,7 @@ const DashboardApp = ({
             error={screenshotPreviewError}
             activeLayers={heatmapLayers}
             onLayerChange={updateHeatmapLayer}
+            highlightedTarget={highlightedHeatmapTarget}
             formatNumber={formatNumber}
           />
         </div>
@@ -5699,10 +5748,70 @@ const DashboardApp = ({
         <div className="heatmap-audit-interaction-grid">
           <div className="reports-list__row"><div><strong>Rage click clusters</strong><small>Repeated clicks in the same session, element, and page area.</small></div><div>{formatNumber(heatmapClickAnomalies.rageClusters)}</div></div>
           <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
+          <div className="reports-list__row"><div><strong>CTA frustration</strong><small>Repeated CTA clicks without a page transition signal.</small></div><div>{formatNumber(heatmapClickAnomalies.ctaFrustrations)}</div></div>
           <div className="heatmap-audit-top-clicks">
             <div className="heatmap-audit-list-heading">Top clicked elements</div>
-            {heatmapTopTargets.slice(0, 6).map((item) => <div key={item.label} className="reports-list__row"><div><strong>{item.label}</strong><small>Top clicked element</small></div><div>{formatNumber(item.clicks)}</div></div>)}
+            {heatmapTopTargets.slice(0, 6).map((item) => (
+              <button
+                key={item.trackId || item.selector || item.label}
+                type="button"
+                className="reports-list__row heatmap-target-row"
+                onMouseEnter={() => setHighlightedHeatmapTarget(item)}
+                onMouseLeave={() => setHighlightedHeatmapTarget(null)}
+                onFocus={() => setHighlightedHeatmapTarget(item)}
+                onBlur={() => setHighlightedHeatmapTarget(null)}
+                onClick={() => setHighlightedHeatmapTarget((current) => (
+                  (current?.trackId || current?.selector || current?.label) === (item.trackId || item.selector || item.label) ? null : item
+                ))}
+              >
+                <div>
+                  <strong>{item.label || item.trackId || item.selector || 'Tracked element'}</strong>
+                  <small>{[item.category, item.trackId ? `ID: ${item.trackId}` : '', item.selector && !item.trackId ? item.selector : ''].filter(Boolean).join(' · ') || 'Top clicked element'}</small>
+                </div>
+                <div>{formatNumber(item.clicks)}</div>
+              </button>
+            ))}
             {heatmapTopTargets.length === 0 && <div className="heatmap-audit-compact-empty">No clicked elements collected yet for this page and date range.</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="heatmap-audit-interactions">
+        <div className="heatmap-audit-section-heading">
+          <div>
+            <strong>Scroll behavior</strong>
+            <small>Milestones, abandonment depth, scroll bands, and visible page sections.</small>
+          </div>
+        </div>
+        <div className="heatmap-audit-interaction-grid">
+          <div className="reports-list__row">
+            <div><strong>Milestones reached</strong><small>25 / 50 / 75 / 90 / 100 percent scroll depth.</small></div>
+            <div>{['25', '50', '75', '90', '100'].map((key) => formatNumber(heatmapScrollMilestones[key] || 0)).join(' / ')}</div>
+          </div>
+          <div className="reports-list__row">
+            <div><strong>Abandonment depth</strong><small>Average final depth from page duration/exit events.</small></div>
+            <div>{Math.round(Number(heatmapTotals.avgAbandonmentDepthPct || 0) * 100)}%</div>
+          </div>
+          <div className="reports-list__row">
+            <div><strong>First meaningful scroll</strong><small>Tracked once users move beyond the first viewport threshold.</small></div>
+            <div>{formatNumber(heatmapTotals.firstMeaningfulScrolls || 0)}</div>
+          </div>
+          <div className="reports-list__row">
+            <div><strong>Top scroll band</strong><small>Band with the most accumulated viewport time.</small></div>
+            <div>{topScrollBand ? `${topScrollBand[0]} · ${Math.round(Number(topScrollBand[1] || 0) / 1000)}s` : '—'}</div>
+          </div>
+          <div className="heatmap-audit-top-clicks">
+            <div className="heatmap-audit-list-heading">Most viewed sections</div>
+            {heatmapTopSections.slice(0, 6).map((item) => (
+              <div key={item.label} className="reports-list__row">
+                <div>
+                  <strong>{item.label}</strong>
+                  <small>{Math.round(Number(item.maxVisiblePct || 0) * 100)}% max visible</small>
+                </div>
+                <div>{Math.round(Number(item.visibleMs || 0) / 1000)}s</div>
+              </div>
+            ))}
+            {heatmapTopSections.length === 0 && <div className="heatmap-audit-compact-empty">No section exposure data collected yet for this page and date range.</div>}
           </div>
         </div>
       </div>

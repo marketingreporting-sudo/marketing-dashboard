@@ -185,10 +185,14 @@ create table if not exists public.property_site_screenshots (
   height integer,
   content_hash text,
   captured_at timestamptz not null default now(),
+  raw_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (page_id, device_type)
 );
+
+alter table public.property_site_screenshots
+add column if not exists raw_data jsonb not null default '{}'::jsonb;
 
 drop trigger if exists set_property_site_screenshots_updated_at on public.property_site_screenshots;
 create trigger set_property_site_screenshots_updated_at
@@ -252,10 +256,12 @@ create table if not exists public.property_site_page_daily_summaries (
   session_count integer not null default 0,
   event_count integer not null default 0,
   click_count integer not null default 0,
+  tap_event_count integer not null default 0,
   cta_click_count integer not null default 0,
   cursor_sample_count integer not null default 0,
   scroll_event_count integer not null default 0,
   engagement_event_count integer not null default 0,
+  diagnostic_event_count integer not null default 0,
   avg_scroll_depth_pct numeric,
   max_scroll_depth_pct numeric,
   avg_page_duration_ms numeric,
@@ -263,6 +269,12 @@ create table if not exists public.property_site_page_daily_summaries (
   updated_at timestamptz not null default now(),
   primary key (site_id, activity_date, canonical_path, device_type)
 );
+
+alter table public.property_site_page_daily_summaries
+add column if not exists diagnostic_event_count integer not null default 0;
+
+alter table public.property_site_page_daily_summaries
+add column if not exists tap_event_count integer not null default 0;
 
 drop trigger if exists set_property_heatmap_daily_cells_updated_at on public.property_heatmap_daily_cells;
 create trigger set_property_heatmap_daily_cells_updated_at
@@ -609,10 +621,12 @@ begin
     session_count,
     event_count,
     click_count,
+    tap_event_count,
     cta_click_count,
     cursor_sample_count,
     scroll_event_count,
     engagement_event_count,
+    diagnostic_event_count,
     avg_scroll_depth_pct,
     max_scroll_depth_pct,
     avg_page_duration_ms,
@@ -629,10 +643,12 @@ begin
     grouped.session_count,
     grouped.event_count,
     grouped.click_count,
+    grouped.tap_event_count,
     grouped.cta_click_count,
     grouped.cursor_sample_count,
     grouped.scroll_event_count,
     grouped.engagement_event_count,
+    grouped.diagnostic_event_count,
     grouped.avg_scroll_depth_pct,
     grouped.max_scroll_depth_pct,
     grouped.avg_page_duration_ms,
@@ -648,11 +664,13 @@ begin
       coalesce(nullif(e.raw_data->>'deviceType', ''), nullif(e.raw_data->>'device_type', ''), 'unknown') as device_type,
       count(distinct e.session_key)::integer as session_count,
       count(*)::integer as event_count,
-      count(*) filter (where e.event_type = 'click')::integer as click_count,
+      count(*) filter (where e.event_type in ('click', 'pointerdown', 'touchstart'))::integer as click_count,
+      count(*) filter (where e.event_type in ('pointerdown', 'touchstart'))::integer as tap_event_count,
       count(*) filter (where e.event_type = 'cta_click')::integer as cta_click_count,
-      count(*) filter (where e.event_type = 'mousemove')::integer as cursor_sample_count,
+      count(*) filter (where e.event_type in ('mousemove', 'pointermove'))::integer as cursor_sample_count,
       count(*) filter (where e.event_type = 'scroll')::integer as scroll_event_count,
-      count(*) filter (where e.event_type = 'engagement')::integer as engagement_event_count,
+      count(*) filter (where e.event_type in ('engagement', 'first_interaction', 'page_duration'))::integer as engagement_event_count,
+      count(*) filter (where e.event_type = 'tracker_diagnostic')::integer as diagnostic_event_count,
       avg(e.scroll_depth_pct) filter (where e.scroll_depth_pct is not null) as avg_scroll_depth_pct,
       max(e.scroll_depth_pct) as max_scroll_depth_pct,
       avg(e.engagement_ms) filter (where e.event_type = 'page_duration') as avg_page_duration_ms
@@ -673,15 +691,15 @@ begin
     select jsonb_agg(jsonb_build_object('label', target_label, 'count', target_count) order by target_count desc) as top_targets
     from (
       select
-        coalesce(nullif(e.raw_data->>'targetLabel', ''), nullif(e.raw_data->>'target_label', ''), e.target_tag, 'unknown') as target_label,
+        coalesce(nullif(e.raw_data->>'targetLabel', ''), nullif(e.raw_data->>'targetTrackId', ''), nullif(e.raw_data->>'targetSelector', ''), nullif(e.raw_data->>'target_label', ''), e.target_tag, 'unknown') as target_label,
         count(*)::integer as target_count
       from public.property_heatmap_events e
       where e.site_id = grouped.site_id
         and e.occurred_at::date = grouped.activity_date
         and coalesce(nullif(e.path, ''), '/') = grouped.canonical_path
         and coalesce(nullif(e.raw_data->>'deviceType', ''), nullif(e.raw_data->>'device_type', ''), 'unknown') = grouped.device_type
-        and e.event_type in ('click', 'cta_click')
-      group by coalesce(nullif(e.raw_data->>'targetLabel', ''), nullif(e.raw_data->>'target_label', ''), e.target_tag, 'unknown')
+        and e.event_type in ('click', 'cta_click', 'pointerdown', 'touchstart')
+      group by coalesce(nullif(e.raw_data->>'targetLabel', ''), nullif(e.raw_data->>'targetTrackId', ''), nullif(e.raw_data->>'targetSelector', ''), nullif(e.raw_data->>'target_label', ''), e.target_tag, 'unknown')
       order by target_count desc
       limit 10
     ) ranked_targets
@@ -693,10 +711,12 @@ begin
     session_count = excluded.session_count,
     event_count = excluded.event_count,
     click_count = excluded.click_count,
+    tap_event_count = excluded.tap_event_count,
     cta_click_count = excluded.cta_click_count,
     cursor_sample_count = excluded.cursor_sample_count,
     scroll_event_count = excluded.scroll_event_count,
     engagement_event_count = excluded.engagement_event_count,
+    diagnostic_event_count = excluded.diagnostic_event_count,
     avg_scroll_depth_pct = excluded.avg_scroll_depth_pct,
     max_scroll_depth_pct = excluded.max_scroll_depth_pct,
     avg_page_duration_ms = excluded.avg_page_duration_ms,
