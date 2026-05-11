@@ -9,6 +9,7 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
@@ -1929,6 +1930,20 @@ def _numeric(value: Any, default: float = 0.0) -> float:
     return parsed if parsed is not None else default
 
 
+def _fetch_optional_json(
+    table_name: str,
+    query_params: list[tuple[str, str]],
+    *,
+    headers: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        return _fetch_json(table_name, query_params, headers=headers)
+    except HTTPError as exc:
+        if exc.code == 404:
+            return []
+        raise
+
+
 def _aggregate_layer_for_event_type(event_type: str) -> str:
     if event_type in {"click", "cta_click", "pointerdown", "touchstart"}:
         return "click"
@@ -1956,6 +1971,115 @@ def _merge_top_targets(page_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             current["clicks"] += int(target.get("clicks") or target.get("count") or 0)
             target_counts[key] = current
     return sorted(target_counts.values(), key=lambda item: item.get("clicks", 0), reverse=True)[:20]
+
+
+def _merge_scroll_daily_rows(scroll_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total_sessions = sum(int(row.get("session_count") or 0) for row in scroll_rows)
+    scroll_sessions = sum(int(row.get("scroll_session_count") or 0) for row in scroll_rows)
+    reach_counts: dict[str, int] = {}
+    band_counts: dict[str, dict[str, Any]] = {}
+    duration_totals: dict[str, int] = {}
+    abandonment_counts: dict[str, dict[str, Any]] = {}
+    first_scroll_count = 0
+    first_scroll_weighted_ms = 0.0
+    abandonment_weighted = 0.0
+    abandonment_weight = 0
+    section_totals: dict[str, dict[str, Any]] = {}
+
+    for row in scroll_rows:
+        row_sessions = int(row.get("session_count") or 0)
+        reach = row.get("scroll_reach") if isinstance(row.get("scroll_reach"), dict) else {}
+        for threshold, payload in reach.items():
+            if not isinstance(payload, dict):
+                continue
+            reach_counts[str(threshold)] = reach_counts.get(str(threshold), 0) + int(payload.get("sessions") or 0)
+
+        bands = row.get("scroll_bands") if isinstance(row.get("scroll_bands"), list) else []
+        for band in bands:
+            if not isinstance(band, dict):
+                continue
+            start_pct = int(_numeric(band.get("startPct"), 0))
+            end_pct = int(_numeric(band.get("endPct"), 0))
+            key = f"{start_pct}-{end_pct}"
+            current = band_counts.get(key) or {"startPct": start_pct, "endPct": end_pct, "sessionsReached": 0}
+            current["sessionsReached"] += int(band.get("sessionsReached") or band.get("sessions") or 0)
+            band_counts[key] = current
+
+        durations = row.get("scroll_band_durations_ms") if isinstance(row.get("scroll_band_durations_ms"), dict) else {}
+        for band, duration_ms in durations.items():
+            duration_totals[str(band)] = duration_totals.get(str(band), 0) + int(_numeric(duration_ms, 0))
+
+        abandonment = row.get("abandonment_depth_distribution") if isinstance(row.get("abandonment_depth_distribution"), list) else []
+        for band in abandonment:
+            if not isinstance(band, dict):
+                continue
+            start_pct = int(_numeric(band.get("startPct"), 0))
+            end_pct = int(_numeric(band.get("endPct"), 0))
+            key = f"{start_pct}-{end_pct}"
+            current = abandonment_counts.get(key) or {"startPct": start_pct, "endPct": end_pct, "sessions": 0}
+            current["sessions"] += int(band.get("sessions") or 0)
+            abandonment_counts[key] = current
+
+        avg_abandonment = _to_float(row.get("avg_abandonment_depth_pct"))
+        if avg_abandonment is not None and row_sessions > 0:
+            abandonment_weighted += avg_abandonment * row_sessions
+            abandonment_weight += row_sessions
+
+        row_first_scroll_count = int(row.get("first_meaningful_scroll_count") or 0)
+        row_first_scroll_avg = _to_float(row.get("avg_first_meaningful_scroll_ms"))
+        first_scroll_count += row_first_scroll_count
+        if row_first_scroll_avg is not None and row_first_scroll_count > 0:
+            first_scroll_weighted_ms += row_first_scroll_avg * row_first_scroll_count
+
+        sections = row.get("top_visible_sections") if isinstance(row.get("top_visible_sections"), list) else []
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            label = _normalize_text(section.get("label"), 160)
+            if not label:
+                continue
+            current = section_totals.get(label) or {"label": label, "visibleMs": 0, "maxVisiblePct": 0.0, "topPct": section.get("topPct")}
+            current["visibleMs"] += int(_numeric(section.get("visibleMs"), 0))
+            current["maxVisiblePct"] = max(_numeric(current.get("maxVisiblePct"), 0), _numeric(section.get("maxVisiblePct"), 0))
+            if current.get("topPct") is None:
+                current["topPct"] = section.get("topPct")
+            section_totals[label] = current
+
+    reach_summary = {
+        threshold: {
+            "thresholdPct": int(_numeric(threshold, 0)),
+            "sessions": sessions,
+            "percent": (sessions / total_sessions) if total_sessions else 0.0,
+        }
+        for threshold, sessions in sorted(reach_counts.items(), key=lambda item: _numeric(item[0], 0))
+    }
+    bands_summary = [
+        {
+            **band,
+            "percentReached": (int(band.get("sessionsReached") or 0) / total_sessions) if total_sessions else 0.0,
+        }
+        for band in sorted(band_counts.values(), key=lambda item: int(item.get("endPct") or 0))
+    ]
+    abandonment_summary = [
+        {
+            **band,
+            "percent": (int(band.get("sessions") or 0) / total_sessions) if total_sessions else 0.0,
+        }
+        for band in sorted(abandonment_counts.values(), key=lambda item: int(item.get("startPct") or 0))
+    ]
+
+    return {
+        "sessionCount": total_sessions,
+        "scrollSessionCount": scroll_sessions,
+        "reach": reach_summary,
+        "bands": bands_summary,
+        "bandDurationsMs": duration_totals,
+        "abandonmentDepthDistribution": abandonment_summary,
+        "avgAbandonmentDepthPct": (abandonment_weighted / abandonment_weight) if abandonment_weight else 0.0,
+        "firstMeaningfulScrollCount": first_scroll_count,
+        "avgFirstMeaningfulScrollMs": (first_scroll_weighted_ms / first_scroll_count) if first_scroll_count else 0.0,
+        "topSections": sorted(section_totals.values(), key=lambda item: item.get("visibleMs", 0), reverse=True)[:12],
+    }
 
 
 def _target_identity_from_event(event: dict[str, Any]) -> str:
@@ -2207,24 +2331,36 @@ def _heatmap_summary_from_aggregates(
         ("activity_date", f"lte.{end_date.isoformat()}"),
         ("limit", "10000"),
     ]
+    scroll_filters = [
+        ("select", "*"),
+        ("property_id", f"eq.{property_id}"),
+        ("activity_date", f"gte.{start_date.isoformat()}"),
+        ("activity_date", f"lte.{end_date.isoformat()}"),
+        ("limit", "10000"),
+    ]
     if site_id:
         cell_filters.append(("site_id", f"eq.{site_id}"))
         page_filters.append(("site_id", f"eq.{site_id}"))
+        scroll_filters.append(("site_id", f"eq.{site_id}"))
     if path:
         canonical_path = _normalize_text(path, 1024)
         cell_filters.append(("canonical_path", f"eq.{canonical_path}"))
         page_filters.append(("canonical_path", f"eq.{canonical_path}"))
+        scroll_filters.append(("canonical_path", f"eq.{canonical_path}"))
     if normalized_device_type in {"desktop", "mobile", "tablet"}:
         cell_filters.append(("device_type", f"eq.{normalized_device_type}"))
         page_filters.append(("device_type", f"eq.{normalized_device_type}"))
+        scroll_filters.append(("device_type", f"eq.{normalized_device_type}"))
     if event_type and event_type in HEATMAP_EVENT_TYPES:
         cell_filters.append(("event_type", f"eq.{event_type}"))
 
     headers = _supabase_anon_headers(access_token)
     cell_rows = _fetch_json("property_heatmap_daily_cells", cell_filters, headers=headers)
     page_rows = _fetch_json("property_site_page_daily_summaries", page_filters, headers=headers)
-    if not cell_rows and not page_rows:
+    scroll_rows = _fetch_optional_json("property_site_scroll_daily_summaries", scroll_filters, headers=headers)
+    if not cell_rows and not page_rows and not scroll_rows:
         return None
+    scroll_metrics = _merge_scroll_daily_rows(scroll_rows)
 
     counts_by_type: dict[str, int] = {}
     counts_by_path: dict[str, int] = {}
@@ -2294,7 +2430,7 @@ def _heatmap_summary_from_aggregates(
         )
 
     total_events = sum(int(row.get("event_count") or 0) for row in page_rows) if page_rows else sum(counts_by_type.values())
-    total_sessions = sum(int(row.get("session_count") or 0) for row in page_rows)
+    total_sessions = sum(int(row.get("session_count") or 0) for row in page_rows) or int(scroll_metrics.get("sessionCount") or 0)
     total_scroll_events = sum(int(row.get("scroll_event_count") or 0) for row in page_rows)
     scroll_weighted_total = sum(_numeric(row.get("avg_scroll_depth_pct")) * int(row.get("scroll_event_count") or 0) for row in page_rows)
     page_max_scroll_values = [_numeric(row.get("max_scroll_depth_pct")) for row in page_rows]
@@ -2319,6 +2455,7 @@ def _heatmap_summary_from_aggregates(
             "gridSize": HEATMAP_AGGREGATE_GRID_SIZE,
             "cellCount": len(cells),
             "pageSummaryRows": len(page_rows),
+            "scrollSummaryRows": len(scroll_rows),
         },
         "totals": {
             "sessions": total_sessions,
@@ -2340,6 +2477,7 @@ def _heatmap_summary_from_aggregates(
             + counts_by_type.get("first_interaction", 0)
             + counts_by_type.get("page_duration", 0),
             "scrolls": total_scroll_events or counts_by_type.get("scroll", 0),
+            "scrollSessions": scroll_metrics.get("scrollSessionCount", 0),
             "viewportEvents": counts_by_type.get("viewport", 0),
             "firstInteractions": counts_by_type.get("first_interaction", 0),
             "trackerDiagnostics": sum(int(row.get("diagnostic_event_count") or 0) for row in page_rows)
@@ -2347,15 +2485,18 @@ def _heatmap_summary_from_aggregates(
             "pageDurationEvents": counts_by_type.get("page_duration", 0),
             "avgScrollDepthPct": (scroll_weighted_total / total_scroll_events) if total_scroll_events else 0.0,
             "maxScrollDepthPct": max_scroll_depth,
-            "avgAbandonmentDepthPct": 0.0,
-            "firstMeaningfulScrolls": 0,
-            "avgFirstMeaningfulScrollMs": 0,
+            "avgAbandonmentDepthPct": scroll_metrics.get("avgAbandonmentDepthPct", 0.0),
+            "firstMeaningfulScrolls": scroll_metrics.get("firstMeaningfulScrollCount", 0),
+            "avgFirstMeaningfulScrollMs": scroll_metrics.get("avgFirstMeaningfulScrollMs", 0.0),
         },
         "scroll": {
-            "milestones": {},
+            "milestones": scroll_metrics.get("reach", {}),
+            "reach": scroll_metrics.get("reach", {}),
+            "bands": scroll_metrics.get("bands", []),
             "bandDistribution": scroll_band_distribution,
-            "bandDurationsMs": {},
-            "topSections": [],
+            "bandDurationsMs": scroll_metrics.get("bandDurationsMs", {}),
+            "abandonmentDepthDistribution": scroll_metrics.get("abandonmentDepthDistribution", []),
+            "topSections": scroll_metrics.get("topSections", []),
         },
         "countsByType": counts_by_type,
         "topPaths": [
@@ -2457,6 +2598,8 @@ def get_heatmap_summary(
     first_meaningful_scroll_total = 0
     abandonment_depth_total = 0.0
     abandonment_depth_count = 0
+    session_scroll_depths: dict[str, float] = {}
+    session_abandonment_depths: dict[str, float] = {}
     points = []
     for event in events:
         event_kind = str(event.get("event_type") or "")
@@ -2493,6 +2636,9 @@ def get_heatmap_summary(
             max_scroll_depth = max(max_scroll_depth, scroll_depth)
             scroll_depth_total += scroll_depth
             scroll_depth_count += 1
+            if event.get("session_key"):
+                session_key = str(event.get("session_key"))
+                session_scroll_depths[session_key] = max(session_scroll_depths.get(session_key, 0.0), scroll_depth)
         milestone = raw_data.get("scrollMilestone")
         if milestone is not None:
             milestone_key = str(round(float(milestone) * 100))
@@ -2502,12 +2648,16 @@ def get_heatmap_summary(
             first_meaningful_scroll_count += 1
             first_meaningful_scroll_total += int(raw_data.get("firstMeaningfulScrollMs") or 0)
         if raw_data.get("abandonmentDepthPct") is not None:
-            abandonment_depth_total += float(raw_data.get("abandonmentDepthPct") or 0)
+            abandonment_depth = float(raw_data.get("abandonmentDepthPct") or 0)
+            abandonment_depth_total += abandonment_depth
             abandonment_depth_count += 1
+            if event.get("session_key"):
+                session_abandonment_depths[str(event.get("session_key"))] = abandonment_depth
         band_durations = raw_data.get("scrollBandDurations") if isinstance(raw_data.get("scrollBandDurations"), dict) else {}
-        for band, duration_ms in band_durations.items():
-            scroll_band_duration_totals[str(band)] = scroll_band_duration_totals.get(str(band), 0) + int(duration_ms or 0)
-        section_exposure = raw_data.get("sectionExposure") if isinstance(raw_data.get("sectionExposure"), list) else []
+        if raw_data.get("finalScrollEvent"):
+            for band, duration_ms in band_durations.items():
+                scroll_band_duration_totals[str(band)] = scroll_band_duration_totals.get(str(band), 0) + int(duration_ms or 0)
+        section_exposure = raw_data.get("sectionExposure") if raw_data.get("finalScrollEvent") and isinstance(raw_data.get("sectionExposure"), list) else []
         for section in section_exposure:
             if not isinstance(section, dict):
                 continue
@@ -2551,6 +2701,38 @@ def get_heatmap_summary(
                 }
             )
 
+    reach_denominator = len(session_keys)
+    scroll_reach = {}
+    scroll_bands = []
+    for threshold in range(10, 101, 10):
+        sessions_reached = sum(1 for depth in session_scroll_depths.values() if depth >= threshold / 100)
+        percent_reached = (sessions_reached / reach_denominator) if reach_denominator else 0.0
+        scroll_reach[str(threshold)] = {
+            "thresholdPct": threshold,
+            "sessions": sessions_reached,
+            "percent": percent_reached,
+        }
+        scroll_bands.append({
+            "startPct": threshold - 10,
+            "endPct": threshold,
+            "sessionsReached": sessions_reached,
+            "percentReached": percent_reached,
+        })
+    abandonment_depth_distribution = []
+    for start_pct in range(0, 100, 10):
+        end_pct = start_pct + 10
+        sessions_in_band = 0
+        for session_key in session_keys:
+            depth = session_abandonment_depths.get(session_key, session_scroll_depths.get(session_key, 0.0))
+            if depth >= start_pct / 100 and (start_pct == 90 or depth < end_pct / 100):
+                sessions_in_band += 1
+        abandonment_depth_distribution.append({
+            "startPct": start_pct,
+            "endPct": end_pct,
+            "sessions": sessions_in_band,
+            "percent": (sessions_in_band / reach_denominator) if reach_denominator else 0.0,
+        })
+
     return {
         "status": "ok",
         "property_id": str(property_id),
@@ -2585,6 +2767,7 @@ def get_heatmap_summary(
             + counts_by_type.get("first_interaction", 0)
             + counts_by_type.get("page_duration", 0),
             "scrolls": counts_by_type.get("scroll", 0),
+            "scrollSessions": len(session_scroll_depths),
             "viewportEvents": counts_by_type.get("viewport", 0),
             "firstInteractions": counts_by_type.get("first_interaction", 0),
             "trackerDiagnostics": counts_by_type.get("tracker_diagnostic", 0),
@@ -2597,7 +2780,10 @@ def get_heatmap_summary(
         },
         "scroll": {
             "milestones": scroll_milestones,
+            "reach": scroll_reach,
+            "bands": scroll_bands,
             "bandDurationsMs": scroll_band_duration_totals,
+            "abandonmentDepthDistribution": abandonment_depth_distribution,
             "topSections": sorted(section_exposure_totals.values(), key=lambda item: item.get("visibleMs", 0), reverse=True)[:12],
         },
         "countsByType": counts_by_type,

@@ -130,6 +130,28 @@ create table if not exists public.property_heatmap_events (
   created_at timestamptz not null default now()
 );
 
+alter table public.property_heatmap_events
+drop constraint if exists property_heatmap_events_event_type_check;
+
+alter table public.property_heatmap_events
+add constraint property_heatmap_events_event_type_check
+check (event_type in (
+  'click',
+  'mousemove',
+  'pointermove',
+  'pointerdown',
+  'touchstart',
+  'scroll',
+  'engagement',
+  'visibility',
+  'viewport',
+  'pageview',
+  'first_interaction',
+  'tracker_diagnostic',
+  'cta_click',
+  'page_duration'
+));
+
 create table if not exists public.property_site_pages (
   id uuid primary key default gen_random_uuid(),
   site_id uuid not null references public.property_heatmap_sites(id) on delete cascade,
@@ -270,6 +292,27 @@ create table if not exists public.property_site_page_daily_summaries (
   primary key (site_id, activity_date, canonical_path, device_type)
 );
 
+create table if not exists public.property_site_scroll_daily_summaries (
+  property_id text not null references public.properties(id) on delete cascade,
+  site_id uuid not null references public.property_heatmap_sites(id) on delete cascade,
+  page_id uuid references public.property_site_pages(id) on delete cascade,
+  activity_date date not null,
+  canonical_path text not null,
+  device_type text not null default 'unknown',
+  session_count integer not null default 0,
+  scroll_session_count integer not null default 0,
+  scroll_reach jsonb not null default '{}'::jsonb,
+  scroll_bands jsonb not null default '[]'::jsonb,
+  scroll_band_durations_ms jsonb not null default '{}'::jsonb,
+  abandonment_depth_distribution jsonb not null default '[]'::jsonb,
+  avg_abandonment_depth_pct numeric,
+  first_meaningful_scroll_count integer not null default 0,
+  avg_first_meaningful_scroll_ms numeric,
+  top_visible_sections jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now(),
+  primary key (site_id, activity_date, canonical_path, device_type)
+);
+
 alter table public.property_site_page_daily_summaries
 add column if not exists diagnostic_event_count integer not null default 0;
 
@@ -285,6 +328,12 @@ execute function public.set_updated_at();
 drop trigger if exists set_property_site_page_daily_summaries_updated_at on public.property_site_page_daily_summaries;
 create trigger set_property_site_page_daily_summaries_updated_at
 before update on public.property_site_page_daily_summaries
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists set_property_site_scroll_daily_summaries_updated_at on public.property_site_scroll_daily_summaries;
+create trigger set_property_site_scroll_daily_summaries_updated_at
+before update on public.property_site_scroll_daily_summaries
 for each row
 execute function public.set_updated_at();
 
@@ -327,6 +376,9 @@ on public.property_heatmap_daily_cells(property_id, activity_date desc);
 create index if not exists property_site_page_daily_summaries_property_date_idx
 on public.property_site_page_daily_summaries(property_id, activity_date desc);
 
+create index if not exists property_site_scroll_daily_summaries_property_date_idx
+on public.property_site_scroll_daily_summaries(property_id, activity_date desc);
+
 alter table public.property_heatmap_sites enable row level security;
 alter table public.property_heatmap_sessions enable row level security;
 alter table public.property_heatmap_events enable row level security;
@@ -336,6 +388,7 @@ alter table public.property_site_screenshots enable row level security;
 alter table public.property_site_audits enable row level security;
 alter table public.property_heatmap_daily_cells enable row level security;
 alter table public.property_site_page_daily_summaries enable row level security;
+alter table public.property_site_scroll_daily_summaries enable row level security;
 
 drop policy if exists "users can read heatmap sites they can access" on public.property_heatmap_sites;
 create policy "users can read heatmap sites they can access"
@@ -441,6 +494,16 @@ using (
   or public.user_has_property_permission(property_id, 'reports.view')
 );
 
+drop policy if exists "users can read scroll daily summaries they can access" on public.property_site_scroll_daily_summaries;
+create policy "users can read scroll daily summaries they can access"
+on public.property_site_scroll_daily_summaries
+for select
+to authenticated
+using (
+  public.user_has_property_permission(property_id, 'analytics.view')
+  or public.user_has_property_permission(property_id, 'reports.view')
+);
+
 create or replace function public.prune_property_site_tracking(
   retain_raw_days integer default 90,
   retain_snapshot_days integer default 30,
@@ -509,6 +572,14 @@ begin
   delete from public.property_site_page_daily_summaries
   where activity_date < current_date - greatest(retain_aggregate_days, 30);
 
+  delete from public.property_site_scroll_daily_summaries ss
+  using public.property_heatmap_sites s
+  where ss.site_id = s.id
+    and ss.activity_date < current_date - greatest(coalesce(s.aggregate_retention_days, retain_aggregate_days), 30);
+
+  delete from public.property_site_scroll_daily_summaries
+  where activity_date < current_date - greatest(retain_aggregate_days, 30);
+
   return jsonb_build_object(
     'deleted_events', deleted_events,
     'deleted_sessions', deleted_sessions,
@@ -538,6 +609,7 @@ as $$
 declare
   refreshed_cells integer := 0;
   refreshed_pages integer := 0;
+  refreshed_scroll integer := 0;
 begin
   insert into public.property_heatmap_daily_cells (
     property_id,
@@ -724,9 +796,343 @@ begin
     updated_at = now();
   get diagnostics refreshed_pages = row_count;
 
+  insert into public.property_site_scroll_daily_summaries (
+    property_id,
+    site_id,
+    page_id,
+    activity_date,
+    canonical_path,
+    device_type,
+    session_count,
+    scroll_session_count,
+    scroll_reach,
+    scroll_bands,
+    scroll_band_durations_ms,
+    abandonment_depth_distribution,
+    avg_abandonment_depth_pct,
+    first_meaningful_scroll_count,
+    avg_first_meaningful_scroll_ms,
+    top_visible_sections,
+    updated_at
+  )
+  with base as (
+    select
+      e.property_id,
+      e.site_id,
+      p.id as page_id,
+      e.occurred_at::date as activity_date,
+      coalesce(nullif(e.path, ''), '/') as canonical_path,
+      coalesce(nullif(e.raw_data->>'deviceType', ''), nullif(e.raw_data->>'device_type', ''), 'unknown') as device_type,
+      e.session_key,
+      e.event_type,
+      e.scroll_depth_pct,
+      e.raw_data
+    from public.property_heatmap_events e
+    left join public.property_site_pages p
+      on p.site_id = e.site_id
+     and p.canonical_path = coalesce(nullif(e.path, ''), '/')
+    where e.occurred_at::date between start_date and end_date
+  ),
+  grouped as (
+    select
+      property_id,
+      site_id,
+      page_id,
+      activity_date,
+      canonical_path,
+      device_type,
+      count(distinct session_key)::integer as session_count,
+      count(distinct session_key) filter (where scroll_depth_pct is not null)::integer as scroll_session_count
+    from base
+    group by property_id, site_id, page_id, activity_date, canonical_path, device_type
+  ),
+  session_depths as (
+    select
+      property_id,
+      site_id,
+      page_id,
+      activity_date,
+      canonical_path,
+      device_type,
+      session_key,
+      max(greatest(
+        coalesce(scroll_depth_pct, 0),
+        coalesce(nullif(raw_data->>'abandonmentDepthPct', '')::numeric, 0)
+      )) as max_scroll_depth_pct,
+      max(coalesce(
+        nullif(raw_data->>'abandonmentDepthPct', '')::numeric,
+        scroll_depth_pct,
+        0
+      )) as abandonment_depth_pct,
+      min(nullif(raw_data->>'firstMeaningfulScrollMs', '')::numeric)
+        filter (where raw_data->>'firstMeaningfulScroll' = 'true') as first_meaningful_scroll_ms
+    from base
+    group by property_id, site_id, page_id, activity_date, canonical_path, device_type, session_key
+  ),
+  reach as (
+    select
+      g.property_id,
+      g.site_id,
+      g.activity_date,
+      g.canonical_path,
+      g.device_type,
+      jsonb_object_agg(
+        (threshold * 10)::text,
+        jsonb_build_object(
+          'thresholdPct', threshold * 10,
+          'sessions', coalesce(reached.sessions_reached, 0),
+          'percent', case when g.session_count > 0 then coalesce(reached.sessions_reached, 0)::numeric / g.session_count else 0 end
+        )
+        order by threshold
+      ) as scroll_reach,
+      jsonb_agg(
+        jsonb_build_object(
+          'startPct', (threshold - 1) * 10,
+          'endPct', threshold * 10,
+          'sessionsReached', coalesce(reached.sessions_reached, 0),
+          'percentReached', case when g.session_count > 0 then coalesce(reached.sessions_reached, 0)::numeric / g.session_count else 0 end
+        )
+        order by threshold
+      ) as scroll_bands
+    from grouped g
+    cross join generate_series(1, 10) as threshold
+    left join lateral (
+      select count(*)::integer as sessions_reached
+      from session_depths sd
+      where sd.site_id = g.site_id
+        and sd.activity_date = g.activity_date
+        and sd.canonical_path = g.canonical_path
+        and sd.device_type = g.device_type
+        and sd.max_scroll_depth_pct >= threshold::numeric / 10.0
+    ) reached on true
+    group by g.property_id, g.site_id, g.activity_date, g.canonical_path, g.device_type, g.session_count
+  ),
+  band_duration_totals as (
+    select
+      property_id,
+      site_id,
+      activity_date,
+      canonical_path,
+      device_type,
+      jsonb_object_agg(band_key, duration_ms order by band_key) as scroll_band_durations_ms
+    from (
+      select
+        property_id,
+        site_id,
+        activity_date,
+        canonical_path,
+        device_type,
+        band_key,
+        sum(max_duration_ms)::bigint as duration_ms
+      from (
+        select
+          b.property_id,
+          b.site_id,
+          b.activity_date,
+          b.canonical_path,
+          b.device_type,
+          b.session_key,
+          band.key as band_key,
+          max(nullif(band.value, '')::numeric)::bigint as max_duration_ms
+        from base b
+        cross join lateral jsonb_each_text(
+          case
+            when jsonb_typeof(b.raw_data->'scrollBandDurations') = 'object' then b.raw_data->'scrollBandDurations'
+            else '{}'::jsonb
+          end
+        ) band
+        where b.raw_data->>'finalScrollEvent' = 'true'
+        group by b.property_id, b.site_id, b.activity_date, b.canonical_path, b.device_type, b.session_key, band.key
+      ) per_session_band
+      group by property_id, site_id, activity_date, canonical_path, device_type, band_key
+    ) band_totals
+    group by property_id, site_id, activity_date, canonical_path, device_type
+  ),
+  abandonment as (
+    select
+      g.property_id,
+      g.site_id,
+      g.activity_date,
+      g.canonical_path,
+      g.device_type,
+      coalesce(avg_depth.avg_abandonment_depth_pct, 0) as avg_abandonment_depth_pct,
+      jsonb_agg(
+        jsonb_build_object(
+          'startPct', band_start * 10,
+          'endPct', (band_start + 1) * 10,
+          'sessions', coalesce(band_counts.sessions_in_band, 0),
+          'percent', case when g.session_count > 0 then coalesce(band_counts.sessions_in_band, 0)::numeric / g.session_count else 0 end
+        )
+        order by band_start
+      ) as abandonment_depth_distribution
+    from grouped g
+    cross join generate_series(0, 9) as band_start
+    left join lateral (
+      select avg(coalesce(sd.abandonment_depth_pct, sd.max_scroll_depth_pct, 0)) as avg_abandonment_depth_pct
+      from session_depths sd
+      where sd.site_id = g.site_id
+        and sd.activity_date = g.activity_date
+        and sd.canonical_path = g.canonical_path
+        and sd.device_type = g.device_type
+    ) avg_depth on true
+    left join lateral (
+      select count(*)::integer as sessions_in_band
+      from session_depths sd
+      where sd.site_id = g.site_id
+        and sd.activity_date = g.activity_date
+        and sd.canonical_path = g.canonical_path
+        and sd.device_type = g.device_type
+        and coalesce(sd.abandonment_depth_pct, sd.max_scroll_depth_pct, 0) >= band_start::numeric / 10.0
+        and (
+          band_start = 9
+          or coalesce(sd.abandonment_depth_pct, sd.max_scroll_depth_pct, 0) < (band_start + 1)::numeric / 10.0
+        )
+    ) band_counts on true
+    group by g.property_id, g.site_id, g.activity_date, g.canonical_path, g.device_type, g.session_count, avg_depth.avg_abandonment_depth_pct
+  ),
+  first_scroll as (
+    select
+      property_id,
+      site_id,
+      activity_date,
+      canonical_path,
+      device_type,
+      count(*) filter (where first_meaningful_scroll_ms is not null)::integer as first_meaningful_scroll_count,
+      avg(first_meaningful_scroll_ms) filter (where first_meaningful_scroll_ms is not null) as avg_first_meaningful_scroll_ms
+    from session_depths
+    group by property_id, site_id, activity_date, canonical_path, device_type
+  ),
+  section_session as (
+    select
+      b.property_id,
+      b.site_id,
+      b.activity_date,
+      b.canonical_path,
+      b.device_type,
+      b.session_key,
+      nullif(section_item->>'label', '') as label,
+      max(coalesce(nullif(section_item->>'visibleMs', '')::numeric, 0)) as visible_ms,
+      max(coalesce(nullif(section_item->>'maxVisiblePct', '')::numeric, 0)) as max_visible_pct,
+      min(nullif(section_item->>'topPct', '')::numeric) as top_pct
+    from base b
+    cross join lateral jsonb_array_elements(
+      case
+        when jsonb_typeof(b.raw_data->'sectionExposure') = 'array' then b.raw_data->'sectionExposure'
+        else '[]'::jsonb
+      end
+    ) section_item
+    where b.raw_data->>'finalScrollEvent' = 'true'
+      and nullif(section_item->>'label', '') is not null
+    group by b.property_id, b.site_id, b.activity_date, b.canonical_path, b.device_type, b.session_key, nullif(section_item->>'label', '')
+  ),
+  section_totals as (
+    select
+      property_id,
+      site_id,
+      activity_date,
+      canonical_path,
+      device_type,
+      label,
+      sum(visible_ms)::bigint as visible_ms,
+      max(max_visible_pct) as max_visible_pct,
+      min(top_pct) as top_pct
+    from section_session
+    group by property_id, site_id, activity_date, canonical_path, device_type, label
+  ),
+  section_ranked as (
+    select
+      *,
+      row_number() over (
+        partition by property_id, site_id, activity_date, canonical_path, device_type
+        order by visible_ms desc
+      ) as section_rank
+    from section_totals
+  ),
+  sections as (
+    select
+      property_id,
+      site_id,
+      activity_date,
+      canonical_path,
+      device_type,
+      jsonb_agg(
+        jsonb_build_object(
+          'label', label,
+          'visibleMs', visible_ms,
+          'maxVisiblePct', max_visible_pct,
+          'topPct', top_pct
+        )
+        order by visible_ms desc
+      ) as top_visible_sections
+    from section_ranked
+    where section_rank <= 12
+    group by property_id, site_id, activity_date, canonical_path, device_type
+  )
+  select
+    g.property_id,
+    g.site_id,
+    g.page_id,
+    g.activity_date,
+    g.canonical_path,
+    g.device_type,
+    g.session_count,
+    g.scroll_session_count,
+    coalesce(r.scroll_reach, '{}'::jsonb) as scroll_reach,
+    coalesce(r.scroll_bands, '[]'::jsonb) as scroll_bands,
+    coalesce(bd.scroll_band_durations_ms, '{}'::jsonb) as scroll_band_durations_ms,
+    coalesce(a.abandonment_depth_distribution, '[]'::jsonb) as abandonment_depth_distribution,
+    a.avg_abandonment_depth_pct,
+    coalesce(fs.first_meaningful_scroll_count, 0) as first_meaningful_scroll_count,
+    fs.avg_first_meaningful_scroll_ms,
+    coalesce(s.top_visible_sections, '[]'::jsonb) as top_visible_sections,
+    now() as updated_at
+  from grouped g
+  left join reach r
+    on r.site_id = g.site_id
+   and r.activity_date = g.activity_date
+   and r.canonical_path = g.canonical_path
+   and r.device_type = g.device_type
+  left join band_duration_totals bd
+    on bd.site_id = g.site_id
+   and bd.activity_date = g.activity_date
+   and bd.canonical_path = g.canonical_path
+   and bd.device_type = g.device_type
+  left join abandonment a
+    on a.site_id = g.site_id
+   and a.activity_date = g.activity_date
+   and a.canonical_path = g.canonical_path
+   and a.device_type = g.device_type
+  left join first_scroll fs
+    on fs.site_id = g.site_id
+   and fs.activity_date = g.activity_date
+   and fs.canonical_path = g.canonical_path
+   and fs.device_type = g.device_type
+  left join sections s
+    on s.site_id = g.site_id
+   and s.activity_date = g.activity_date
+   and s.canonical_path = g.canonical_path
+   and s.device_type = g.device_type
+  on conflict (site_id, activity_date, canonical_path, device_type)
+  do update set
+    property_id = excluded.property_id,
+    page_id = excluded.page_id,
+    session_count = excluded.session_count,
+    scroll_session_count = excluded.scroll_session_count,
+    scroll_reach = excluded.scroll_reach,
+    scroll_bands = excluded.scroll_bands,
+    scroll_band_durations_ms = excluded.scroll_band_durations_ms,
+    abandonment_depth_distribution = excluded.abandonment_depth_distribution,
+    avg_abandonment_depth_pct = excluded.avg_abandonment_depth_pct,
+    first_meaningful_scroll_count = excluded.first_meaningful_scroll_count,
+    avg_first_meaningful_scroll_ms = excluded.avg_first_meaningful_scroll_ms,
+    top_visible_sections = excluded.top_visible_sections,
+    updated_at = now();
+  get diagnostics refreshed_scroll = row_count;
+
   return jsonb_build_object(
     'refreshed_cells', refreshed_cells,
     'refreshed_pages', refreshed_pages,
+    'refreshed_scroll', refreshed_scroll,
     'start_date', start_date,
     'end_date', end_date
   );
