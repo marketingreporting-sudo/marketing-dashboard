@@ -4243,6 +4243,8 @@ const DashboardApp = ({
   const heatmapScrollReach = heatmapScrollSummary.reach || heatmapScrollMilestones || {};
   const heatmapTopSections = Array.isArray(heatmapScrollSummary.topSections) ? heatmapScrollSummary.topSections : [];
   const heatmapBandDurations = heatmapScrollSummary.bandDurationsMs || {};
+  const heatmapCursorSummary = heatmapSummaryData?.cursor || {};
+  const heatmapTopAttentionAreas = Array.isArray(heatmapCursorSummary.topAttentionAreas) ? heatmapCursorSummary.topAttentionAreas : [];
   const topScrollBand = Object.entries(heatmapBandDurations)
     .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || null;
   const heatmapPoints = useMemo(() => (
@@ -6137,6 +6139,8 @@ const DashboardApp = ({
           <div className="reports-list__row"><div><strong>Rage click clusters</strong><small>Repeated clicks in the same session, element, and page area.</small></div><div>{formatNumber(heatmapClickAnomalies.rageClusters)}</div></div>
           <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
           <div className="reports-list__row"><div><strong>CTA frustration</strong><small>Repeated CTA clicks without a page transition signal.</small></div><div>{formatNumber(heatmapClickAnomalies.ctaFrustrations)}</div></div>
+          <div className="reports-list__row"><div><strong>Cursor movement</strong><small>Movement samples represented in the cursor density layer.</small></div><div>{formatNumber(heatmapCursorSummary.movementSamples || heatmapTotals.cursorSamples || 0)}</div></div>
+          <div className="reports-list__row"><div><strong>Stationary dwell</strong><small>Cursor rest points with average dwell duration.</small></div><div>{formatNumber(heatmapCursorSummary.dwellPoints || 0)} · {Math.round(Number(heatmapCursorSummary.avgDwellMs || 0) / 100) / 10}s</div></div>
           <div className="heatmap-audit-top-clicks">
             <div className="heatmap-click-tabs" role="tablist" aria-label="Click signal lists">
               {heatmapClickSignalTabs.map((tab) => (
@@ -6175,6 +6179,24 @@ const DashboardApp = ({
               </button>
             ))}
             {activeHeatmapClickSignalTab.items.length === 0 && <div className="heatmap-audit-compact-empty">{activeHeatmapClickSignalTab.empty}</div>}
+          </div>
+          <div className="heatmap-audit-top-clicks">
+            <div className="heatmap-audit-list-heading">Top attention areas</div>
+            {heatmapTopAttentionAreas.slice(0, 6).map((item, index) => (
+              <div key={`${item.sectionLabel || item.selector || item.label || 'attention'}-${index}`} className="reports-list__row">
+                <div>
+                  <strong>{item.sectionLabel || item.label || item.selector || 'Attention area'}</strong>
+                  <small>{[
+                    item.category,
+                    item.sessions ? `${formatNumber(item.sessions)} sessions` : '',
+                    item.dwellPoints ? `${formatNumber(item.dwellPoints)} dwell points` : '',
+                    item.cursorSamples ? `${formatNumber(item.cursorSamples)} movement samples` : '',
+                  ].filter(Boolean).join(' · ') || 'Cursor attention area'}</small>
+                </div>
+                <div>{Math.round(Number(item.totalDwellMs || 0) / 1000)}s</div>
+              </div>
+            ))}
+            {heatmapTopAttentionAreas.length === 0 && <div className="heatmap-audit-compact-empty">No cursor attention areas collected yet for this page and date range.</div>}
           </div>
         </div>
       </div>

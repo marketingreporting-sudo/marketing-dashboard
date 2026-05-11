@@ -252,6 +252,13 @@ const normalizeAggregateCells = (cells, activeLayers) => {
         category: cell.category || '',
         selector: cell.selector || '',
         trackId: cell.trackId || cell.targetTrackId || '',
+        sectionLabel: cell.sectionLabel || '',
+        cursorSamples: Number(cell.cursorSamples || 0),
+        dwellPoints: Number(cell.dwellPoints || 0),
+        totalDwellMs: Number(cell.totalDwellMs || 0),
+        avgDwellMs: Number(cell.avgDwellMs || 0),
+        sessions: Number(cell.sessions || cell.sessionCount || 0),
+        sessionCount: Number(cell.sessionCount || cell.sessions || 0),
         eventType: cell.eventType || cell.type || '',
       };
     })
@@ -640,11 +647,13 @@ export default function HeatmapRenderer({
                 || (highlightedTarget && !hasExplicitHighlightedCells && cell.layer === 'click' && cell.intensity >= 0.75);
               const isSelected = activeCell?.key === cell.key;
               const size = cell.layer === 'cursor'
-                ? 14 + Math.round(cell.intensity * 34)
+                ? 18 + Math.round(cell.intensity * 48)
                 : cell.layer === 'engagement'
                   ? 16 + Math.round(cell.intensity * 36)
                   : 18 + Math.round(cell.intensity * 42);
-              const opacity = isHighlighted || isSelected ? 0.86 : 0.20 + cell.intensity * 0.48;
+              const opacity = cell.layer === 'cursor'
+                ? (isHighlighted || isSelected ? 0.62 : 0.10 + cell.intensity * 0.34)
+                : (isHighlighted || isSelected ? 0.86 : 0.20 + cell.intensity * 0.48);
               return (
                 <button
                   key={cell.key}
@@ -663,8 +672,10 @@ export default function HeatmapRenderer({
                     transform: 'translate(-50%, -50%)',
                     borderRadius: cell.layer === 'cursor' ? 6 : '50%',
                     background: `rgba(${rgb}, ${opacity})`,
-                    boxShadow: `0 0 ${18 + cell.intensity * 34}px rgba(${rgb}, ${isHighlighted || isSelected ? 0.72 : 0.34 + cell.intensity * 0.28})`,
-                    border: `${isHighlighted || isSelected ? 2 : 1}px solid rgba(${rgb}, ${isHighlighted || isSelected ? 0.95 : 0.38})`,
+                    boxShadow: `0 0 ${cell.layer === 'cursor' ? 24 + cell.intensity * 44 : 18 + cell.intensity * 34}px rgba(${rgb}, ${cell.layer === 'cursor' ? 0.18 + cell.intensity * 0.2 : isHighlighted || isSelected ? 0.72 : 0.34 + cell.intensity * 0.28})`,
+                    border: cell.layer === 'cursor' && !(isHighlighted || isSelected)
+                      ? '0 solid transparent'
+                      : `${isHighlighted || isSelected ? 2 : 1}px solid rgba(${rgb}, ${isHighlighted || isSelected ? 0.95 : 0.38})`,
                     outline: isHighlighted || isSelected ? '2px solid rgba(255,255,255,0.72)' : 'none',
                     cursor: 'pointer',
                     pointerEvents: 'auto',
@@ -733,8 +744,18 @@ export default function HeatmapRenderer({
                   <button type="button" onClick={() => setSelectedCell(null)} aria-label="Close cell detail">x</button>
                 </div>
                 <strong>{formatNumber(activeCell.count)} events in this cell</strong>
-                <small>{activeCell.label || 'No element label'}{activeCell.category ? ` · ${activeCell.category}` : ''}</small>
+                <small>{activeCell.sectionLabel || activeCell.label || 'No element label'}{activeCell.category ? ` · ${activeCell.category}` : ''}</small>
                 <dl>
+                  {activeCell.layer === 'cursor' && (
+                    <>
+                      <dt>Samples</dt>
+                      <dd>{formatNumber(activeCell.cursorSamples || activeCell.count || 0)}</dd>
+                      <dt>Sessions</dt>
+                      <dd>{formatNumber(activeCell.sessionCount || activeCell.sessions || 0)}</dd>
+                      <dt>Avg dwell</dt>
+                      <dd>{Math.round(Number(activeCell.avgDwellMs || 0) / 100) / 10}s</dd>
+                    </>
+                  )}
                   <dt>Position</dt>
                   <dd>{Math.round(activeCell.xPct * 100)}% x / {Math.round(activeCell.yPct * 100)}% y</dd>
                   <dt>Selector</dt>

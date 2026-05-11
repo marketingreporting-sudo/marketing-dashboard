@@ -313,6 +313,30 @@ create table if not exists public.property_site_scroll_daily_summaries (
   primary key (site_id, activity_date, canonical_path, device_type)
 );
 
+create table if not exists public.property_site_cursor_daily_cells (
+  property_id text not null references public.properties(id) on delete cascade,
+  site_id uuid not null references public.property_heatmap_sites(id) on delete cascade,
+  page_id uuid references public.property_site_pages(id) on delete cascade,
+  activity_date date not null,
+  canonical_path text not null,
+  device_type text not null default 'unknown',
+  grid_x integer not null,
+  grid_y integer not null,
+  cursor_sample_count integer not null default 0,
+  dwell_event_count integer not null default 0,
+  session_count integer not null default 0,
+  avg_x_pct numeric,
+  avg_y_pct numeric,
+  total_dwell_ms bigint not null default 0,
+  avg_dwell_ms numeric,
+  target_label text,
+  target_selector text,
+  target_category text,
+  section_label text,
+  updated_at timestamptz not null default now(),
+  primary key (site_id, activity_date, canonical_path, device_type, grid_x, grid_y)
+);
+
 create table if not exists public.property_site_click_daily_targets (
   property_id text not null references public.properties(id) on delete cascade,
   site_id uuid not null references public.property_heatmap_sites(id) on delete cascade,
@@ -365,6 +389,12 @@ before update on public.property_site_scroll_daily_summaries
 for each row
 execute function public.set_updated_at();
 
+drop trigger if exists set_property_site_cursor_daily_cells_updated_at on public.property_site_cursor_daily_cells;
+create trigger set_property_site_cursor_daily_cells_updated_at
+before update on public.property_site_cursor_daily_cells
+for each row
+execute function public.set_updated_at();
+
 drop trigger if exists set_property_site_click_daily_targets_updated_at on public.property_site_click_daily_targets;
 create trigger set_property_site_click_daily_targets_updated_at
 before update on public.property_site_click_daily_targets
@@ -413,6 +443,9 @@ on public.property_site_page_daily_summaries(property_id, activity_date desc);
 create index if not exists property_site_scroll_daily_summaries_property_date_idx
 on public.property_site_scroll_daily_summaries(property_id, activity_date desc);
 
+create index if not exists property_site_cursor_daily_cells_property_date_idx
+on public.property_site_cursor_daily_cells(property_id, activity_date desc);
+
 create index if not exists property_site_click_daily_targets_property_date_idx
 on public.property_site_click_daily_targets(property_id, activity_date desc);
 
@@ -426,6 +459,7 @@ alter table public.property_site_audits enable row level security;
 alter table public.property_heatmap_daily_cells enable row level security;
 alter table public.property_site_page_daily_summaries enable row level security;
 alter table public.property_site_scroll_daily_summaries enable row level security;
+alter table public.property_site_cursor_daily_cells enable row level security;
 alter table public.property_site_click_daily_targets enable row level security;
 
 drop policy if exists "users can read heatmap sites they can access" on public.property_heatmap_sites;
@@ -552,6 +586,16 @@ using (
   or public.user_has_property_permission(property_id, 'reports.view')
 );
 
+drop policy if exists "users can read cursor daily cells they can access" on public.property_site_cursor_daily_cells;
+create policy "users can read cursor daily cells they can access"
+on public.property_site_cursor_daily_cells
+for select
+to authenticated
+using (
+  public.user_has_property_permission(property_id, 'analytics.view')
+  or public.user_has_property_permission(property_id, 'reports.view')
+);
+
 create or replace function public.prune_property_site_tracking(
   retain_raw_days integer default 90,
   retain_snapshot_days integer default 30,
@@ -628,6 +672,14 @@ begin
   delete from public.property_site_scroll_daily_summaries
   where activity_date < current_date - greatest(retain_aggregate_days, 30);
 
+  delete from public.property_site_cursor_daily_cells cc
+  using public.property_heatmap_sites s
+  where cc.site_id = s.id
+    and cc.activity_date < current_date - greatest(coalesce(s.aggregate_retention_days, retain_aggregate_days), 30);
+
+  delete from public.property_site_cursor_daily_cells
+  where activity_date < current_date - greatest(retain_aggregate_days, 30);
+
   delete from public.property_site_click_daily_targets ct
   using public.property_heatmap_sites s
   where ct.site_id = s.id
@@ -667,6 +719,7 @@ declare
   refreshed_pages integer := 0;
   refreshed_scroll integer := 0;
   refreshed_click_targets integer := 0;
+  refreshed_cursor_cells integer := 0;
 begin
   insert into public.property_heatmap_daily_cells (
     property_id,
@@ -991,6 +1044,106 @@ begin
     avg_height_pct = excluded.avg_height_pct,
     updated_at = now();
   get diagnostics refreshed_click_targets = row_count;
+
+  insert into public.property_site_cursor_daily_cells (
+    property_id,
+    site_id,
+    page_id,
+    activity_date,
+    canonical_path,
+    device_type,
+    grid_x,
+    grid_y,
+    cursor_sample_count,
+    dwell_event_count,
+    session_count,
+    avg_x_pct,
+    avg_y_pct,
+    total_dwell_ms,
+    avg_dwell_ms,
+    target_label,
+    target_selector,
+    target_category,
+    section_label,
+    updated_at
+  )
+  select
+    grouped.property_id,
+    grouped.site_id,
+    grouped.page_id,
+    grouped.activity_date,
+    grouped.canonical_path,
+    grouped.device_type,
+    grouped.grid_x,
+    grouped.grid_y,
+    grouped.cursor_sample_count,
+    grouped.dwell_event_count,
+    grouped.session_count,
+    grouped.avg_x_pct,
+    grouped.avg_y_pct,
+    grouped.total_dwell_ms,
+    grouped.avg_dwell_ms,
+    grouped.target_label,
+    grouped.target_selector,
+    grouped.target_category,
+    grouped.section_label,
+    now() as updated_at
+  from (
+    select
+      e.property_id,
+      e.site_id,
+      p.id as page_id,
+      e.occurred_at::date as activity_date,
+      coalesce(nullif(e.path, ''), '/') as canonical_path,
+      coalesce(nullif(e.raw_data->>'deviceType', ''), nullif(e.raw_data->>'device_type', ''), 'unknown') as device_type,
+      least(23, greatest(0, floor(coalesce(e.x_pct, 0) * 24)::integer)) as grid_x,
+      least(23, greatest(0, floor(coalesce(e.y_pct, 0) * 24)::integer)) as grid_y,
+      count(*) filter (where e.event_type in ('mousemove', 'pointermove'))::integer as cursor_sample_count,
+      count(*) filter (where e.event_type = 'engagement')::integer as dwell_event_count,
+      count(distinct e.session_key)::integer as session_count,
+      avg(e.x_pct) as avg_x_pct,
+      avg(e.y_pct) as avg_y_pct,
+      coalesce(sum(coalesce(e.engagement_ms, 0)) filter (where e.event_type = 'engagement'), 0)::bigint as total_dwell_ms,
+      avg(e.engagement_ms) filter (where e.event_type = 'engagement') as avg_dwell_ms,
+      max(coalesce(nullif(e.raw_data->>'targetLabel', ''), nullif(e.raw_data->>'sectionLabel', ''), nullif(e.raw_data->>'targetTrackId', ''), nullif(e.raw_data->>'targetSelector', ''), e.target_tag)) as target_label,
+      max(nullif(e.raw_data->>'targetSelector', '')) as target_selector,
+      max(coalesce(nullif(e.raw_data->>'targetCategory', ''), 'content')) as target_category,
+      max(nullif(e.raw_data->>'sectionLabel', '')) as section_label
+    from public.property_heatmap_events e
+    left join public.property_site_pages p
+      on p.site_id = e.site_id
+     and p.canonical_path = coalesce(nullif(e.path, ''), '/')
+    where e.occurred_at::date between start_date and end_date
+      and e.event_type in ('mousemove', 'pointermove', 'engagement')
+      and e.x_pct is not null
+      and e.y_pct is not null
+    group by
+      e.property_id,
+      e.site_id,
+      p.id,
+      e.occurred_at::date,
+      coalesce(nullif(e.path, ''), '/'),
+      coalesce(nullif(e.raw_data->>'deviceType', ''), nullif(e.raw_data->>'device_type', ''), 'unknown'),
+      least(23, greatest(0, floor(coalesce(e.x_pct, 0) * 24)::integer)),
+      least(23, greatest(0, floor(coalesce(e.y_pct, 0) * 24)::integer))
+  ) grouped
+  on conflict (site_id, activity_date, canonical_path, device_type, grid_x, grid_y)
+  do update set
+    property_id = excluded.property_id,
+    page_id = excluded.page_id,
+    cursor_sample_count = excluded.cursor_sample_count,
+    dwell_event_count = excluded.dwell_event_count,
+    session_count = excluded.session_count,
+    avg_x_pct = excluded.avg_x_pct,
+    avg_y_pct = excluded.avg_y_pct,
+    total_dwell_ms = excluded.total_dwell_ms,
+    avg_dwell_ms = excluded.avg_dwell_ms,
+    target_label = excluded.target_label,
+    target_selector = excluded.target_selector,
+    target_category = excluded.target_category,
+    section_label = excluded.section_label,
+    updated_at = now();
+  get diagnostics refreshed_cursor_cells = row_count;
 
   insert into public.property_site_scroll_daily_summaries (
     property_id,
@@ -1330,6 +1483,7 @@ begin
     'refreshed_pages', refreshed_pages,
     'refreshed_scroll', refreshed_scroll,
     'refreshed_click_targets', refreshed_click_targets,
+    'refreshed_cursor_cells', refreshed_cursor_cells,
     'start_date', start_date,
     'end_date', end_date
   );

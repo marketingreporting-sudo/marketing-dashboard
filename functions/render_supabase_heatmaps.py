@@ -2089,6 +2089,125 @@ def _merge_click_target_rows(target_rows: list[dict[str, Any]], anomalies: dict[
     return sorted(merged, key=lambda item: (item.get("clicks", 0) + item.get("ctaClicks", 0), item.get("sessions", 0)), reverse=True)[:50]
 
 
+def _merge_cursor_daily_rows(cursor_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    cells = []
+    attention: dict[str, dict[str, Any]] = {}
+    movement_samples = 0
+    dwell_points = 0
+    total_dwell_ms = 0
+    total_sessions = 0
+
+    for row in cursor_rows:
+        samples = int(row.get("cursor_sample_count") or row.get("cursorSamples") or 0)
+        dwell_count = int(row.get("dwell_event_count") or row.get("dwellPoints") or 0)
+        sessions = int(row.get("session_count") or row.get("sessions") or 0)
+        dwell_ms = int(float(row.get("total_dwell_ms") or row.get("totalDwellMs") or 0))
+        avg_dwell_ms = _numeric(row.get("avg_dwell_ms") or row.get("avgDwellMs"), 0)
+        grid_x = int(row.get("grid_x") if row.get("grid_x") is not None else row.get("gridX") or 0)
+        grid_y = int(row.get("grid_y") if row.get("grid_y") is not None else row.get("gridY") or 0)
+        raw_x_pct = row.get("avg_x_pct") if row.get("avg_x_pct") is not None else row.get("xPct")
+        raw_y_pct = row.get("avg_y_pct") if row.get("avg_y_pct") is not None else row.get("yPct")
+        x_pct = _clamp_percent(_numeric(raw_x_pct, (grid_x + 0.5) / HEATMAP_AGGREGATE_GRID_SIZE))
+        y_pct = _clamp_percent(_numeric(raw_y_pct, (grid_y + 0.5) / HEATMAP_AGGREGATE_GRID_SIZE))
+        label = _normalize_text(
+            row.get("target_label") or row.get("section_label") or row.get("targetLabel") or row.get("sectionLabel"),
+            180,
+        )
+        section_label = _normalize_text(row.get("section_label") or row.get("sectionLabel"), 180)
+        selector = _normalize_text(row.get("target_selector") or row.get("selector"), 420)
+        category = _normalize_text(row.get("target_category") or row.get("category"), 80) or "content"
+        score = samples + dwell_count + (dwell_ms / 1000)
+        if samples or dwell_count:
+            cells.append({
+                "key": f"cursor:{grid_x}:{grid_y}",
+                "type": "cursor_attention",
+                "eventType": "cursor_attention",
+                "layer": "cursor",
+                "gridX": grid_x,
+                "gridY": grid_y,
+                "gridSize": HEATMAP_AGGREGATE_GRID_SIZE,
+                "count": samples + dwell_count,
+                "eventCount": samples + dwell_count,
+                "cursorSamples": samples,
+                "dwellPoints": dwell_count,
+                "sessionCount": sessions,
+                "sessions": sessions,
+                "xPct": x_pct,
+                "yPct": y_pct,
+                "totalDwellMs": dwell_ms,
+                "avgDwellMs": avg_dwell_ms,
+                "label": label or section_label or f"Cursor cell {grid_x + 1},{grid_y + 1}",
+                "sectionLabel": section_label,
+                "selector": selector,
+                "category": category,
+                "attentionScore": score,
+            })
+        movement_samples += samples
+        dwell_points += dwell_count
+        total_dwell_ms += dwell_ms
+        total_sessions += sessions
+        attention_key = (section_label or selector or label or f"cell:{grid_x}:{grid_y}").lower()
+        current = attention.get(attention_key) or {
+            "label": section_label or label or selector or f"Cell {grid_x + 1},{grid_y + 1}",
+            "sectionLabel": section_label,
+            "selector": selector,
+            "category": category,
+            "cursorSamples": 0,
+            "dwellPoints": 0,
+            "totalDwellMs": 0,
+            "sessions": 0,
+            "xWeighted": 0.0,
+            "yWeighted": 0.0,
+            "weight": 0.0,
+        }
+        weight = max(1.0, score)
+        current["cursorSamples"] += samples
+        current["dwellPoints"] += dwell_count
+        current["totalDwellMs"] += dwell_ms
+        current["sessions"] = max(int(current.get("sessions") or 0), sessions)
+        current["xWeighted"] += (x_pct or 0) * weight
+        current["yWeighted"] += (y_pct or 0) * weight
+        current["weight"] += weight
+        attention[attention_key] = current
+
+    max_score = max(1.0, *[float(cell.get("attentionScore") or 0) for cell in cells])
+    normalized_cells = [
+        {**cell, "intensity": float(cell.get("attentionScore") or 0) / max_score}
+        for cell in cells
+    ]
+    top_attention = []
+    for item in attention.values():
+        weight = max(1.0, float(item.get("weight") or 0))
+        dwell_points_for_avg = max(1, int(item.get("dwellPoints") or 0))
+        top_attention.append({
+            "label": item.get("label"),
+            "sectionLabel": item.get("sectionLabel"),
+            "selector": item.get("selector"),
+            "category": item.get("category"),
+            "cursorSamples": int(item.get("cursorSamples") or 0),
+            "dwellPoints": int(item.get("dwellPoints") or 0),
+            "totalDwellMs": int(item.get("totalDwellMs") or 0),
+            "avgDwellMs": int(item.get("totalDwellMs") or 0) / dwell_points_for_avg,
+            "sessions": int(item.get("sessions") or 0),
+            "xPct": _clamp_percent(float(item.get("xWeighted") or 0) / weight),
+            "yPct": _clamp_percent(float(item.get("yWeighted") or 0) / weight),
+        })
+    top_attention = sorted(
+        top_attention,
+        key=lambda item: (item.get("totalDwellMs", 0), item.get("dwellPoints", 0), item.get("cursorSamples", 0)),
+        reverse=True,
+    )[:20]
+    return {
+        "cells": normalized_cells,
+        "topAttentionAreas": top_attention,
+        "movementSamples": movement_samples,
+        "dwellPoints": dwell_points,
+        "totalDwellMs": total_dwell_ms,
+        "avgDwellMs": (total_dwell_ms / dwell_points) if dwell_points else 0,
+        "sessionSignals": total_sessions,
+    }
+
+
 def _merge_scroll_daily_rows(scroll_rows: list[dict[str, Any]]) -> dict[str, Any]:
     total_sessions = sum(int(row.get("session_count") or 0) for row in scroll_rows)
     scroll_sessions = sum(int(row.get("scroll_session_count") or 0) for row in scroll_rows)
@@ -2462,34 +2581,47 @@ def _heatmap_summary_from_aggregates(
         ("activity_date", f"lte.{end_date.isoformat()}"),
         ("limit", "10000"),
     ]
+    cursor_filters = [
+        ("select", "*"),
+        ("property_id", f"eq.{property_id}"),
+        ("activity_date", f"gte.{start_date.isoformat()}"),
+        ("activity_date", f"lte.{end_date.isoformat()}"),
+        ("limit", "10000"),
+    ]
     if site_id:
         cell_filters.append(("site_id", f"eq.{site_id}"))
         page_filters.append(("site_id", f"eq.{site_id}"))
         scroll_filters.append(("site_id", f"eq.{site_id}"))
         click_target_filters.append(("site_id", f"eq.{site_id}"))
+        cursor_filters.append(("site_id", f"eq.{site_id}"))
     if path:
         canonical_path = _normalize_text(path, 1024)
         cell_filters.append(("canonical_path", f"eq.{canonical_path}"))
         page_filters.append(("canonical_path", f"eq.{canonical_path}"))
         scroll_filters.append(("canonical_path", f"eq.{canonical_path}"))
         click_target_filters.append(("canonical_path", f"eq.{canonical_path}"))
+        cursor_filters.append(("canonical_path", f"eq.{canonical_path}"))
     if normalized_device_type in {"desktop", "mobile", "tablet"}:
         cell_filters.append(("device_type", f"eq.{normalized_device_type}"))
         page_filters.append(("device_type", f"eq.{normalized_device_type}"))
         scroll_filters.append(("device_type", f"eq.{normalized_device_type}"))
         click_target_filters.append(("device_type", f"eq.{normalized_device_type}"))
+        cursor_filters.append(("device_type", f"eq.{normalized_device_type}"))
     if event_type and event_type in HEATMAP_EVENT_TYPES:
         cell_filters.append(("event_type", f"eq.{event_type}"))
 
     headers = _supabase_anon_headers(access_token)
+    include_cursor_aggregate = not event_type or event_type in {"mousemove", "pointermove", "engagement"}
     cell_rows = _fetch_json("property_heatmap_daily_cells", cell_filters, headers=headers)
     page_rows = _fetch_json("property_site_page_daily_summaries", page_filters, headers=headers)
     scroll_rows = _fetch_optional_json("property_site_scroll_daily_summaries", scroll_filters, headers=headers)
     click_target_rows = _fetch_optional_json("property_site_click_daily_targets", click_target_filters, headers=headers)
-    if not cell_rows and not page_rows and not scroll_rows and not click_target_rows:
+    cursor_rows = _fetch_optional_json("property_site_cursor_daily_cells", cursor_filters, headers=headers) if include_cursor_aggregate else []
+    if not cell_rows and not page_rows and not scroll_rows and not click_target_rows and not cursor_rows:
         return None
     scroll_metrics = _merge_scroll_daily_rows(scroll_rows)
     click_targets = _merge_click_target_rows(click_target_rows, anomalies=anomalies)
+    cursor_metrics = _merge_cursor_daily_rows(cursor_rows)
 
     counts_by_type: dict[str, int] = {}
     counts_by_path: dict[str, int] = {}
@@ -2536,6 +2668,33 @@ def _heatmap_summary_from_aggregates(
         current["yWeighted"] += y_pct * count
         cell_groups[key] = current
 
+    if cursor_metrics.get("cells"):
+        for cursor_cell in cursor_metrics["cells"]:
+            key = str(cursor_cell.get("key") or f"cursor:{cursor_cell.get('gridX', 0)}:{cursor_cell.get('gridY', 0)}")
+            cell_groups[key] = {
+                "key": key,
+                "type": cursor_cell.get("eventType") or "cursor_attention",
+                "eventType": cursor_cell.get("eventType") or "cursor_attention",
+                "layer": "cursor",
+                "gridX": cursor_cell.get("gridX"),
+                "gridY": cursor_cell.get("gridY"),
+                "gridSize": cursor_cell.get("gridSize") or HEATMAP_AGGREGATE_GRID_SIZE,
+                "count": cursor_cell.get("count"),
+                "eventCount": cursor_cell.get("eventCount"),
+                "sessionCount": cursor_cell.get("sessionCount"),
+                "xWeighted": _numeric(cursor_cell.get("xPct"), 0) * max(1, int(cursor_cell.get("count") or 0)),
+                "yWeighted": _numeric(cursor_cell.get("yPct"), 0) * max(1, int(cursor_cell.get("count") or 0)),
+                "cursorSamples": cursor_cell.get("cursorSamples"),
+                "dwellPoints": cursor_cell.get("dwellPoints"),
+                "totalDwellMs": cursor_cell.get("totalDwellMs"),
+                "avgDwellMs": cursor_cell.get("avgDwellMs"),
+                "label": cursor_cell.get("label"),
+                "sectionLabel": cursor_cell.get("sectionLabel"),
+                "selector": cursor_cell.get("selector"),
+                "category": cursor_cell.get("category"),
+                "intensity": cursor_cell.get("intensity"),
+            }
+
     cells = []
     max_cell_count = max(1, *[int(item.get("count") or 0) for item in cell_groups.values()])
     for cell in cell_groups.values():
@@ -2554,7 +2713,15 @@ def _heatmap_summary_from_aggregates(
                 "sessionCount": cell.get("sessionCount"),
                 "xPct": _clamp_percent(float(cell.get("xWeighted") or 0) / count),
                 "yPct": _clamp_percent(float(cell.get("yWeighted") or 0) / count),
-                "intensity": float(cell.get("count") or 0) / max_cell_count,
+                "intensity": _numeric(cell.get("intensity"), float(cell.get("count") or 0) / max_cell_count),
+                "cursorSamples": cell.get("cursorSamples"),
+                "dwellPoints": cell.get("dwellPoints"),
+                "totalDwellMs": cell.get("totalDwellMs"),
+                "avgDwellMs": cell.get("avgDwellMs"),
+                "label": cell.get("label"),
+                "sectionLabel": cell.get("sectionLabel"),
+                "selector": cell.get("selector"),
+                "category": cell.get("category"),
             }
         )
 
@@ -2586,6 +2753,7 @@ def _heatmap_summary_from_aggregates(
             "pageSummaryRows": len(page_rows),
             "scrollSummaryRows": len(scroll_rows),
             "clickTargetRows": len(click_target_rows),
+            "cursorCellRows": len(cursor_rows),
         },
         "totals": {
             "sessions": total_sessions,
@@ -2602,6 +2770,8 @@ def _heatmap_summary_from_aggregates(
             "cursorSamples": sum(int(row.get("cursor_sample_count") or 0) for row in page_rows)
             or counts_by_type.get("mousemove", 0)
             + counts_by_type.get("pointermove", 0),
+            "cursorDwellPoints": cursor_metrics.get("dwellPoints", 0),
+            "cursorAvgDwellMs": cursor_metrics.get("avgDwellMs", 0),
             "engagements": sum(int(row.get("engagement_event_count") or 0) for row in page_rows)
             or counts_by_type.get("engagement", 0)
             + counts_by_type.get("first_interaction", 0)
@@ -2627,6 +2797,13 @@ def _heatmap_summary_from_aggregates(
             "bandDurationsMs": scroll_metrics.get("bandDurationsMs", {}),
             "abandonmentDepthDistribution": scroll_metrics.get("abandonmentDepthDistribution", []),
             "topSections": scroll_metrics.get("topSections", []),
+        },
+        "cursor": {
+            "movementSamples": cursor_metrics.get("movementSamples", 0),
+            "dwellPoints": cursor_metrics.get("dwellPoints", 0),
+            "totalDwellMs": cursor_metrics.get("totalDwellMs", 0),
+            "avgDwellMs": cursor_metrics.get("avgDwellMs", 0),
+            "topAttentionAreas": cursor_metrics.get("topAttentionAreas", []),
         },
         "countsByType": counts_by_type,
         "topPaths": [
@@ -2725,6 +2902,7 @@ def get_heatmap_summary(
     scroll_milestones: dict[str, int] = {"25": 0, "50": 0, "75": 0, "90": 0, "100": 0}
     scroll_band_duration_totals: dict[str, int] = {}
     section_exposure_totals: dict[str, dict[str, Any]] = {}
+    cursor_attention: dict[str, dict[str, Any]] = {}
     first_meaningful_scroll_count = 0
     first_meaningful_scroll_total = 0
     abandonment_depth_total = 0.0
@@ -2826,6 +3004,39 @@ def get_heatmap_summary(
             if current.get("topPct") is None:
                 current["topPct"] = section.get("topPct")
             section_exposure_totals[label] = current
+        if event_kind in {"mousemove", "pointermove", "engagement"} and event.get("x_pct") is not None and event.get("y_pct") is not None:
+            grid_x = min(23, max(0, int(float(event.get("x_pct") or 0) * HEATMAP_AGGREGATE_GRID_SIZE)))
+            grid_y = min(23, max(0, int(float(event.get("y_pct") or 0) * HEATMAP_AGGREGATE_GRID_SIZE)))
+            section_label = _normalize_text(raw_data.get("sectionLabel"), 120)
+            target_label = _normalize_text(
+                raw_data.get("targetLabel") or section_label or raw_data.get("targetTrackId") or raw_data.get("targetSelector") or event.get("target_tag"),
+                160,
+            )
+            cursor_key = (section_label or target_label or f"cell:{grid_x}:{grid_y}").lower()
+            cursor_current = cursor_attention.get(cursor_key) or {
+                "label": section_label or target_label or f"Cell {grid_x + 1},{grid_y + 1}",
+                "sectionLabel": section_label,
+                "selector": _normalize_text(raw_data.get("targetSelector"), 420),
+                "category": _normalize_text(raw_data.get("targetCategory"), 80) or "content",
+                "cursorSamples": 0,
+                "dwellPoints": 0,
+                "totalDwellMs": 0,
+                "sessions": set(),
+                "xTotal": 0.0,
+                "yTotal": 0.0,
+                "pointCount": 0,
+            }
+            if event_kind in {"mousemove", "pointermove"}:
+                cursor_current["cursorSamples"] += 1
+            if event_kind == "engagement":
+                cursor_current["dwellPoints"] += 1
+                cursor_current["totalDwellMs"] += int(event.get("engagement_ms") or 0)
+            if event.get("session_key"):
+                cursor_current["sessions"].add(str(event.get("session_key")))
+            cursor_current["xTotal"] += float(event.get("x_pct") or 0)
+            cursor_current["yTotal"] += float(event.get("y_pct") or 0)
+            cursor_current["pointCount"] += 1
+            cursor_attention[cursor_key] = cursor_current
         if event.get("x_pct") is not None or event.get("y_pct") is not None:
             points.append(
                 {
@@ -2851,6 +3062,8 @@ def get_heatmap_summary(
                     "targetTrackId": raw_data.get("targetTrackId") or "",
                     "targetCtaId": raw_data.get("targetCtaId") or "",
                     "targetCategory": raw_data.get("targetCategory") or "",
+                    "sectionLabel": raw_data.get("sectionLabel") or "",
+                    "engagementMs": event.get("engagement_ms"),
                     "targetBounds": raw_data.get("targetBounds") if isinstance(raw_data.get("targetBounds"), dict) else None,
                     "deviceType": raw_data.get("deviceType") or "",
                     "occurredAt": event.get("occurred_at"),
@@ -2941,6 +3154,29 @@ def get_heatmap_summary(
             "bandDurationsMs": scroll_band_duration_totals,
             "abandonmentDepthDistribution": abandonment_depth_distribution,
             "topSections": sorted(section_exposure_totals.values(), key=lambda item: item.get("visibleMs", 0), reverse=True)[:12],
+        },
+        "cursor": {
+            "movementSamples": counts_by_type.get("mousemove", 0) + counts_by_type.get("pointermove", 0),
+            "dwellPoints": counts_by_type.get("engagement", 0),
+            "totalDwellMs": sum(int(item.get("totalDwellMs") or 0) for item in cursor_attention.values()),
+            "avgDwellMs": (
+                sum(int(item.get("totalDwellMs") or 0) for item in cursor_attention.values())
+                / max(1, sum(int(item.get("dwellPoints") or 0) for item in cursor_attention.values()))
+            ) if cursor_attention else 0,
+            "topAttentionAreas": [
+                {
+                    **{key: value for key, value in item.items() if key not in {"sessions", "xTotal", "yTotal", "pointCount"}},
+                    "sessions": len(item.get("sessions") or []),
+                    "avgDwellMs": (item.get("totalDwellMs", 0) / max(1, item.get("dwellPoints", 0))),
+                    "xPct": (item.get("xTotal", 0) / item.get("pointCount", 1)) if item.get("pointCount") else None,
+                    "yPct": (item.get("yTotal", 0) / item.get("pointCount", 1)) if item.get("pointCount") else None,
+                }
+                for item in sorted(
+                    cursor_attention.values(),
+                    key=lambda value: (value.get("totalDwellMs", 0), value.get("dwellPoints", 0), value.get("cursorSamples", 0)),
+                    reverse=True,
+                )[:20]
+            ],
         },
         "countsByType": counts_by_type,
         "topPaths": [
@@ -4315,6 +4551,17 @@ def build_tracker_script(
       .filter(function(item) {{ return item.label && item.visiblePct > 0.05; }});
   }}
 
+  function nearestSectionLabel(target) {{
+    var node = target && target.nodeType === 1 ? target : target && target.parentElement;
+    var selector = '[data-redstone-track-id], main, section, article, header, footer, nav, [role="main"], [role="region"]';
+    while (node && node !== document.body && node !== document.documentElement) {{
+      if (node.matches && node.matches(selector) && !isSensitiveElement(node)) return sectionLabel(node).slice(0, 120);
+      node = node.parentElement;
+    }}
+    var visible = visibleSections()[0];
+    return visible && visible.label ? visible.label : '';
+  }}
+
   function updateSectionExposure() {{
     var now = Date.now();
     var delta = Math.max(0, now - lastSectionExposureAt);
@@ -4498,8 +4745,10 @@ def build_tracker_script(
     var now = Date.now();
     if (now - lastMove < MOVE_THROTTLE_MS) return;
     lastMove = now;
-    var point = pointerPayload(e);
-    lastPointer = {{ x: point.x, y: point.y, pageX: point.pageX, pageY: point.pageY, pointerType: point.pointerType, at: now }};
+    var meta = targetMeta(e.target);
+    var section = nearestSectionLabel(e.target);
+    var point = Object.assign(pointerPayload(e), meta, {{ sectionLabel: section }});
+    lastPointer = {{ x: point.x, y: point.y, pageX: point.pageX, pageY: point.pageY, pointerType: point.pointerType, at: now, meta: meta, sectionLabel: section }};
     lastDwellKey = '';
     enqueue(eventType, point);
   }}
@@ -4567,7 +4816,7 @@ def build_tracker_script(
     lastDwellKey = dwellKey;
     lastDwell = now;
     var size = docSize();
-    enqueue('engagement', {{
+    enqueue('engagement', Object.assign({{
       x: lastPointer.x,
       y: lastPointer.y,
       pageX: lastPointer.pageX,
@@ -4576,8 +4825,9 @@ def build_tracker_script(
       viewportYPct: lastPointer.y / Math.max(1, window.innerHeight || 1),
       xPct: lastPointer.pageX / Math.max(1, size.documentWidth),
       yPct: lastPointer.pageY / Math.max(1, size.documentHeight),
+      sectionLabel: lastPointer.sectionLabel || '',
       engagementMs: Math.min(DWELL_MS, now - lastPointer.at)
-    }});
+    }}, lastPointer.meta || {{}}));
   }}, DWELL_MS);
   window.addEventListener('visibilitychange', function() {{
     if (document.visibilityState === 'hidden') {{
