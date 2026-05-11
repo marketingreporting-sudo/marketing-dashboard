@@ -7021,15 +7021,8 @@ const DashboardApp = ({
                   <div className="reports-stat"><span>Grid</span><strong>{localFalconLoading ? '…' : `${formatNumber(localFalconGridSize)}x${formatNumber(localFalconGridSize)}`}</strong><small>{localFalconLatestScan?.radius ? `${localFalconLatestScan.radius}${localFalconLatestScan.measurement || ''} radius` : 'Grid radius pending'}</small></div>
                 </div>
 
-                {(localFalconHeatmapUrl || localFalconReportUrl || localFalconPdfUrl) && (
+                {(localFalconReportUrl || localFalconPdfUrl) && (
                   <div className="local-falcon-report-card">
-                    <div className="local-falcon-report-card__media">
-                      {localFalconHeatmapUrl ? (
-                        <img src={localFalconHeatmapUrl} alt="Local Falcon heatmap" />
-                      ) : (
-                        <div className="reports-empty">No heatmap image is available for the latest scan.</div>
-                      )}
-                    </div>
                     <div className="local-falcon-report-card__content">
                       <div className="reports-panel__eyebrow">Latest Scan Detail</div>
                       <div className="reports-list">
@@ -7047,13 +7040,19 @@ const DashboardApp = ({
                 {localFalconGridPoints.length > 0 && (
                   <div className="local-falcon-section">
                     <div className="reports-panel__eyebrow">Grid Rank Map</div>
-                    <div className="local-falcon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(localFalconGridSize, 1)}, minmax(0, 1fr))` }}>
-                      {localFalconGridPoints.map((point) => (
-                        <div key={point.index} className={`local-falcon-grid__cell local-falcon-grid__cell--${getLocalFalconRankTone(point.rank)}`}>
-                          <strong>{point.rankLabel}</strong>
-                          <small>{formatNumber(point.resultCount)} results</small>
-                        </div>
-                      ))}
+                    <div
+                      className={`local-falcon-grid-map ${localFalconHeatmapUrl ? 'local-falcon-grid-map--with-image' : ''}`}
+                      style={localFalconHeatmapUrl ? { backgroundImage: `url(${localFalconHeatmapUrl})` } : undefined}
+                    >
+                      <div className="local-falcon-grid-map__shade" />
+                      <div className="local-falcon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(localFalconGridSize, 1)}, minmax(0, 1fr))` }}>
+                        {localFalconGridPoints.map((point) => (
+                          <div key={point.index} className={`local-falcon-grid__cell local-falcon-grid__cell--${getLocalFalconRankTone(point.rank)}`}>
+                            <strong>{point.rankLabel}</strong>
+                            <small>{formatNumber(point.resultCount)} results</small>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                     <div className="local-falcon-grid-legend">
                       <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--strong" /> 1-3 strong</span>
@@ -7118,7 +7117,7 @@ const DashboardApp = ({
                         <strong>{item.keyword || 'Tracked keyword'}</strong>
                         <small>SoLV {formatNumber(item.solv, 2)} | ARP {formatNumber(item.arp, 2)} | {formatNumber(item.scanCount)} scans</small>
                       </div>
-                      <div>{item.solvMove != null ? `${formatSignedPercent(item.solvMove / 100, 1)} SoLV` : '—'}</div>
+                      <div>{formatNumber(item.solv, 2)} SoLV</div>
                     </div>
                   ))}
                   {localFalconKeywords.length === 0 && localFalconReports.slice(0, 5).map((item) => (
