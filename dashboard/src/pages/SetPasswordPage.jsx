@@ -30,6 +30,10 @@ const getSetupLinkParams = (location) => {
   });
 
   return {
+    accessToken: params.get('access_token'),
+    code: params.get('code'),
+    errorDescription: params.get('error_description'),
+    refreshToken: params.get('refresh_token'),
     tokenHash: params.get('token_hash') || params.get('token'),
     type: params.get('type'),
   };
@@ -47,11 +51,20 @@ const SetPasswordPage = () => {
   const [verifiedSession, setVerifiedSession] = useState(null);
   const attemptedTokenRef = useRef('');
 
-  const { tokenHash, type: setupLinkType } = useMemo(
+  const {
+    accessToken,
+    code: authCode,
+    errorDescription,
+    refreshToken,
+    tokenHash,
+    type: setupLinkType,
+  } = useMemo(
     () => getSetupLinkParams(location),
     [location]
   );
   const hasSetupLinkToken = Boolean(tokenHash && SUPPORTED_LINK_TYPES.has(setupLinkType));
+  const hasImplicitSession = Boolean(accessToken && refreshToken);
+  const hasSetupCredentials = Boolean(authCode || hasImplicitSession || hasSetupLinkToken);
   const canSetPassword = isAuthenticated || Boolean(verifiedSession?.user);
 
   const userEmail = useMemo(
@@ -60,11 +73,11 @@ const SetPasswordPage = () => {
   );
 
   useEffect(() => {
-    if (!isConfigured || !supabase || loading || isAuthenticated || !hasSetupLinkToken) {
+    if (!isConfigured || !supabase || loading || isAuthenticated || !hasSetupCredentials) {
       return undefined;
     }
 
-    const tokenKey = `${setupLinkType}:${tokenHash}`;
+    const tokenKey = authCode || `${accessToken || ''}:${refreshToken || ''}:${setupLinkType || ''}:${tokenHash || ''}`;
     if (attemptedTokenRef.current === tokenKey) {
       return undefined;
     }
@@ -73,10 +86,17 @@ const SetPasswordPage = () => {
     attemptedTokenRef.current = tokenKey;
 
     const verifySetupLink = async () => {
-      const { data, error } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: setupLinkType,
-      });
+      const { data, error } = authCode
+        ? await supabase.auth.exchangeCodeForSession(authCode)
+        : hasImplicitSession
+          ? await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            })
+          : await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: setupLinkType,
+            });
 
       if (!mounted) return;
 
@@ -94,7 +114,18 @@ const SetPasswordPage = () => {
     return () => {
       mounted = false;
     };
-  }, [hasSetupLinkToken, isAuthenticated, isConfigured, loading, setupLinkType, tokenHash]);
+  }, [
+    accessToken,
+    authCode,
+    hasImplicitSession,
+    hasSetupCredentials,
+    isAuthenticated,
+    isConfigured,
+    loading,
+    refreshToken,
+    setupLinkType,
+    tokenHash,
+  ]);
 
   if (!isConfigured) {
     return (
@@ -114,7 +145,7 @@ const SetPasswordPage = () => {
     );
   }
 
-  if (loading || (hasSetupLinkToken && !canSetPassword && !errorMessage)) {
+  if (loading || (hasSetupCredentials && !canSetPassword && !errorMessage)) {
     return <AuthLoadingScreen />;
   }
 
@@ -127,7 +158,11 @@ const SetPasswordPage = () => {
           <p className="auth-card__copy">
             Open the invite email or password reset email again and use the latest link to set your password.
           </p>
-          {errorMessage && <div className="auth-alert auth-alert--error">{errorMessage}</div>}
+          {(errorMessage || errorDescription) && (
+            <div className="auth-alert auth-alert--error">
+              {errorMessage || errorDescription}
+            </div>
+          )}
           <div className="auth-card__footer">
             <Link to="/sign-in">Back to sign in</Link>
           </div>

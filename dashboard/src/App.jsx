@@ -113,6 +113,17 @@ const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
 const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
 const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
 const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
+const buildSetPasswordLink = (authLinkPayload, type) => {
+  const tokenHash = authLinkPayload?.hashedToken;
+  if (!tokenHash) {
+    return authLinkPayload?.actionLink || '';
+  }
+
+  const url = new URL('/set-password', window.location.origin);
+  url.searchParams.set('token_hash', tokenHash);
+  url.searchParams.set('type', type);
+  return url.toString();
+};
 const REPORTING_PANEL_LIBRARY = [
   { id: 'roi', title: 'ROAS Metrics', eyebrow: 'Revenue Efficiency' },
   { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
@@ -7396,7 +7407,7 @@ const DashboardApp = ({
       }
 
       setAdminAccessNotice(`Invite created for ${adminInviteDraft.email}.`);
-      setAdminInviteLink(payload?.invite?.actionLink || '');
+      setAdminInviteLink(buildSetPasswordLink(payload?.invite, 'invite'));
       setAdminInviteDraft({
         email: '',
         fullName: '',
@@ -7437,7 +7448,7 @@ const DashboardApp = ({
       }
 
       setAdminAccessNotice(`Password reset link created for ${payload?.reset?.email || adminUserDraft.email}.`);
-      setAdminPasswordResetLink(payload?.reset?.actionLink || '');
+      setAdminPasswordResetLink(buildSetPasswordLink(payload?.reset, 'recovery'));
       await loadAdminAccess();
     } catch (error) {
       setAdminAccessError(error.message || 'Unable to create a password reset link.');
@@ -7796,13 +7807,13 @@ const DashboardApp = ({
 
       {adminInviteLink && (
         <div className="admin-access-banner admin-access-banner--info">
-          Invite link: <a href={adminInviteLink} target="_blank" rel="noreferrer">{adminInviteLink}</a>
+          Invite link: <span>{adminInviteLink}</span>
         </div>
       )}
 
       {adminPasswordResetLink && (
         <div className="admin-access-banner admin-access-banner--info">
-          Password reset link: <a href={adminPasswordResetLink} target="_blank" rel="noreferrer">{adminPasswordResetLink}</a>
+          Password reset link: <span>{adminPasswordResetLink}</span>
         </div>
       )}
 
