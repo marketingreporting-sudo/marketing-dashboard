@@ -3,7 +3,7 @@ const trimTrailingSlash = (value) => String(value || '').replace(/\/+$/, '');
 const normalizeApiUrl = (value) => trimTrailingSlash(value);
 
 export const RENDER_API_BASE_URL = normalizeApiUrl(import.meta.env.VITE_RENDER_API_BASE_URL || '');
-export const CLIENT_REPORT_BASE_DOMAIN = String(import.meta.env.VITE_CLIENT_REPORT_BASE_DOMAIN || 'marketing-dashboard.redstoneresidential.com')
+export const CLIENT_REPORT_BASE_DOMAIN = String(import.meta.env.VITE_CLIENT_REPORT_BASE_DOMAIN || 'marketingdashboard.redstoneresidential.com')
   .trim()
   .toLowerCase()
   .replace(/^https?:\/\//, '')
