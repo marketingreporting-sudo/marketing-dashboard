@@ -1973,6 +1973,122 @@ def _merge_top_targets(page_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(target_counts.values(), key=lambda item: item.get("clicks", 0), reverse=True)[:20]
 
 
+def _normalized_target_lookup_key(value: Any) -> str:
+    return _normalize_text(value, 420).lower()
+
+
+def _target_bounds_from_values(left: Any, top: Any, width: Any, height: Any) -> dict[str, float] | None:
+    left_pct = _to_float(left)
+    top_pct = _to_float(top)
+    width_pct = _to_float(width)
+    height_pct = _to_float(height)
+    if left_pct is None or top_pct is None:
+        return None
+    return {
+        "leftPct": _clamp_percent(left_pct),
+        "topPct": _clamp_percent(top_pct),
+        "widthPct": _clamp_percent(width_pct if width_pct is not None else 0),
+        "heightPct": _clamp_percent(height_pct if height_pct is not None else 0),
+    }
+
+
+def _merge_click_target_rows(target_rows: list[dict[str, Any]], anomalies: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    target_map: dict[str, dict[str, Any]] = {}
+    for row in target_rows:
+        target_key = _normalize_text(row.get("target_key") or row.get("targetKey"), 420)
+        label = _normalize_text(row.get("target_label") or row.get("label") or target_key, 180)
+        if not target_key or not label or label == "unknown":
+            continue
+        lookup_key = _normalized_target_lookup_key(target_key)
+        current = target_map.get(lookup_key) or {
+            "targetKey": target_key,
+            "label": label,
+            "selector": _normalize_text(row.get("target_selector") or row.get("selector"), 420),
+            "category": _normalize_text(row.get("target_category") or row.get("category"), 80) or "unknown",
+            "href": _normalize_text(row.get("target_href") or row.get("href"), 1024),
+            "trackId": _normalize_text(row.get("target_track_id") or row.get("trackId"), 160),
+            "clicks": 0,
+            "taps": 0,
+            "ctaClicks": 0,
+            "deadClicks": 0,
+            "rageClicks": 0,
+            "sessions": 0,
+            "xWeighted": 0.0,
+            "yWeighted": 0.0,
+            "boundsWeighted": {"leftPct": 0.0, "topPct": 0.0, "widthPct": 0.0, "heightPct": 0.0},
+            "boundsWeight": 0,
+        }
+        clicks = int(row.get("click_count") or row.get("clicks") or 0)
+        taps = int(row.get("tap_count") or row.get("taps") or 0)
+        cta_clicks = int(row.get("cta_click_count") or row.get("ctaClicks") or 0)
+        dead_clicks = int(row.get("dead_click_count") or row.get("deadClicks") or 0)
+        sessions = int(row.get("session_count") or row.get("sessions") or 0)
+        weight = max(1, clicks + cta_clicks)
+        current["clicks"] += clicks
+        current["taps"] += taps
+        current["ctaClicks"] += cta_clicks
+        current["deadClicks"] += dead_clicks
+        current["sessions"] += sessions
+        current["xWeighted"] += _numeric(row.get("avg_x_pct"), 0) * weight
+        current["yWeighted"] += _numeric(row.get("avg_y_pct"), 0) * weight
+        current["eventWeight"] = int(current.get("eventWeight") or 0) + weight
+        bounds = _target_bounds_from_values(row.get("avg_left_pct"), row.get("avg_top_pct"), row.get("avg_width_pct"), row.get("avg_height_pct"))
+        if bounds:
+            current["boundsWeight"] += weight
+            for key, value in bounds.items():
+                current["boundsWeighted"][key] += value * weight
+        target_map[lookup_key] = current
+
+    target_aliases: dict[str, dict[str, Any]] = {}
+    for key, item in target_map.items():
+        target_aliases[key] = item
+        for alias in (item.get("label"), item.get("selector"), item.get("href"), item.get("trackId")):
+            alias_key = _normalized_target_lookup_key(alias)
+            if alias_key:
+                target_aliases.setdefault(alias_key, item)
+
+    anomalies = anomalies or {}
+    for cluster in (anomalies.get("rageClicks") or {}).get("clusters") or []:
+        key = _normalized_target_lookup_key(cluster.get("targetKey") or cluster.get("label"))
+        matched_target = target_aliases.get(key)
+        if matched_target is not None:
+            matched_target["rageClicks"] += int(cluster.get("count") or 0)
+    for target in (anomalies.get("deadClicks") or {}).get("targets") or []:
+        key = _normalized_target_lookup_key(target.get("targetKey") or target.get("label"))
+        matched_target = target_aliases.get(key)
+        if matched_target is not None:
+            matched_target["deadClicks"] = max(int(matched_target.get("deadClicks") or 0), int(target.get("count") or 0))
+
+    merged = []
+    for item in target_map.values():
+        event_weight = max(1, int(item.get("eventWeight") or 0))
+        bounds = None
+        if int(item.get("boundsWeight") or 0) > 0:
+            bounds_weight = int(item.get("boundsWeight") or 0)
+            bounds = {
+                key: _clamp_percent(value / bounds_weight)
+                for key, value in item["boundsWeighted"].items()
+            }
+        merged.append({
+            "targetKey": item.get("targetKey"),
+            "label": item.get("label"),
+            "selector": item.get("selector"),
+            "category": item.get("category"),
+            "href": item.get("href"),
+            "trackId": item.get("trackId"),
+            "clicks": int(item.get("clicks") or 0),
+            "taps": int(item.get("taps") or 0),
+            "ctaClicks": int(item.get("ctaClicks") or 0),
+            "deadClicks": int(item.get("deadClicks") or 0),
+            "rageClicks": int(item.get("rageClicks") or 0),
+            "sessions": int(item.get("sessions") or 0),
+            "xPct": _clamp_percent(float(item.get("xWeighted") or 0) / event_weight),
+            "yPct": _clamp_percent(float(item.get("yWeighted") or 0) / event_weight),
+            "bounds": bounds,
+        })
+    return sorted(merged, key=lambda item: (item.get("clicks", 0) + item.get("ctaClicks", 0), item.get("sessions", 0)), reverse=True)[:50]
+
+
 def _merge_scroll_daily_rows(scroll_rows: list[dict[str, Any]]) -> dict[str, Any]:
     total_sessions = sum(int(row.get("session_count") or 0) for row in scroll_rows)
     scroll_sessions = sum(int(row.get("scroll_session_count") or 0) for row in scroll_rows)
@@ -2316,6 +2432,7 @@ def _heatmap_summary_from_aggregates(
     event_type: str | None = None,
     normalized_device_type: str = "",
     access_token: str | None = None,
+    anomalies: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     cell_filters = [
         ("select", "*"),
@@ -2338,19 +2455,29 @@ def _heatmap_summary_from_aggregates(
         ("activity_date", f"lte.{end_date.isoformat()}"),
         ("limit", "10000"),
     ]
+    click_target_filters = [
+        ("select", "*"),
+        ("property_id", f"eq.{property_id}"),
+        ("activity_date", f"gte.{start_date.isoformat()}"),
+        ("activity_date", f"lte.{end_date.isoformat()}"),
+        ("limit", "10000"),
+    ]
     if site_id:
         cell_filters.append(("site_id", f"eq.{site_id}"))
         page_filters.append(("site_id", f"eq.{site_id}"))
         scroll_filters.append(("site_id", f"eq.{site_id}"))
+        click_target_filters.append(("site_id", f"eq.{site_id}"))
     if path:
         canonical_path = _normalize_text(path, 1024)
         cell_filters.append(("canonical_path", f"eq.{canonical_path}"))
         page_filters.append(("canonical_path", f"eq.{canonical_path}"))
         scroll_filters.append(("canonical_path", f"eq.{canonical_path}"))
+        click_target_filters.append(("canonical_path", f"eq.{canonical_path}"))
     if normalized_device_type in {"desktop", "mobile", "tablet"}:
         cell_filters.append(("device_type", f"eq.{normalized_device_type}"))
         page_filters.append(("device_type", f"eq.{normalized_device_type}"))
         scroll_filters.append(("device_type", f"eq.{normalized_device_type}"))
+        click_target_filters.append(("device_type", f"eq.{normalized_device_type}"))
     if event_type and event_type in HEATMAP_EVENT_TYPES:
         cell_filters.append(("event_type", f"eq.{event_type}"))
 
@@ -2358,9 +2485,11 @@ def _heatmap_summary_from_aggregates(
     cell_rows = _fetch_json("property_heatmap_daily_cells", cell_filters, headers=headers)
     page_rows = _fetch_json("property_site_page_daily_summaries", page_filters, headers=headers)
     scroll_rows = _fetch_optional_json("property_site_scroll_daily_summaries", scroll_filters, headers=headers)
-    if not cell_rows and not page_rows and not scroll_rows:
+    click_target_rows = _fetch_optional_json("property_site_click_daily_targets", click_target_filters, headers=headers)
+    if not cell_rows and not page_rows and not scroll_rows and not click_target_rows:
         return None
     scroll_metrics = _merge_scroll_daily_rows(scroll_rows)
+    click_targets = _merge_click_target_rows(click_target_rows, anomalies=anomalies)
 
     counts_by_type: dict[str, int] = {}
     counts_by_path: dict[str, int] = {}
@@ -2456,6 +2585,7 @@ def _heatmap_summary_from_aggregates(
             "cellCount": len(cells),
             "pageSummaryRows": len(page_rows),
             "scrollSummaryRows": len(scroll_rows),
+            "clickTargetRows": len(click_target_rows),
         },
         "totals": {
             "sessions": total_sessions,
@@ -2503,7 +2633,7 @@ def _heatmap_summary_from_aggregates(
             {"path": item_path, "events": count}
             for item_path, count in sorted((top_paths_map or counts_by_path).items(), key=lambda item: item[1], reverse=True)[:20]
         ],
-        "topTargets": _merge_top_targets(page_rows),
+        "topTargets": click_targets or _merge_top_targets(page_rows),
         "cells": sorted(cells, key=lambda item: item.get("count", 0), reverse=True)[:2500],
         "points": [],
         "sessions": [],
@@ -2553,6 +2683,7 @@ def get_heatmap_summary(
         event_type=event_type,
         normalized_device_type=normalized_device_type,
         access_token=access_token,
+        anomalies=anomalies,
     )
     if aggregate_summary:
         aggregate_summary["anomalies"] = anomalies
@@ -2622,14 +2753,39 @@ def get_heatmap_summary(
             target_key = _normalize_text(raw_data.get("targetTrackId") or raw_data.get("targetSelector") or target_label, 240)
             if target_label and target_key:
                 current = target_counts.get(target_key) or {
+                    "targetKey": target_key,
                     "label": target_label,
                     "clicks": 0,
+                    "taps": 0,
+                    "ctaClicks": 0,
+                    "deadClicks": 0,
+                    "rageClicks": 0,
+                    "sessions": set(),
                     "category": _normalize_text(raw_data.get("targetCategory"), 80),
                     "selector": _normalize_text(raw_data.get("targetSelector"), 420),
                     "trackId": _normalize_text(raw_data.get("targetTrackId"), 120),
                     "href": _normalize_text(raw_data.get("targetHref"), 1024),
+                    "xTotal": 0.0,
+                    "yTotal": 0.0,
+                    "pointCount": 0,
+                    "bounds": raw_data.get("targetBounds") if isinstance(raw_data.get("targetBounds"), dict) else None,
                 }
-                current["clicks"] += 1
+                if event_kind in {"click", "pointerdown", "touchstart"}:
+                    current["clicks"] += 1
+                if event_kind in {"pointerdown", "touchstart"}:
+                    current["taps"] += 1
+                if event_kind == "cta_click":
+                    current["ctaClicks"] += 1
+                if _is_dead_click_candidate(event):
+                    current["deadClicks"] += 1
+                if event.get("session_key"):
+                    current["sessions"].add(str(event.get("session_key")))
+                if event.get("x_pct") is not None and event.get("y_pct") is not None:
+                    current["xTotal"] += float(event.get("x_pct") or 0)
+                    current["yTotal"] += float(event.get("y_pct") or 0)
+                    current["pointCount"] += 1
+                if not current.get("bounds") and isinstance(raw_data.get("targetBounds"), dict):
+                    current["bounds"] = raw_data.get("targetBounds")
                 target_counts[target_key] = current
         if event.get("scroll_depth_pct") is not None:
             scroll_depth = float(event.get("scroll_depth_pct") or 0)
@@ -2792,8 +2948,13 @@ def get_heatmap_summary(
             for item_path, count in sorted(counts_by_path.items(), key=lambda item: item[1], reverse=True)[:20]
         ],
         "topTargets": [
-            target
-            for target in sorted(target_counts.values(), key=lambda item: item.get("clicks", 0), reverse=True)[:20]
+            {
+                **{key: value for key, value in target.items() if key not in {"sessions", "xTotal", "yTotal", "pointCount"}},
+                "sessions": len(target.get("sessions") or []),
+                "xPct": (target.get("xTotal", 0) / target.get("pointCount", 1)) if target.get("pointCount") else None,
+                "yPct": (target.get("yTotal", 0) / target.get("pointCount", 1)) if target.get("pointCount") else None,
+            }
+            for target in sorted(target_counts.values(), key=lambda item: item.get("clicks", 0) + item.get("ctaClicks", 0), reverse=True)[:20]
         ],
         "anomalies": anomalies,
         "cells": [],

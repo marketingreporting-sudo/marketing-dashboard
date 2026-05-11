@@ -1386,6 +1386,7 @@ const DashboardApp = ({
   const [heatmapLayersTouched, setHeatmapLayersTouched] = useState(false);
   const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
   const [highlightedHeatmapTarget, setHighlightedHeatmapTarget] = useState(null);
+  const [heatmapClickSignalTab, setHeatmapClickSignalTab] = useState('top');
   const heatmapPageOptions = heatmapPagesData?.pages || [];
   const auditPageOptions = siteAuditPagesData?.pages || [];
   const selectedAuditPage = useMemo(() => (
@@ -4323,6 +4324,61 @@ const DashboardApp = ({
     return { deadClicks, rageClusters, ctaFrustrations: 0, deadClickTargets: [], rageClickClusters: [], ctaFrustrationClusters: [] };
   }, [heatmapPoints, heatmapSummaryData]);
   const heatmapTopTargets = heatmapSummaryData?.topTargets || [];
+  const heatmapSignalKey = (item) => (
+    item?.targetKey || item?.trackId || item?.targetTrackId || item?.selector || item?.targetSelector || item?.label || item?.path || 'unknown-target'
+  );
+  const heatmapDeadClickTargets = useMemo(() => {
+    const enrichedTargets = heatmapTopTargets
+      .filter((item) => Number(item.deadClicks || 0) > 0)
+      .map((item) => ({ ...item, signalCount: Number(item.deadClicks || 0), signalLabel: 'dead clicks' }));
+    if (enrichedTargets.length) return enrichedTargets;
+    return (heatmapClickAnomalies.deadClickTargets || []).map((item) => ({
+      ...item,
+      signalCount: Number(item.count || item.deadClicks || 0),
+      signalLabel: 'dead clicks',
+      label: item.label || item.targetLabel || item.path || 'Dead click target',
+    }));
+  }, [heatmapTopTargets, heatmapClickAnomalies.deadClickTargets]);
+  const heatmapRageClickTargets = useMemo(() => {
+    const enrichedTargets = heatmapTopTargets
+      .filter((item) => Number(item.rageClicks || 0) > 0)
+      .map((item) => ({ ...item, signalCount: Number(item.rageClicks || 0), signalLabel: 'rage clicks' }));
+    if (enrichedTargets.length) return enrichedTargets;
+    return (heatmapClickAnomalies.rageClickClusters || []).map((item) => ({
+      ...item,
+      signalCount: Number(item.count || item.rageClicks || 0),
+      signalLabel: 'rage clicks',
+      label: item.label || item.targetLabel || item.path || 'Rage click cluster',
+    }));
+  }, [heatmapTopTargets, heatmapClickAnomalies.rageClickClusters]);
+  const heatmapClickSignalTabs = useMemo(() => ([
+    {
+      key: 'top',
+      label: 'Top clicked',
+      count: heatmapTopTargets.length,
+      empty: 'No clicked elements collected yet for this page and date range.',
+      items: heatmapTopTargets.map((item) => ({
+        ...item,
+        signalCount: Number(item.clicks || 0) + Number(item.ctaClicks || 0),
+        signalLabel: 'clicks',
+      })),
+    },
+    {
+      key: 'dead',
+      label: 'Dead clicks',
+      count: heatmapClickAnomalies.deadClicks,
+      empty: 'No dead clicks detected for this page and date range.',
+      items: heatmapDeadClickTargets,
+    },
+    {
+      key: 'rage',
+      label: 'Rage clicks',
+      count: heatmapClickAnomalies.rageClusters,
+      empty: 'No rage click clusters detected for this page and date range.',
+      items: heatmapRageClickTargets,
+    },
+  ]), [heatmapTopTargets, heatmapClickAnomalies.deadClicks, heatmapClickAnomalies.rageClusters, heatmapDeadClickTargets, heatmapRageClickTargets]);
+  const activeHeatmapClickSignalTab = heatmapClickSignalTabs.find((tab) => tab.key === heatmapClickSignalTab) || heatmapClickSignalTabs[0];
   const latestAudit = siteAuditSummaryData?.audit || null;
   const auditPageResult = useMemo(() => {
     const pages = Array.isArray(latestAudit?.pages) ? latestAudit.pages : [];
@@ -5997,6 +6053,7 @@ const DashboardApp = ({
             activeLayers={heatmapLayers}
             onLayerChange={updateHeatmapLayer}
             highlightedTarget={highlightedHeatmapTarget}
+            targetHotspots={heatmapTopTargets}
             scrollSummary={heatmapScrollSummary}
             formatNumber={formatNumber}
           />
@@ -6081,10 +6138,25 @@ const DashboardApp = ({
           <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
           <div className="reports-list__row"><div><strong>CTA frustration</strong><small>Repeated CTA clicks without a page transition signal.</small></div><div>{formatNumber(heatmapClickAnomalies.ctaFrustrations)}</div></div>
           <div className="heatmap-audit-top-clicks">
-            <div className="heatmap-audit-list-heading">Top clicked elements</div>
-            {heatmapTopTargets.slice(0, 6).map((item) => (
+            <div className="heatmap-click-tabs" role="tablist" aria-label="Click signal lists">
+              {heatmapClickSignalTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={heatmapClickSignalTab === tab.key}
+                  className={`heatmap-click-tab${heatmapClickSignalTab === tab.key ? ' is-active' : ''}`}
+                  onClick={() => setHeatmapClickSignalTab(tab.key)}
+                >
+                  <span>{tab.label}</span>
+                  <strong>{formatNumber(tab.count || 0)}</strong>
+                </button>
+              ))}
+            </div>
+            <div className="heatmap-audit-list-heading">{activeHeatmapClickSignalTab.label}</div>
+            {activeHeatmapClickSignalTab.items.slice(0, 8).map((item, index) => (
               <button
-                key={item.trackId || item.selector || item.label}
+                key={`${activeHeatmapClickSignalTab.key}-${heatmapSignalKey(item)}-${index}`}
                 type="button"
                 className="reports-list__row heatmap-target-row"
                 onMouseEnter={() => setHighlightedHeatmapTarget(item)}
@@ -6092,17 +6164,17 @@ const DashboardApp = ({
                 onFocus={() => setHighlightedHeatmapTarget(item)}
                 onBlur={() => setHighlightedHeatmapTarget(null)}
                 onClick={() => setHighlightedHeatmapTarget((current) => (
-                  (current?.trackId || current?.selector || current?.label) === (item.trackId || item.selector || item.label) ? null : item
+                  heatmapSignalKey(current) === heatmapSignalKey(item) ? null : item
                 ))}
               >
                 <div>
-                  <strong>{item.label || item.trackId || item.selector || 'Tracked element'}</strong>
-                  <small>{[item.category, item.trackId ? `ID: ${item.trackId}` : '', item.selector && !item.trackId ? item.selector : ''].filter(Boolean).join(' · ') || 'Top clicked element'}</small>
+                  <strong>{item.label || item.trackId || item.selector || item.path || 'Tracked element'}</strong>
+                  <small>{[item.category, item.trackId ? `ID: ${item.trackId}` : '', item.selector && !item.trackId ? item.selector : '', item.sessions ? `${formatNumber(item.sessions)} sessions` : ''].filter(Boolean).join(' · ') || 'Tracked click target'}</small>
                 </div>
-                <div>{formatNumber(item.clicks)}</div>
+                <div>{formatNumber(item.signalCount ?? item.clicks ?? item.count ?? 0)}</div>
               </button>
             ))}
-            {heatmapTopTargets.length === 0 && <div className="heatmap-audit-compact-empty">No clicked elements collected yet for this page and date range.</div>}
+            {activeHeatmapClickSignalTab.items.length === 0 && <div className="heatmap-audit-compact-empty">{activeHeatmapClickSignalTab.empty}</div>}
           </div>
         </div>
       </div>

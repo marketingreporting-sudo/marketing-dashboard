@@ -50,6 +50,7 @@ const SCROLL_HEAT_COLORS = {
 const normalizeTargetKey = (value) => String(value || '').trim().toLowerCase();
 
 const getCellTargetKeys = (cell) => [
+  cell.targetKey,
   cell.trackId,
   cell.targetTrackId,
   cell.selector,
@@ -61,6 +62,7 @@ const getCellTargetKeys = (cell) => [
 const cellMatchesTarget = (cell, target) => {
   if (!target) return false;
   const targetKeys = [
+    target.targetKey,
     target.trackId,
     target.targetTrackId,
     target.selector,
@@ -261,9 +263,62 @@ const normalizeAggregateCells = (cells, activeLayers) => {
   }));
 };
 
+const getTargetBounds = (target) => {
+  const bounds = target?.bounds || target?.targetBounds;
+  if (!bounds || typeof bounds !== 'object') return null;
+  const leftPct = parsePercent(bounds.leftPct);
+  const topPct = parsePercent(bounds.topPct);
+  if (leftPct == null || topPct == null) return null;
+  return {
+    leftPct,
+    topPct,
+    widthPct: parsePercent(bounds.widthPct) ?? 0,
+    heightPct: parsePercent(bounds.heightPct) ?? 0,
+  };
+};
+
+const normalizeTargetHotspots = (targets) => {
+  const visibleTargets = (Array.isArray(targets) ? targets : [])
+    .map((target, index) => {
+      const bounds = getTargetBounds(target);
+      const xPct = bounds
+        ? clampPercent(bounds.leftPct + (bounds.widthPct / 2))
+        : parsePercent(target?.xPct ?? target?.avgXPct);
+      const yPct = bounds
+        ? clampPercent(bounds.topPct + (bounds.heightPct / 2))
+        : parsePercent(target?.yPct ?? target?.avgYPct);
+      const clicks = Number(target?.clicks || target?.clickCount || 0);
+      const ctaClicks = Number(target?.ctaClicks || target?.cta_click_count || 0);
+      if (xPct == null || yPct == null || clicks + ctaClicks <= 0) return null;
+      return {
+        ...target,
+        rank: index + 1,
+        key: target.targetKey || target.trackId || target.selector || target.label || `${index}:${xPct}:${yPct}`,
+        xPct,
+        yPct,
+        bounds,
+        clicks,
+        ctaClicks,
+        taps: Number(target?.taps || target?.tapCount || 0),
+        sessions: Number(target?.sessions || target?.sessionCount || 0),
+        deadClicks: Number(target?.deadClicks || 0),
+        rageClicks: Number(target?.rageClicks || 0),
+        label: target.label || target.trackId || target.selector || 'Clicked element',
+        category: target.category || 'unknown',
+      };
+    })
+    .filter(Boolean);
+  const maxClicks = Math.max(1, ...visibleTargets.map((target) => target.clicks + target.ctaClicks));
+  return visibleTargets.map((target) => ({
+    ...target,
+    intensity: (target.clicks + target.ctaClicks) / maxClicks,
+  }));
+};
+
 export default function HeatmapRenderer({
   points = [],
   cells = [],
+  targetHotspots = [],
   totals = {},
   deviceType = 'desktop',
   screenshotUrl = '',
@@ -287,6 +342,9 @@ export default function HeatmapRenderer({
     const serverCells = normalizeAggregateCells(cells, layers);
     return serverCells.length > 0 ? serverCells : aggregatePoints(points, layers, screenshot);
   }, [cells, points, layers, screenshot]);
+  const clickHotspots = useMemo(() => (
+    layers.click ? normalizeTargetHotspots(targetHotspots).slice(0, 25) : []
+  ), [layers.click, targetHotspots]);
   const maxScroll = clampPercent(totals.maxScrollDepthPct);
   const scrollBands = useMemo(() => normalizeScrollBands(scrollSummary, maxScroll), [scrollSummary, maxScroll]);
   const hasScrollReach = scrollBands.some((band) => Number(band.percentReached || 0) > 0);
@@ -298,6 +356,7 @@ export default function HeatmapRenderer({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [selectedCell, setSelectedCell] = useState(null);
+  const [selectedTarget, setSelectedTarget] = useState(null);
   const [hoveredCell, setHoveredCell] = useState(null);
   const hasData = aggregateCells.length > 0 || (layers.scroll && (maxScroll > 0 || hasScrollReach));
   const trafficEvents = Number(totals.events || 0);
@@ -316,6 +375,7 @@ export default function HeatmapRenderer({
     };
   }, [aggregateCells, totals]);
   const activeCell = selectedCell || hoveredCell;
+  const activeTarget = selectedTarget;
   const hasExplicitHighlightedCells = useMemo(
     () => Boolean(highlightedTarget) && aggregateCells.some((cell) => cellMatchesTarget(cell, highlightedTarget)),
     [aggregateCells, highlightedTarget],
@@ -358,6 +418,7 @@ export default function HeatmapRenderer({
     setImageLoaded(false);
     setImageFailed(false);
     setSelectedCell(null);
+    setSelectedTarget(null);
     setHoveredCell(null);
     setHoveredScrollBand(null);
   }, [screenshotUrl]);
@@ -615,6 +676,51 @@ export default function HeatmapRenderer({
                 />
               );
             })}
+            {clickHotspots.map((target) => {
+              const isHighlighted = cellMatchesTarget(target, highlightedTarget);
+              const isSelected = activeTarget?.key === target.key;
+              const size = 22 + Math.round(target.intensity * 16);
+              return (
+                <button
+                  key={target.key}
+                  type="button"
+                  className={`heatmap-click-hotspot${isHighlighted || isSelected ? ' is-highlighted' : ''}`}
+                  aria-label={`${target.rank}. ${target.label}: ${target.clicks + target.ctaClicks} clicks`}
+                  title={`${target.label}: ${target.clicks + target.ctaClicks} clicks · ${target.sessions} sessions`}
+                  onMouseEnter={() => setSelectedTarget(target)}
+                  onMouseLeave={() => setSelectedTarget(null)}
+                  onFocus={() => setSelectedTarget(target)}
+                  onBlur={() => setSelectedTarget(null)}
+                  onClick={() => setSelectedTarget((current) => (current?.key === target.key ? null : target))}
+                  style={{
+                    left: `${target.xPct * 100}%`,
+                    top: `${target.yPct * 100}%`,
+                    width: size,
+                    height: size,
+                  }}
+                >
+                  {target.rank}
+                </button>
+              );
+            })}
+            {clickHotspots.map((target) => {
+              const bounds = target.bounds;
+              if (!bounds) return null;
+              const isHighlighted = cellMatchesTarget(target, highlightedTarget) || activeTarget?.key === target.key;
+              if (!isHighlighted) return null;
+              return (
+                <div
+                  key={`bounds-${target.key}`}
+                  className="heatmap-click-target-bounds"
+                  style={{
+                    left: `${bounds.leftPct * 100}%`,
+                    top: `${bounds.topPct * 100}%`,
+                    width: `${Math.max(0.5, bounds.widthPct * 100)}%`,
+                    height: `${Math.max(0.5, bounds.heightPct * 100)}%`,
+                  }}
+                />
+              );
+            })}
             {!loading && !hasData && (
               <div style={{ position: 'sticky', top: '34%', display: 'grid', placeItems: 'center', color: 'var(--primary-tan)', padding: '2rem', textAlign: 'center', pointerEvents: 'none' }}>
                 {emptyMessage}
@@ -633,6 +739,24 @@ export default function HeatmapRenderer({
                   <dd>{Math.round(activeCell.xPct * 100)}% x / {Math.round(activeCell.yPct * 100)}% y</dd>
                   <dt>Selector</dt>
                   <dd>{activeCell.selector || activeCell.trackId || 'Not available'}</dd>
+                </dl>
+              </div>
+            )}
+            {activeTarget && (
+              <div className="heatmap-cell-detail heatmap-target-detail" style={{ pointerEvents: 'auto' }}>
+                <div>
+                  <span>{activeTarget.category || 'Clicked element'}</span>
+                  <button type="button" onClick={() => setSelectedTarget(null)} aria-label="Close target detail">x</button>
+                </div>
+                <strong>{activeTarget.rank}. {activeTarget.label}</strong>
+                <small>{formatNumber(activeTarget.clicks + activeTarget.ctaClicks)} clicks · {formatNumber(activeTarget.sessions)} sessions</small>
+                <dl>
+                  <dt>CTA clicks</dt>
+                  <dd>{formatNumber(activeTarget.ctaClicks || 0)}</dd>
+                  <dt>Rage / dead</dt>
+                  <dd>{formatNumber(activeTarget.rageClicks || 0)} / {formatNumber(activeTarget.deadClicks || 0)}</dd>
+                  <dt>Selector</dt>
+                  <dd>{activeTarget.selector || activeTarget.trackId || 'Not available'}</dd>
                 </dl>
               </div>
             )}
