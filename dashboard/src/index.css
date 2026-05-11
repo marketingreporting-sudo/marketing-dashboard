@@ -781,6 +781,228 @@ h1, h2, h3 {
   background: rgba(238, 196, 94, 0.08);
 }
 
+.website-experience-kpis {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.website-experience-kpi,
+.website-experience-card {
+  min-width: 0;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.website-experience-kpi {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.78rem 0.82rem;
+}
+
+.website-experience-kpi span,
+.website-experience-card--muted strong {
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.website-experience-kpi strong {
+  color: var(--primary);
+  font-size: 1.28rem;
+  line-height: 1.1;
+}
+
+.website-experience-kpi small,
+.website-experience-card--muted small {
+  color: rgba(16, 33, 38, 0.62);
+  font-size: 0.74rem;
+  line-height: 1.38;
+}
+
+.website-experience-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.95fr);
+  gap: 0.8rem;
+}
+
+.website-experience-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+}
+
+.website-experience-card--list {
+  grid-row: span 2;
+}
+
+.website-experience-card--muted {
+  align-content: center;
+  background: rgba(16, 33, 38, 0.035);
+}
+
+.website-experience-page-row,
+.website-experience-mini-list button {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(16, 33, 38, 0.035);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.website-experience-page-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.85rem;
+  align-items: center;
+  padding: 0.7rem;
+}
+
+.website-experience-page-row strong,
+.website-experience-mini-list span {
+  display: block;
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.website-experience-page-row small {
+  display: block;
+  margin-top: 0.18rem;
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.74rem;
+}
+
+.website-experience-page-row span,
+.website-experience-mini-bars i,
+.website-experience-device-list i {
+  display: block;
+  width: 100%;
+  height: 0.32rem;
+  margin-top: 0.45rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary-red) var(--bar-width), rgba(16, 33, 38, 0.12) var(--bar-width));
+}
+
+.website-experience-page-row em {
+  color: rgba(16, 33, 38, 0.72);
+  font-size: 0.76rem;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.website-experience-link-button {
+  border: 1px solid rgba(121, 41, 36, 0.24);
+  border-radius: 999px;
+  background: rgba(121, 41, 36, 0.08);
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.42rem 0.7rem;
+}
+
+.website-experience-preview-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  overflow: hidden;
+  min-height: 230px;
+  border-radius: 14px;
+  background: rgba(16, 33, 38, 0.06);
+  padding: 0.7rem;
+  align-items: end;
+}
+
+.website-experience-preview-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.34;
+}
+
+.website-experience-preview-card > div {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.12rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.78);
+  padding: 0.62rem;
+}
+
+.website-experience-preview-card > .website-experience-preview-empty {
+  place-items: center;
+  color: rgba(16, 33, 38, 0.6);
+  grid-column: 1 / -1;
+  min-height: 9rem;
+}
+
+.website-experience-preview-card span {
+  color: var(--primary);
+  font-weight: 800;
+}
+
+.website-experience-preview-card small {
+  color: rgba(16, 33, 38, 0.62);
+  font-size: 0.7rem;
+}
+
+.website-experience-mini-bars,
+.website-experience-mini-list,
+.website-experience-device-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.website-experience-mini-bars div,
+.website-experience-device-list div,
+.website-experience-mini-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.website-experience-mini-bars span,
+.website-experience-device-list span {
+  overflow: hidden;
+  color: rgba(16, 33, 38, 0.72);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.website-experience-mini-bars i,
+.website-experience-device-list i {
+  grid-column: 1 / -1;
+  margin-top: -0.22rem;
+}
+
+.website-experience-mini-bars strong,
+.website-experience-device-list strong,
+.website-experience-mini-list strong {
+  color: var(--primary);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.website-experience-mini-list button {
+  padding: 0.65rem 0.7rem;
+}
+
 .heatmap-coordinate-diagnostics {
   display: grid;
   gap: 0.65rem;
@@ -1502,6 +1724,7 @@ h1, h2, h3 {
   .reports-kpi-grid,
   .reports-panel__grid--three,
   .reports-pipeline-grid,
+  .website-experience-kpis,
   .heatmap-audit-status-grid,
   .heatmap-coordinate-diagnostics__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1512,6 +1735,10 @@ h1, h2, h3 {
   }
 
   .heatmap-audit-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .website-experience-dashboard {
     grid-template-columns: 1fr;
   }
 
@@ -1546,6 +1773,7 @@ h1, h2, h3 {
   .reports-kpi-grid,
   .reports-panel__grid--three,
   .reports-pipeline-grid,
+  .website-experience-kpis,
   .heatmap-audit-status-grid,
   .heatmap-coordinate-diagnostics__grid {
     grid-template-columns: 1fr;
@@ -6300,6 +6528,7 @@ th {
 .dashboard-container--reports .reports-panels,
 .dashboard-container--reports .reports-panel,
 .dashboard-container--reports .reports-list,
+.dashboard-container--reports .website-experience-dashboard,
 .dashboard-container--reports .heatmap-audit-layout,
 .dashboard-container--reports .heatmap-audit-preview,
 .dashboard-container--reports .heatmap-audit-rail,
@@ -6317,6 +6546,14 @@ th {
 .dashboard-container--reports .reports-list__row a,
 .dashboard-container--reports .heatmap-audit-section-heading,
 .dashboard-container--reports .heatmap-audit-section-heading strong,
+.dashboard-container--reports .website-experience-kpi strong,
+.dashboard-container--reports .website-experience-page-row strong,
+.dashboard-container--reports .website-experience-mini-list span,
+.dashboard-container--reports .website-experience-mini-bars strong,
+.dashboard-container--reports .website-experience-device-list strong,
+.dashboard-container--reports .website-experience-mini-list strong,
+.dashboard-container--reports .website-experience-link-button,
+.dashboard-container--reports .website-experience-preview-card span,
 .dashboard-container--reports .heatmap-coordinate-diagnostics__heading strong,
 .dashboard-container--reports .heatmap-audit-status-card strong,
 .dashboard-container--reports .heatmap-coordinate-diagnostics__grid strong,
@@ -6333,6 +6570,8 @@ th {
 .dashboard-container--reports .reports-layout-hint,
 .dashboard-container--reports .reports-minimap__jump small,
 .dashboard-container--reports .heatmap-audit-list-heading,
+.dashboard-container--reports .website-experience-kpi span,
+.dashboard-container--reports .website-experience-card--muted strong,
 .dashboard-container--reports .heatmap-audit-status-card span,
 .dashboard-container--reports .heatmap-coordinate-diagnostics__grid span,
 .dashboard-container--reports .heatmap-audit-category span {
@@ -6346,6 +6585,14 @@ th {
 .dashboard-container--reports .reports-empty,
 .dashboard-container--reports .heatmap-audit-section-heading small,
 .dashboard-container--reports .heatmap-audit-section-heading span,
+.dashboard-container--reports .website-experience-kpi small,
+.dashboard-container--reports .website-experience-card--muted small,
+.dashboard-container--reports .website-experience-page-row small,
+.dashboard-container--reports .website-experience-page-row em,
+.dashboard-container--reports .website-experience-mini-bars span,
+.dashboard-container--reports .website-experience-device-list span,
+.dashboard-container--reports .website-experience-preview-card small,
+.dashboard-container--reports .website-experience-preview-empty,
 .dashboard-container--reports .heatmap-coordinate-diagnostics__heading small,
 .dashboard-container--reports .heatmap-audit-status-card small,
 .dashboard-container--reports .heatmap-audit-compact-empty,
@@ -6362,6 +6609,8 @@ th {
 .dashboard-container--reports .reports-stat,
 .dashboard-container--reports .reports-list__row,
 .dashboard-container--reports .reports-pipeline-grid > *,
+.dashboard-container--reports .website-experience-kpi,
+.dashboard-container--reports .website-experience-card,
 .dashboard-container--reports .heatmap-audit-preview,
 .dashboard-container--reports .heatmap-audit-rail,
 .dashboard-container--reports .heatmap-audit-interactions,
@@ -6381,8 +6630,21 @@ th {
 .dashboard-container--reports .heatmap-audit-card,
 .dashboard-container--reports .heatmap-audit-category,
 .dashboard-container--reports .heatmap-tracker-health-list span,
-.dashboard-container--reports .heatmap-coordinate-diagnostics__grid div {
+.dashboard-container--reports .heatmap-coordinate-diagnostics__grid div,
+.dashboard-container--reports .website-experience-page-row,
+.dashboard-container--reports .website-experience-mini-list button,
+.dashboard-container--reports .website-experience-preview-card > div {
   background: var(--panel-alt) !important;
+}
+
+.dashboard-container--reports .website-experience-preview-card {
+  background: var(--panel-deep) !important;
+  border-color: var(--panel-border) !important;
+}
+
+.dashboard-container--reports .website-experience-link-button {
+  background: rgba(121, 41, 36, 0.28) !important;
+  border-color: rgba(238, 196, 94, 0.36) !important;
 }
 
 .dashboard-container--reports .reports-hero {

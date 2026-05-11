@@ -1130,6 +1130,16 @@ const formatNumber = (value, digits = 0) => {
   });
 };
 
+const formatDurationMs = (value) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '—';
+  const totalSeconds = Math.round(numeric / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
 const getDeltaTone = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'neutral';
   if (Number(value) > 0) return 'positive';
@@ -4381,6 +4391,54 @@ const DashboardApp = ({
     },
   ]), [heatmapTopTargets, heatmapClickAnomalies.deadClicks, heatmapClickAnomalies.rageClusters, heatmapDeadClickTargets, heatmapRageClickTargets]);
   const activeHeatmapClickSignalTab = heatmapClickSignalTabs.find((tab) => tab.key === heatmapClickSignalTab) || heatmapClickSignalTabs[0];
+  const heatmapOverviewPages = useMemo(() => (
+    (heatmapPageOptions || [])
+      .map((page) => ({
+        ...page,
+        events: Number(page.events || 0),
+        sessions: Number(page.sessions || 0),
+        clicks: Number(page.clicks || 0) + Number(page.ctaClicks || 0),
+        deadClicks: Number(page.deadClicks || 0),
+        rageClicks: Number(page.rageClicks || 0),
+      }))
+      .sort((a, b) => (b.sessions - a.sessions) || (b.events - a.events))
+  ), [heatmapPageOptions]);
+  const heatmapDeviceBreakdown = useMemo(() => (
+    (heatmapPagesData?.deviceBreakdown || [])
+      .map((item) => ({
+        ...item,
+        deviceType: item.deviceType || 'unknown',
+        sessions: Number(item.sessions || 0),
+        events: Number(item.events || 0),
+      }))
+      .sort((a, b) => b.events - a.events)
+  ), [heatmapPagesData]);
+  const heatmapFrictionPages = useMemo(() => {
+    const fromApi = Array.isArray(heatmapPagesData?.frictionPages) ? heatmapPagesData.frictionPages : [];
+    if (fromApi.length) return fromApi;
+    return heatmapOverviewPages
+      .filter((page) => Number(page.deadClicks || 0) > 0 || Number(page.rageClicks || 0) > 0)
+      .sort((a, b) => (Number(b.deadClicks || 0) + Number(b.rageClicks || 0)) - (Number(a.deadClicks || 0) + Number(a.rageClicks || 0)))
+      .slice(0, 6);
+  }, [heatmapPagesData, heatmapOverviewPages]);
+  const heatmapRageSignals = useMemo(() => (
+    (heatmapClickAnomalies.rageClickClusters || [])
+      .map((item, index) => ({
+        label: item.label || item.targetLabel || item.path || `Cluster ${index + 1}`,
+        count: Number(item.count || item.rageClicks || 0),
+      }))
+      .filter((item) => item.count > 0)
+      .slice(0, 7)
+  ), [heatmapClickAnomalies.rageClickClusters]);
+  const heatmapFrictionTotals = useMemo(() => {
+    const pageDeadClicks = heatmapOverviewPages.reduce((total, page) => total + Number(page.deadClicks || 0), 0);
+    const pageRageClicks = heatmapOverviewPages.reduce((total, page) => total + Number(page.rageClicks || 0), 0);
+    return {
+      deadClicks: pageDeadClicks || Number(heatmapClickAnomalies.deadClicks || 0),
+      rageClicks: pageRageClicks || Number(heatmapClickAnomalies.rageClusters || 0),
+    };
+  }, [heatmapClickAnomalies.deadClicks, heatmapClickAnomalies.rageClusters, heatmapOverviewPages]);
+  const selectedHeatmapPageOverview = heatmapOverviewPages.find((page) => (page.path || '/') === selectedHeatmapPath) || heatmapOverviewPages[0] || null;
   const latestAudit = siteAuditSummaryData?.audit || null;
   const auditPageResult = useMemo(() => {
     const pages = Array.isArray(latestAudit?.pages) ? latestAudit.pages : [];
@@ -5969,6 +6027,151 @@ const DashboardApp = ({
         </div>
       </div>
 
+      <div className="website-experience-kpis">
+        {[
+          ['Tracked sessions', formatNumber(heatmapTotals.sessions || 0), `${formatNumber(heatmapTotals.events || 0)} events`],
+          ['Avg. page duration', formatDurationMs(heatmapTotals.avgPageDurationMs), `${formatNumber(heatmapTotals.pageDurationEvents || 0)} duration events`],
+          ['Avg. scroll depth', `${Math.round(Number(heatmapTotals.avgScrollDepthPct || 0) * 100)}%`, `Max ${Math.round(Number(heatmapTotals.maxScrollDepthPct || 0) * 100)}%`],
+          ['Clicks / taps', `${formatNumber(Number(heatmapTotals.clicks || 0) + Number(heatmapTotals.ctaClicks || 0))} / ${formatNumber(heatmapTotals.taps || 0)}`, `${formatNumber(heatmapTotals.ctaClicks || 0)} CTA clicks`],
+          ['Rage clicks', formatNumber(heatmapFrictionTotals.rageClicks), heatmapFrictionTotals.rageClicks ? 'Across tracked pages' : 'No rage signals yet'],
+          ['Dead clicks', formatNumber(heatmapFrictionTotals.deadClicks), heatmapFrictionTotals.deadClicks ? 'Across tracked pages' : 'No dead clicks yet'],
+        ].map(([label, value, meta]) => (
+          <div key={label} className="website-experience-kpi">
+            <span>{label}</span>
+            <strong>{value}</strong>
+            <small>{meta}</small>
+          </div>
+        ))}
+      </div>
+
+      <div className="website-experience-dashboard">
+        <div className="website-experience-card website-experience-card--list">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Top pages</strong>
+              <small>Ranked by tracked sessions, then events.</small>
+            </div>
+          </div>
+          {heatmapOverviewPages.slice(0, 5).map((page) => {
+            const share = Number(heatmapTotals.events || 0) > 0 ? Math.min(1, Number(page.events || 0) / Number(heatmapTotals.events || 1)) : 0;
+            return (
+              <button
+                key={page.path || page.id}
+                type="button"
+                className="website-experience-page-row"
+                onClick={() => setSelectedHeatmapPath(page.path || '/')}
+              >
+                <div>
+                  <strong>{page.title || page.path || '/'}</strong>
+                  <small>{page.path || '/'} · {formatNumber(page.sessions || 0)} sessions</small>
+                  <span style={{ '--bar-width': `${Math.round(share * 100)}%` }} />
+                </div>
+                <em>{formatNumber(page.events || 0)} events</em>
+              </button>
+            );
+          })}
+          {heatmapOverviewPages.length === 0 && <div className="heatmap-audit-compact-empty">No page traffic has been collected yet.</div>}
+        </div>
+
+        <div className="website-experience-card website-experience-page-overview">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Page overview</strong>
+              <small>{selectedHeatmapPageOverview?.path || selectedHeatmapPath || '/'}</small>
+            </div>
+            <button type="button" className="website-experience-link-button" onClick={() => document.getElementById('heatmap-detail-view')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+              View heatmap
+            </button>
+          </div>
+          <div className="website-experience-preview-card">
+            {screenshotPreviewUrl ? (
+              <img src={screenshotPreviewUrl} alt="" />
+            ) : (
+              <div className="website-experience-preview-empty">No screenshot yet</div>
+            )}
+            <div>
+              <span>{formatNumber(selectedHeatmapPageOverview?.sessions || 0)}</span>
+              <small>Sessions</small>
+            </div>
+            <div>
+              <span>{formatNumber(selectedHeatmapPageOverview?.clicks || 0)}</span>
+              <small>Clicks</small>
+            </div>
+            <div>
+              <span>{Math.round(Number(selectedHeatmapPageOverview?.maxScrollDepthPct || heatmapTotals.maxScrollDepthPct || 0) * 100)}%</span>
+              <small>Max scroll</small>
+            </div>
+          </div>
+        </div>
+
+        <div className="website-experience-card">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Rage click signals</strong>
+              <small>Cluster severity for the selected page.</small>
+            </div>
+          </div>
+          <div className="website-experience-mini-bars">
+            {heatmapRageSignals.map((item) => {
+              const maxCount = Math.max(1, ...heatmapRageSignals.map((signal) => signal.count));
+              return (
+                <div key={item.label}>
+                  <span>{item.label}</span>
+                  <i style={{ '--bar-width': `${Math.round((item.count / maxCount) * 100)}%` }} />
+                  <strong>{formatNumber(item.count)}</strong>
+                </div>
+              );
+            })}
+            {heatmapRageSignals.length === 0 && <div className="heatmap-audit-compact-empty">No rage click clusters detected for the selected page.</div>}
+          </div>
+        </div>
+
+        <div className="website-experience-card">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Pages with friction</strong>
+              <small>Dead click page signals from the click target aggregate.</small>
+            </div>
+          </div>
+          <div className="website-experience-mini-list">
+            {heatmapFrictionPages.slice(0, 5).map((page) => (
+              <button key={page.path} type="button" onClick={() => setSelectedHeatmapPath(page.path || '/')}>
+                <span>{page.title || page.path || '/'}</span>
+                <strong>{formatNumber(Number(page.deadClicks || 0) + Number(page.rageClicks || 0))}</strong>
+              </button>
+            ))}
+            {heatmapFrictionPages.length === 0 && <div className="heatmap-audit-compact-empty">No page-level rage or dead click signals yet.</div>}
+          </div>
+        </div>
+
+        <div className="website-experience-card">
+          <div className="heatmap-audit-section-heading">
+            <div>
+              <strong>Device breakdown</strong>
+              <small>Tracked events and sessions by viewport type.</small>
+            </div>
+          </div>
+          <div className="website-experience-device-list">
+            {heatmapDeviceBreakdown.map((device) => {
+              const share = Number(heatmapTotals.events || 0) > 0 ? Math.min(1, Number(device.events || 0) / Number(heatmapTotals.events || 1)) : 0;
+              return (
+                <div key={device.deviceType}>
+                  <span>{device.deviceType}</span>
+                  <i style={{ '--bar-width': `${Math.round(share * 100)}%` }} />
+                  <strong>{formatNumber(device.sessions)} sessions</strong>
+                </div>
+              );
+            })}
+            {heatmapDeviceBreakdown.length === 0 && <div className="heatmap-audit-compact-empty">Device data will appear after events are collected.</div>}
+          </div>
+        </div>
+
+        <div className="website-experience-card website-experience-card--muted">
+          <strong>Audience + traffic context</strong>
+          <small>New vs returning users and top referrers can be added once the tracker stores visitor classification and referrer/channel enrichment.</small>
+        </div>
+      </div>
+
       <div className="heatmap-audit-status-grid">
         <div className={`heatmap-audit-status-card ${selectedScreenshot ? 'is-healthy' : 'is-pending'}`}>
           <span>{selectedScreenshot ? 'Screenshot captured' : 'Screenshot pending'}</span>
@@ -6034,7 +6237,7 @@ const DashboardApp = ({
         </div>
       )}
 
-      <div className="heatmap-audit-layout">
+      <div id="heatmap-detail-view" className="heatmap-audit-layout">
         <div className="heatmap-audit-preview">
           <div className="heatmap-audit-section-heading">
             <div>

@@ -1765,8 +1765,28 @@ def get_heatmap_pages_summary(
         headers=_supabase_anon_headers(access_token),
     )
     if aggregate_rows:
+        device_breakdown: dict[str, dict[str, Any]] = {}
         for row in aggregate_rows:
             page_path = str(row.get("canonical_path") or "/")
+            device_type = _normalize_text(row.get("device_type"), 40) or "unknown"
+            device = device_breakdown.get(device_type) or {
+                "deviceType": device_type,
+                "sessions": 0,
+                "events": 0,
+                "clicks": 0,
+                "taps": 0,
+                "cursorSamples": 0,
+                "scrolls": 0,
+                "engagements": 0,
+            }
+            device["sessions"] += int(row.get("session_count") or 0)
+            device["events"] += int(row.get("event_count") or 0)
+            device["clicks"] += int(row.get("click_count") or 0)
+            device["taps"] += int(row.get("tap_event_count") or 0)
+            device["cursorSamples"] += int(row.get("cursor_sample_count") or 0)
+            device["scrolls"] += int(row.get("scroll_event_count") or 0)
+            device["engagements"] += int(row.get("engagement_event_count") or 0)
+            device_breakdown[device_type] = device
             page = page_map.setdefault(
                 page_path,
                 {
@@ -1806,14 +1826,55 @@ def get_heatmap_pages_summary(
             activity_date = row.get("activity_date")
             if activity_date and (not page.get("lastSeenAt") or str(activity_date) > str(page.get("lastSeenAt") or "")):
                 page["lastSeenAt"] = activity_date
+        click_target_filters = [
+            ("select", "canonical_path,dead_click_count"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{start_date.isoformat()}"),
+            ("activity_date", f"lte.{end_date.isoformat()}"),
+            ("limit", "10000"),
+        ]
+        if site_id:
+            click_target_filters.append(("site_id", f"eq.{site_id}"))
+        click_target_rows = _fetch_optional_json(
+            "property_site_click_daily_targets",
+            click_target_filters,
+            headers=_supabase_anon_headers(access_token),
+        )
+        friction_by_path: dict[str, dict[str, Any]] = {}
+        for row in click_target_rows:
+            page_path = str(row.get("canonical_path") or "/")
+            current = friction_by_path.get(page_path) or {
+                "path": page_path,
+                "deadClicks": 0,
+                "rageClicks": 0,
+            }
+            current["deadClicks"] += int(row.get("dead_click_count") or 0)
+            friction_by_path[page_path] = current
         pages = [
             {
                 **page,
                 "sessions": len(page.get("sessions")) if isinstance(page.get("sessions"), set) else int(page.get("sessions") or 0),
+                "deadClicks": int((friction_by_path.get(str(page.get("path") or "/")) or {}).get("deadClicks") or 0),
+                "rageClicks": int((friction_by_path.get(str(page.get("path") or "/")) or {}).get("rageClicks") or 0),
             }
             for page in page_map.values()
         ]
         pages.sort(key=lambda item: item["events"], reverse=True)
+        pages_by_path = {str(page.get("path") or "/"): page for page in pages}
+        friction_pages = sorted(
+            [
+                {
+                    **item,
+                    "title": (pages_by_path.get(item["path"]) or {}).get("title"),
+                    "events": int((pages_by_path.get(item["path"]) or {}).get("events") or 0),
+                    "sessions": int((pages_by_path.get(item["path"]) or {}).get("sessions") or 0),
+                }
+                for item in friction_by_path.values()
+                if int(item.get("deadClicks") or 0) > 0 or int(item.get("rageClicks") or 0) > 0
+            ],
+            key=lambda item: int(item.get("deadClicks") or 0) + int(item.get("rageClicks") or 0),
+            reverse=True,
+        )[:10]
         return {
             "status": "ok",
             "property_id": str(property_id),
@@ -1826,11 +1887,13 @@ def get_heatmap_pages_summary(
             },
             "dataSource": "daily_aggregates",
             "pages": pages,
+            "deviceBreakdown": sorted(device_breakdown.values(), key=lambda item: int(item.get("events") or 0), reverse=True),
+            "frictionPages": friction_pages,
             "staging_only": True,
         }
 
     filters = [
-        ("select", "site_id,session_key,event_type,path,occurred_at,scroll_depth_pct"),
+        ("select", "site_id,session_key,event_type,path,occurred_at,scroll_depth_pct,raw_data"),
         ("property_id", f"eq.{property_id}"),
         ("occurred_at", f"gte.{start_date.isoformat()}T00:00:00+00:00"),
         ("occurred_at", f"lte.{end_date.isoformat()}T23:59:59+00:00"),
@@ -1844,8 +1907,21 @@ def get_heatmap_pages_summary(
         filters,
         headers=_supabase_anon_headers(access_token),
     )
+    device_breakdown: dict[str, dict[str, Any]] = {}
     for event in events:
         page_path = str(event.get("path") or "/")
+        raw_data = event.get("raw_data") if isinstance(event.get("raw_data"), dict) else {}
+        device_type = _normalize_text(raw_data.get("deviceType") or raw_data.get("device_type"), 40) or "unknown"
+        device = device_breakdown.get(device_type) or {
+            "deviceType": device_type,
+            "sessions": set(),
+            "events": 0,
+            "clicks": 0,
+            "taps": 0,
+            "cursorSamples": 0,
+            "scrolls": 0,
+            "engagements": 0,
+        }
         page = page_map.setdefault(
             page_path,
             {
@@ -1873,26 +1949,34 @@ def get_heatmap_pages_summary(
         page["events"] += 1
         if event.get("session_key"):
             page["sessions"].add(str(event.get("session_key")))
+            device["sessions"].add(str(event.get("session_key")))
+        device["events"] += 1
         event_type = event.get("event_type")
         if event_type in {"click", "pointerdown", "touchstart"}:
             page["clicks"] += 1
+            device["clicks"] += 1
             if event_type in {"pointerdown", "touchstart"}:
                 page["taps"] += 1
+                device["taps"] += 1
         elif event_type == "cta_click":
             page["ctaClicks"] += 1
         elif event_type in {"mousemove", "pointermove"}:
             page["mouseMoves"] += 1
             page["cursorSamples"] += 1
+            device["cursorSamples"] += 1
         elif event_type == "scroll":
             page["scrolls"] += 1
+            device["scrolls"] += 1
         elif event_type in {"engagement", "first_interaction", "page_duration"}:
             page["engagements"] += 1
+            device["engagements"] += 1
         elif event_type == "tracker_diagnostic":
             page["diagnostics"] += 1
         if event.get("scroll_depth_pct") is not None:
             page["maxScrollDepthPct"] = max(page["maxScrollDepthPct"], float(event.get("scroll_depth_pct") or 0))
         if not page.get("lastSeenAt") or str(event.get("occurred_at") or "") > str(page.get("lastSeenAt") or ""):
             page["lastSeenAt"] = event.get("occurred_at")
+        device_breakdown[device_type] = device
 
     pages = []
     for page in page_map.values():
@@ -1904,6 +1988,14 @@ def get_heatmap_pages_summary(
         )
 
     pages.sort(key=lambda item: item["events"], reverse=True)
+    device_items = [
+        {
+            **{key: value for key, value in item.items() if key != "sessions"},
+            "sessions": len(item["sessions"]),
+        }
+        for item in device_breakdown.values()
+    ]
+    device_items.sort(key=lambda item: item["events"], reverse=True)
     return {
         "status": "ok",
         "property_id": str(property_id),
@@ -1915,6 +2007,8 @@ def get_heatmap_pages_summary(
             "siteKey": site_key or "",
         },
         "pages": pages,
+        "deviceBreakdown": device_items,
+        "frictionPages": [],
         "staging_only": True,
     }
 
@@ -2170,7 +2264,7 @@ def _merge_cursor_daily_rows(cursor_rows: list[dict[str, Any]]) -> dict[str, Any
         current["weight"] += weight
         attention[attention_key] = current
 
-    max_score = max(1.0, *[float(cell.get("attentionScore") or 0) for cell in cells])
+    max_score = max([1.0, *[float(cell.get("attentionScore") or 0) for cell in cells]])
     normalized_cells = [
         {**cell, "intensity": float(cell.get("attentionScore") or 0) / max_score}
         for cell in cells
@@ -2696,7 +2790,7 @@ def _heatmap_summary_from_aggregates(
             }
 
     cells = []
-    max_cell_count = max(1, *[int(item.get("count") or 0) for item in cell_groups.values()])
+    max_cell_count = max([1, *[int(item.get("count") or 0) for item in cell_groups.values()]])
     for cell in cell_groups.values():
         count = max(1, int(cell.get("count") or 0))
         cells.append(
@@ -2729,8 +2823,9 @@ def _heatmap_summary_from_aggregates(
     total_sessions = sum(int(row.get("session_count") or 0) for row in page_rows) or int(scroll_metrics.get("sessionCount") or 0)
     total_scroll_events = sum(int(row.get("scroll_event_count") or 0) for row in page_rows)
     scroll_weighted_total = sum(_numeric(row.get("avg_scroll_depth_pct")) * int(row.get("scroll_event_count") or 0) for row in page_rows)
+    page_duration_values = [_numeric(row.get("avg_page_duration_ms")) for row in page_rows if row.get("avg_page_duration_ms") is not None]
     page_max_scroll_values = [_numeric(row.get("max_scroll_depth_pct")) for row in page_rows]
-    max_scroll_depth = max(max_scroll_depth, *(page_max_scroll_values or [0.0]))
+    max_scroll_depth = max([max_scroll_depth, *(page_max_scroll_values or [0.0])])
     top_paths_map: dict[str, int] = {}
     for row in page_rows:
         row_path = str(row.get("canonical_path") or "/")
@@ -2783,6 +2878,7 @@ def _heatmap_summary_from_aggregates(
             "trackerDiagnostics": sum(int(row.get("diagnostic_event_count") or 0) for row in page_rows)
             or counts_by_type.get("tracker_diagnostic", 0),
             "pageDurationEvents": counts_by_type.get("page_duration", 0),
+            "avgPageDurationMs": (sum(page_duration_values) / len(page_duration_values)) if page_duration_values else 0,
             "avgScrollDepthPct": (scroll_weighted_total / total_scroll_events) if total_scroll_events else 0.0,
             "maxScrollDepthPct": max_scroll_depth,
             "avgAbandonmentDepthPct": scroll_metrics.get("avgAbandonmentDepthPct", 0.0),
@@ -2907,6 +3003,8 @@ def get_heatmap_summary(
     first_meaningful_scroll_total = 0
     abandonment_depth_total = 0.0
     abandonment_depth_count = 0
+    page_duration_total = 0
+    page_duration_count = 0
     session_scroll_depths: dict[str, float] = {}
     session_abandonment_depths: dict[str, float] = {}
     points = []
@@ -2987,6 +3085,9 @@ def get_heatmap_summary(
             abandonment_depth_count += 1
             if event.get("session_key"):
                 session_abandonment_depths[str(event.get("session_key"))] = abandonment_depth
+        if event_kind == "page_duration" and event.get("engagement_ms") is not None:
+            page_duration_total += int(event.get("engagement_ms") or 0)
+            page_duration_count += 1
         band_durations = raw_data.get("scrollBandDurations") if isinstance(raw_data.get("scrollBandDurations"), dict) else {}
         if raw_data.get("finalScrollEvent"):
             for band, duration_ms in band_durations.items():
@@ -3141,6 +3242,7 @@ def get_heatmap_summary(
             "firstInteractions": counts_by_type.get("first_interaction", 0),
             "trackerDiagnostics": counts_by_type.get("tracker_diagnostic", 0),
             "pageDurationEvents": counts_by_type.get("page_duration", 0),
+            "avgPageDurationMs": (page_duration_total / page_duration_count) if page_duration_count else 0,
             "avgScrollDepthPct": (scroll_depth_total / scroll_depth_count) if scroll_depth_count else 0.0,
             "maxScrollDepthPct": max_scroll_depth,
             "avgAbandonmentDepthPct": (abandonment_depth_total / abandonment_depth_count) if abandonment_depth_count else 0.0,
