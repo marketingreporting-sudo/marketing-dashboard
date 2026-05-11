@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import {
   ADMIN_ACCESS_USERS_URL,
+  CLIENT_REPORT_BASE_DOMAIN,
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
   LOCAL_FALCON_DASHBOARD_URL,
@@ -368,6 +369,46 @@ const parseDomainText = (value) => (
     .map((item) => item.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, ''))
     .filter(Boolean)
 );
+
+const toClientReportSlug = (value) => (
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-+/g, '-')
+);
+
+const getPropertyReportSlug = (property) => (
+  toClientReportSlug(property?.orgSlug || property?.name || property?.propertyId)
+);
+
+const propertyMatchesReportSlug = (property, slug) => {
+  const normalizedSlug = toClientReportSlug(slug);
+  if (!property || !normalizedSlug) return false;
+
+  return [
+    property.propertyId,
+    property.name,
+    property.orgSlug,
+    getPropertyReportSlug(property),
+  ].some((candidate) => toClientReportSlug(candidate) === normalizedSlug);
+};
+
+const buildClientReportLink = (property) => {
+  if (typeof window === 'undefined') return '';
+
+  const slug = getPropertyReportSlug(property);
+  if (!slug) return '';
+
+  if (CLIENT_REPORT_BASE_DOMAIN) {
+    const protocol = window.location.protocol === 'http:' ? 'http:' : 'https:';
+    return `${protocol}//${slug}.${CLIENT_REPORT_BASE_DOMAIN}/`;
+  }
+
+  return `${window.location.origin}/reports/${slug}`;
+};
 
 const buildManualTrackerSnippet = (siteKey) => {
   if (!siteKey || !HEATMAP_TRACKER_URL) return '';
@@ -1257,8 +1298,15 @@ const DashboardApp = ({
   availableProperties = [],
   propertyAccessById = {},
   defaultPropertyId = null,
+  clientReportSlug = '',
 }) => {
   const { profile, refreshAccess } = useAccess();
+  const normalizedClientReportSlug = toClientReportSlug(clientReportSlug);
+  const isClientReportMode = Boolean(normalizedClientReportSlug);
+  const clientReportProperty = useMemo(
+    () => availableProperties.find((property) => propertyMatchesReportSlug(property, normalizedClientReportSlug)) || null,
+    [availableProperties, normalizedClientReportSlug]
+  );
   const workspaceStateStorageKey = useMemo(
     () => getDashboardWorkspaceStateKey(currentUser),
     [currentUser]
@@ -1267,7 +1315,8 @@ const DashboardApp = ({
     () => normalizeSavedDashboardState(readDashboardWorkspaceState(workspaceStateStorageKey), defaultPropertyId),
     [defaultPropertyId, workspaceStateStorageKey]
   );
-  const [activeTab, setActiveTab] = useState(savedWorkspaceState.activeTab);
+  const initialSelectedPropertyId = clientReportProperty?.propertyId || savedWorkspaceState.selectedPropertyId;
+  const [activeTab, setActiveTab] = useState(isClientReportMode ? 'reports' : savedWorkspaceState.activeTab);
   const [dateRange, setDateRange] = useState(savedWorkspaceState.dateRange);
   const [customRange, setCustomRange] = useState(() => {
     const defaultRange = getDefaultCustomRange();
@@ -1284,7 +1333,7 @@ const DashboardApp = ({
       end: savedWorkspaceState.customRange.end || defaultRange.end,
     };
   });
-  const [selectedPropertyId, setSelectedPropertyId] = useState(savedWorkspaceState.selectedPropertyId);
+  const [selectedPropertyId, setSelectedPropertyId] = useState(initialSelectedPropertyId);
   const [excludedMarketingSpendKeys, setExcludedMarketingSpendKeys] = useState(savedWorkspaceState.excludedMarketingSpendKeys);
   const [loading, setLoading] = useState(true);
   const [invoiceLoading, setInvoiceLoading] = useState(true);
@@ -1410,6 +1459,7 @@ const DashboardApp = ({
   const [adminInviteLink, setAdminInviteLink] = useState('');
   const [adminPasswordResetLink, setAdminPasswordResetLink] = useState('');
   const [adminCopiedLinkType, setAdminCopiedLinkType] = useState('');
+  const [copiedClientReportLink, setCopiedClientReportLink] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminRoles, setAdminRoles] = useState([]);
   const [adminProperties, setAdminProperties] = useState([]);
@@ -1458,6 +1508,10 @@ const DashboardApp = ({
       opiniionSkip: OPINIION_SKIPPED_PROPERTY_IDS.has(selectedPropertyId),
     };
   }, [availableProperties, isAllPropertiesSelected, selectedPropertyId]);
+  const clientReportLink = useMemo(
+    () => buildClientReportLink(selectedProperty),
+    [selectedProperty]
+  );
   const currentPropertyPermissionSet = useMemo(() => {
     if (!isAllPropertiesSelected) {
       return new Set(propertyAccessById[selectedPropertyId]?.permissions || []);
@@ -1473,8 +1527,11 @@ const DashboardApp = ({
   const accountAvatarUrl = profile?.avatar_url || accountDraft.avatarUrl || '';
   const accountInitials = useMemo(() => getInitials(displayName), [displayName]);
   const visibleNavItems = useMemo(
-    () => NAV_ITEMS.filter((item) => currentPropertyPermissionSet.has(item.permission)),
-    [currentPropertyPermissionSet]
+    () => {
+      const items = NAV_ITEMS.filter((item) => currentPropertyPermissionSet.has(item.permission));
+      return isClientReportMode ? items.filter((item) => item.id === 'reports') : items;
+    },
+    [currentPropertyPermissionSet, isClientReportMode]
   );
   const taskPropertyIds = useMemo(
     () => new Set(availableProperties.map((property) => property.propertyId)),
@@ -1484,7 +1541,7 @@ const DashboardApp = ({
     () => new Map(availableProperties.map((property) => [property.propertyId, property])),
     [availableProperties]
   );
-  const canEditReportingLayout = currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
+  const canEditReportingLayout = !isClientReportMode && currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
   const canViewAuditCommandCenter = currentPropertyPermissionSet.has(TAB_PERMISSIONS.audit);
   const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
@@ -1541,6 +1598,13 @@ const DashboardApp = ({
   }, [currentUser, profile]);
 
   useEffect(() => {
+    if (isClientReportMode) {
+      if (clientReportProperty?.propertyId && selectedPropertyId !== clientReportProperty.propertyId) {
+        setSelectedPropertyId(clientReportProperty.propertyId);
+      }
+      return;
+    }
+
     if (availableProperties.length === 0) {
       if (selectedPropertyId !== null) {
         setSelectedPropertyId(null);
@@ -1556,7 +1620,12 @@ const DashboardApp = ({
     if (!selectedPropertyId || !allowedIds.has(selectedPropertyId)) {
       setSelectedPropertyId(nextPropertyId);
     }
-  }, [availableProperties, canUseAllProperties, defaultPropertyId, selectedPropertyId]);
+  }, [availableProperties, canUseAllProperties, clientReportProperty, defaultPropertyId, isClientReportMode, selectedPropertyId]);
+
+  useEffect(() => {
+    if (!isClientReportMode) return;
+    if (activeTab !== 'reports') setActiveTab('reports');
+  }, [activeTab, isClientReportMode]);
 
   useEffect(() => {
     if (!isAllPropertiesSelected) return;
@@ -1574,6 +1643,7 @@ const DashboardApp = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (isClientReportMode) return;
     window.localStorage.setItem(
       workspaceStateStorageKey,
       JSON.stringify({
@@ -1585,7 +1655,7 @@ const DashboardApp = ({
         excludedMarketingSpendKeys,
       })
     );
-  }, [activeTab, customRange, dateRange, excludedMarketingSpendKeys, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
+  }, [activeTab, customRange, dateRange, excludedMarketingSpendKeys, isClientReportMode, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
 
   useEffect(() => {
     if (!canEditReportingLayout && reportingAdminEnabled) {
@@ -6276,6 +6346,16 @@ const DashboardApp = ({
             <div className="reports-chip">{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</div>
             <div className="reports-chip">{activeReportingPanels.length} live panels</div>
             <div className={reportingSourceBadge.className}>{reportingSourceBadge.label}</div>
+            {!isClientReportMode && canEditReportingLayout && clientReportLink && (
+              <button
+                type="button"
+                className="reports-admin-toggle"
+                onClick={copyClientReportLink}
+                title={clientReportLink}
+              >
+                {copiedClientReportLink ? 'Copied Report Link' : 'Copy Client Report Link'}
+              </button>
+            )}
             {canEditReportingLayout && (
               <button type="button" className={`reports-admin-toggle ${reportingAdminEnabled ? 'active' : ''}`} onClick={toggleReportingAdminMode}>
                 {reportingAdminEnabled ? 'Exit Admin Layout' : 'Admin Layout Mode'}
@@ -6328,63 +6408,65 @@ const DashboardApp = ({
         </div>
 
         <div className="reports-workspace">
-          <aside className="reports-minimap">
-            <div className="reports-minimap__header">
-              <div>
-                <div className="reports-minimap__eyebrow">Mini-Map</div>
-                <div className="reports-minimap__title">Jump between reporting panels</div>
+          {!isClientReportMode && (
+            <aside className="reports-minimap">
+              <div className="reports-minimap__header">
+                <div>
+                  <div className="reports-minimap__eyebrow">Mini-Map</div>
+                  <div className="reports-minimap__title">Jump between reporting panels</div>
+                </div>
               </div>
-            </div>
-            <div className="reports-minimap__list">
-              {reportingLayoutDraft.panelOrder.map((panelId, index) => {
-                const panel = REPORTING_PANEL_LIBRARY.find((item) => item.id === panelId);
-                const isHidden = reportingLayoutDraft.hiddenPanelIds.includes(panelId);
-                if (!panel) return null;
+              <div className="reports-minimap__list">
+                {reportingLayoutDraft.panelOrder.map((panelId, index) => {
+                  const panel = REPORTING_PANEL_LIBRARY.find((item) => item.id === panelId);
+                  const isHidden = reportingLayoutDraft.hiddenPanelIds.includes(panelId);
+                  if (!panel) return null;
 
-                return (
-                  <div key={panelId} className={`reports-minimap__item ${isHidden ? 'is-hidden' : ''}`}>
-                    <button type="button" className="reports-minimap__jump" onClick={() => scrollToReportingPanel(panelId)} disabled={isHidden}>
-                      <span className="reports-minimap__index">{String(index + 1).padStart(2, '0')}</span>
-                      <span>
-                        <strong>{panel.title}</strong>
-                        <small>{reportingPanelSummaries[panelId]}</small>
-                      </span>
+                  return (
+                    <div key={panelId} className={`reports-minimap__item ${isHidden ? 'is-hidden' : ''}`}>
+                      <button type="button" className="reports-minimap__jump" onClick={() => scrollToReportingPanel(panelId)} disabled={isHidden}>
+                        <span className="reports-minimap__index">{String(index + 1).padStart(2, '0')}</span>
+                        <span>
+                          <strong>{panel.title}</strong>
+                          <small>{reportingPanelSummaries[panelId]}</small>
+                        </span>
+                      </button>
+                      {reportingAdminEnabled && (
+                        <div className="reports-minimap__actions">
+                          <button type="button" onClick={() => moveReportingPanel(panelId, -1)} disabled={index === 0}>Up</button>
+                          <button type="button" onClick={() => moveReportingPanel(panelId, 1)} disabled={index === reportingLayoutDraft.panelOrder.length - 1}>Down</button>
+                          <button type="button" onClick={() => toggleReportingPanelVisibility(panelId)}>
+                            {isHidden ? 'Show' : 'Hide'}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="reports-minimap__footer">
+                {reportingLayoutLoading && <div className="reports-layout-message">Loading saved layout…</div>}
+                {reportingLayoutError && <div className="reports-layout-message reports-layout-message--error">{reportingLayoutError}</div>}
+                {reportingLayoutNotice && <div className="reports-layout-message reports-layout-message--success">{reportingLayoutNotice}</div>}
+                {reportingAdminEnabled && (
+                  <div className="reports-admin-actions">
+                    <button type="button" onClick={resetReportingLayoutDraft} disabled={!reportingLayoutDirty || reportingLayoutSaving}>Reset</button>
+                    <button type="button" onClick={saveReportingLayoutDraft} disabled={!reportingLayoutDirty || reportingLayoutSaving}>
+                      {reportingLayoutSaving ? 'Saving…' : 'Save Layout'}
                     </button>
-                    {reportingAdminEnabled && (
-                      <div className="reports-minimap__actions">
-                        <button type="button" onClick={() => moveReportingPanel(panelId, -1)} disabled={index === 0}>Up</button>
-                        <button type="button" onClick={() => moveReportingPanel(panelId, 1)} disabled={index === reportingLayoutDraft.panelOrder.length - 1}>Down</button>
-                        <button type="button" onClick={() => toggleReportingPanelVisibility(panelId)}>
-                          {isHidden ? 'Show' : 'Hide'}
-                        </button>
-                      </div>
-                    )}
                   </div>
-                );
-              })}
-            </div>
-
-            <div className="reports-minimap__footer">
-              {reportingLayoutLoading && <div className="reports-layout-message">Loading saved layout…</div>}
-              {reportingLayoutError && <div className="reports-layout-message reports-layout-message--error">{reportingLayoutError}</div>}
-              {reportingLayoutNotice && <div className="reports-layout-message reports-layout-message--success">{reportingLayoutNotice}</div>}
-              {reportingAdminEnabled && (
-                <div className="reports-admin-actions">
-                  <button type="button" onClick={resetReportingLayoutDraft} disabled={!reportingLayoutDirty || reportingLayoutSaving}>Reset</button>
-                  <button type="button" onClick={saveReportingLayoutDraft} disabled={!reportingLayoutDirty || reportingLayoutSaving}>
-                    {reportingLayoutSaving ? 'Saving…' : 'Save Layout'}
-                  </button>
-                </div>
-              )}
-              {!reportingAdminEnabled && (
-                <div className="reports-layout-hint">
-                  {canEditReportingLayout
-                    ? 'Admin layout mode unlocks per-property panel ordering and hide/show controls.'
-                    : 'This account can review reporting, but layout changes are reserved for roles with reporting admin access.'}
-                </div>
-              )}
-            </div>
-          </aside>
+                )}
+                {!reportingAdminEnabled && (
+                  <div className="reports-layout-hint">
+                    {canEditReportingLayout
+                      ? 'Admin layout mode unlocks per-property panel ordering and hide/show controls.'
+                      : 'This account can review reporting, but layout changes are reserved for roles with reporting admin access.'}
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
 
           <div className="reports-panels">
             {activeReportingPanels.some((panel) => panel.id === 'roi') && (
@@ -7902,6 +7984,18 @@ const DashboardApp = ({
     }
   };
 
+  const copyClientReportLink = async () => {
+    if (!clientReportLink) return;
+
+    try {
+      await navigator.clipboard.writeText(clientReportLink);
+      setCopiedClientReportLink(true);
+      window.setTimeout(() => setCopiedClientReportLink(false), 1800);
+    } catch {
+      setReportingLayoutError('Unable to copy the client report link. Select the link text and copy it manually.');
+    }
+  };
+
   const updateAccountDraft = (field, value) => {
     setAccountDraft((current) => ({ ...current, [field]: value }));
   };
@@ -8685,8 +8779,27 @@ const DashboardApp = ({
     </div>
   );
 
+  if (isClientReportMode && !clientReportProperty) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-card__eyebrow">Report unavailable</div>
+          <h1 className="auth-card__title">This report link is not assigned to your account.</h1>
+          <p className="auth-card__copy">
+            Sign in with an account that has reporting access for this property, or ask an administrator to update the client membership.
+          </p>
+          {typeof onSignOut === 'function' && (
+            <button type="button" className="auth-form__submit" onClick={onSignOut}>
+              Sign out
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${activeTab === 'reports' ? 'dashboard-container--reports' : ''}`}>
+    <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${activeTab === 'reports' ? 'dashboard-container--reports' : ''} ${isClientReportMode ? 'dashboard-container--client-report' : ''}`}>
       {renderAccountPanel()}
       {showLoader && (
         <div className="loading-overlay" aria-live="polite" aria-busy="true">
@@ -8697,107 +8810,111 @@ const DashboardApp = ({
         </div>
       )}
       {/* Sidebar */}
-      <div className="sidebar">
-        <div className="sidebar-topbar">
-          <button
-            type="button"
-            className="sidebar-toggle"
-            onClick={() => setSidebarCollapsed((current) => !current)}
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            aria-pressed={sidebarCollapsed}
-          >
-            {sidebarCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
-          </button>
-        </div>
+      {!isClientReportMode && (
+        <div className="sidebar">
+          <div className="sidebar-topbar">
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-pressed={sidebarCollapsed}
+            >
+              {sidebarCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+            </button>
+          </div>
 
-        <div className="logo-container">
-          <img src={sidebarCollapsed ? '/logo-white-icon.svg' : '/logo-white.svg'} alt="Redstone Logo" className="brand-logo" />
+          <div className="logo-container">
+            <img src={sidebarCollapsed ? '/logo-white-icon.svg' : '/logo-white.svg'} alt="Redstone Logo" className="brand-logo" />
+          </div>
+
+          <div className="nav-menu">
+            {visibleNavItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div
+                  key={item.id}
+                  className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
+                  onClick={() => setActiveTab(item.id)}
+                >
+                  <Icon size={20} />
+                  <span className="nav-label">{item.label}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        
-        <div className="nav-menu">
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div
-                key={item.id}
-                className={`nav-item ${activeTab === item.id ? 'active' : ''}`}
-                onClick={() => setActiveTab(item.id)}
-              >
-                <Icon size={20} />
-                <span className="nav-label">{item.label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      )}
 
       {/* Main Content */}
       <div className={`main-content ${activeTab === 'reports' ? 'main-content--reports' : ''}`}>
-        <div className={`header ${activeTab === 'reports' ? 'header--reports' : ''}`}>
-          {activeTab === 'admin' || activeTab === 'audit' ? (
-            <div className="property-selector property-selector--admin">
-              <span className="property-selector__label">{activeTab === 'audit' ? 'Portfolio scope' : 'Access scope'}</span>
-              <div className="property-selector__admin-summary">
-                {activeTab === 'audit'
-                  ? 'Cross-property audit command center for internal triage and design follow-up.'
-                  : 'Manage user invites, global roles, and property assignments.'}
+        {!isClientReportMode && (
+          <div className={`header ${activeTab === 'reports' ? 'header--reports' : ''}`}>
+            {activeTab === 'admin' || activeTab === 'audit' ? (
+              <div className="property-selector property-selector--admin">
+                <span className="property-selector__label">{activeTab === 'audit' ? 'Portfolio scope' : 'Access scope'}</span>
+                <div className="property-selector__admin-summary">
+                  {activeTab === 'audit'
+                    ? 'Cross-property audit command center for internal triage and design follow-up.'
+                    : 'Manage user invites, global roles, and property assignments.'}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="property-selector">
-              <span className="property-selector__label">Property</span>
-              <div className="property-selector__control">
-                <select
-                  value={selectedPropertyId}
-                  onChange={(e) => setSelectedPropertyId(e.target.value)}
-                  className="property-selector__select"
-                >
-                  {canUseAllProperties && activeTab === 'dashboard' && (
-                    <option value={ALL_PROPERTIES_OPTION}>All Properties</option>
-                  )}
-                  {availableProperties.map((property) => (
-                    <option key={property.propertyId} value={property.propertyId}>
-                      {property.name}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown size={16} className="property-selector__chevron" />
+            ) : (
+              <div className="property-selector">
+                <span className="property-selector__label">Property</span>
+                <div className="property-selector__control">
+                  <select
+                    value={selectedPropertyId}
+                    onChange={(e) => setSelectedPropertyId(e.target.value)}
+                    className="property-selector__select"
+                  >
+                    {canUseAllProperties && activeTab === 'dashboard' && (
+                      <option value={ALL_PROPERTIES_OPTION}>All Properties</option>
+                    )}
+                    {availableProperties.map((property) => (
+                      <option key={property.propertyId} value={property.propertyId}>
+                        {property.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={16} className="property-selector__chevron" />
+                </div>
               </div>
-            </div>
-          )}
-          <div className="header-status">
-            <div className="header-status__identity">
-              <span className="header-status__name">{displayName}</span>
-            </div>
-            <div className="header-status__actions">
-              <button
-                type="button"
-                className="header-status__avatar header-status__avatar-button"
-                aria-label="Open account settings"
-                onClick={() => {
-                  setAccountError('');
-                  setAccountNotice('');
-                  setAccountPanelOpen(true);
-                }}
-              >
-                {accountAvatarUrl ? (
-                  <img src={accountAvatarUrl} alt={displayName} className="account-avatar__image" />
-                ) : (
-                  <span>{accountInitials}</span>
-                )}
-              </button>
-              {typeof onSignOut === 'function' && (
+            )}
+            <div className="header-status">
+              <div className="header-status__identity">
+                <span className="header-status__name">{displayName}</span>
+              </div>
+              <div className="header-status__actions">
                 <button
                   type="button"
-                  className="header-status__signout"
-                  onClick={onSignOut}
+                  className="header-status__avatar header-status__avatar-button"
+                  aria-label="Open account settings"
+                  onClick={() => {
+                    setAccountError('');
+                    setAccountNotice('');
+                    setAccountPanelOpen(true);
+                  }}
                 >
-                  Sign out
+                  {accountAvatarUrl ? (
+                    <img src={accountAvatarUrl} alt={displayName} className="account-avatar__image" />
+                  ) : (
+                    <span>{accountInitials}</span>
+                  )}
                 </button>
-              )}
+                {typeof onSignOut === 'function' && (
+                  <button
+                    type="button"
+                    className="header-status__signout"
+                    onClick={onSignOut}
+                  >
+                    Sign out
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <div className={`content-body ${activeTab === 'reports' ? 'content-body--reports' : ''}`}>
           {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (

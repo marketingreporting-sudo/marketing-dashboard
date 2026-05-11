@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Link, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import DashboardApp, { PrivacyPolicyPage, TermsOfServicePage } from './App';
 import { AuthProvider } from './auth/AuthProvider';
 import ProtectedRoute from './auth/ProtectedRoute';
@@ -9,6 +9,7 @@ import { useAccess } from './access/useAccess';
 import SignInPage from './pages/SignInPage';
 import SetPasswordPage from './pages/SetPasswordPage';
 import { supabase } from './lib/supabase';
+import { CLIENT_REPORT_BASE_DOMAIN } from './apiConfig';
 
 const AccessLoadingScreen = () => (
   <div className="auth-screen auth-screen--loading">
@@ -32,9 +33,22 @@ const AccessStateScreen = ({ title, body }) => (
   </div>
 );
 
-const AuthenticatedDashboard = () => {
+const getReportSlugFromHostname = () => {
+  if (typeof window === 'undefined') return '';
+
+  const hostname = window.location.hostname.toLowerCase().replace(/^www\./, '');
+  if (!CLIENT_REPORT_BASE_DOMAIN || hostname === CLIENT_REPORT_BASE_DOMAIN) return '';
+  if (!hostname.endsWith(`.${CLIENT_REPORT_BASE_DOMAIN}`)) return '';
+
+  const slug = hostname.slice(0, -(CLIENT_REPORT_BASE_DOMAIN.length + 1));
+  return slug && slug !== 'www' ? slug : '';
+};
+
+const AuthenticatedDashboard = ({ reportMode = false }) => {
+  const { reportSlug = '' } = useParams();
   const { user } = useAuth();
   const { loading, error, hasAnyPropertyAccess, properties, propertyAccessById, defaultPropertyId } = useAccess();
+  const resolvedReportSlug = reportSlug || getReportSlugFromHostname();
 
   const handleSignOut = async () => {
     if (!supabase) return;
@@ -70,6 +84,7 @@ const AuthenticatedDashboard = () => {
       availableProperties={properties}
       propertyAccessById={propertyAccessById}
       defaultPropertyId={defaultPropertyId}
+      clientReportSlug={reportMode || resolvedReportSlug ? resolvedReportSlug : ''}
     />
   );
 };
@@ -106,6 +121,14 @@ const RootApp = () => (
           }
         />
         <Route element={<ProtectedRoute />}>
+          <Route
+            path="/reports/:reportSlug"
+            element={(
+              <AccessProvider>
+                <AuthenticatedDashboard reportMode />
+              </AccessProvider>
+            )}
+          />
           <Route
             path="/"
             element={(

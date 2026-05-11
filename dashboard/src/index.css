@@ -6297,6 +6297,27 @@ th {
     var(--surface-base) !important;
 }
 
+.dashboard-container--client-report {
+  --sidebar-width: 0px;
+}
+
+.dashboard-container--client-report .main-content {
+  margin-left: 0 !important;
+  width: 100% !important;
+}
+
+.dashboard-container--client-report .content-body--reports {
+  padding-top: 1.25rem !important;
+}
+
+.dashboard-container--client-report .reports-workspace {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.dashboard-container--client-report .reports-shell {
+  max-width: 1280px;
+}
+
 .dashboard-container--reports .reports-shell {
   gap: 2rem !important;
 }
