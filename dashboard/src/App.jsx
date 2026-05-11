@@ -11,6 +11,8 @@ import {
   HEATMAP_TRACKER_URL,
   META_ADS_DASHBOARD_URL,
   PROPERTY_REPORTING_OVERVIEW_URL,
+  RECOMMENDATIONS_BASE_URL,
+  RECOMMENDATIONS_GENERATE_URL,
   RENDER_API_BASE_URL,
   REPORTING_LAYOUT_URL,
   REPUTATION_DASHBOARD_URL,
@@ -54,6 +56,7 @@ import {
   FileText, 
   ClipboardList, 
   ChevronDown, 
+  ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   Calendar,
@@ -63,6 +66,7 @@ import {
   TrendingUp,
   DollarSign,
   FileCheck,
+  Lightbulb,
   MessageSquareText,
   Globe,
   Mail,
@@ -157,6 +161,7 @@ const NAV_ITEMS = [
   { id: 'website manager', label: 'Website Editor', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
   { id: 'property info', label: 'Property Info', icon: Home, permission: TAB_PERMISSIONS['property info'] },
   { id: 'reports', label: 'Reports', icon: FileText, permission: TAB_PERMISSIONS.reports },
+  { id: 'recommendations', label: 'Recommendations', icon: Lightbulb, permission: TAB_PERMISSIONS.recommendations },
   { id: 'audit', label: 'Audit', icon: AlertTriangle, permission: TAB_PERMISSIONS.audit },
   { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
   { id: 'reputation', label: 'Reputation', icon: MessageSquareText, permission: TAB_PERMISSIONS.reputation },
@@ -1345,6 +1350,7 @@ const DashboardApp = ({
   const [websiteSchemaNotice, setWebsiteSchemaNotice] = useState(null);
   const [websiteSchemaDoc, setWebsiteSchemaDoc] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
   const [websiteSchemaDraft, setWebsiteSchemaDraft] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
+  const [expandedWebsiteSchemaGroups, setExpandedWebsiteSchemaGroups] = useState(() => new Set());
   const [websiteSchemaHistory, setWebsiteSchemaHistory] = useState([]);
   const [reportingLayoutLoading, setReportingLayoutLoading] = useState(true);
   const [reportingLayoutSaving, setReportingLayoutSaving] = useState(false);
@@ -1376,6 +1382,10 @@ const DashboardApp = ({
     reportingUsesStagedOverview ? 'loading' : 'error'
   ));
   const [roiPipelineStatus, setRoiPipelineStatus] = useState(null);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationsData, setRecommendationsData] = useState(null);
+  const [recommendationsError, setRecommendationsError] = useState(null);
+  const [recommendationFeedbackLoading, setRecommendationFeedbackLoading] = useState({});
   const [ga4Data, setGa4Data] = useState(null);
   const [ga4Error, setGa4Error] = useState(null);
   const [googleAdsData, setGoogleAdsData] = useState(null);
@@ -3359,6 +3369,7 @@ const DashboardApp = ({
   const addWebsiteSchemaGroup = () => {
     setWebsiteSchemaNotice(null);
     setWebsiteSchemaError(null);
+    const nextGroupId = `group_${Date.now()}`;
     setWebsiteSchemaDraft((current) => ({
       ...current,
       groups: (() => {
@@ -3366,7 +3377,7 @@ const DashboardApp = ({
         return [
           ...current.groups,
           {
-            id: `group_${Date.now()}`,
+            id: nextGroupId,
             label: 'New Group',
             fields: [
               {
@@ -3380,6 +3391,7 @@ const DashboardApp = ({
         ];
       })(),
     }));
+    setExpandedWebsiteSchemaGroups((current) => new Set([...current, nextGroupId]));
   };
 
   const removeWebsiteSchemaGroup = (groupId) => {
@@ -3393,6 +3405,11 @@ const DashboardApp = ({
       ...current,
       groups: current.groups.filter((group) => group.id !== groupId),
     }));
+    setExpandedWebsiteSchemaGroups((current) => {
+      const next = new Set(current);
+      next.delete(groupId);
+      return next;
+    });
   };
 
   const addWebsiteSchemaField = (groupId) => {
@@ -3416,6 +3433,7 @@ const DashboardApp = ({
         };
       }),
     }));
+    setExpandedWebsiteSchemaGroups((current) => new Set([...current, groupId]));
   };
 
   const removeWebsiteSchemaField = (groupId, fieldIndex) => {
@@ -3457,6 +3475,15 @@ const DashboardApp = ({
     });
     return counts;
   }, [websiteSchemaDraft.groups]);
+
+  const toggleWebsiteSchemaGroup = (groupId) => {
+    setExpandedWebsiteSchemaGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
 
   const saveWebsiteSchemaDraft = async () => {
     if (!selectedPropertyId) {
@@ -3641,6 +3668,224 @@ const DashboardApp = ({
       setHeatmapSiteError(error.message || 'Unable to save tracking site setup.');
     } finally {
       setHeatmapSiteSaving(false);
+    }
+  };
+
+  const generateRecommendations = async () => {
+    if (!selectedPropertyId || isAllPropertiesSelected) {
+      setRecommendationsError('Choose a single property before generating recommendations.');
+      return;
+    }
+    if (!RECOMMENDATIONS_GENERATE_URL) {
+      setRecommendationsError('Recommendations endpoint is not configured.');
+      return;
+    }
+
+    setRecommendationsLoading(true);
+    setRecommendationsError(null);
+
+    try {
+      const response = await authFetch(RECOMMENDATIONS_GENERATE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
+          property_name: selectedProperty?.name || selectedPropertyLabel,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+          siteKey: heatmapSiteDraft.siteKey || undefined,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Recommendation generation failed: ${response.status}`);
+      }
+      setRecommendationsData(payload);
+    } catch (error) {
+      console.error('Recommendation generation failed', error);
+      setRecommendationsError(error.message || 'Unable to generate recommendations.');
+    } finally {
+      setRecommendationsLoading(false);
+    }
+  };
+
+  const submitRecommendationFeedback = async (recommendation, feedbackType) => {
+    const recommendationId = recommendation?.storedRecommendationId;
+    if (!recommendationId) {
+      setRecommendationsError('This recommendation was not stored yet, so feedback cannot be saved.');
+      return;
+    }
+    if (!selectedPropertyId || isAllPropertiesSelected) {
+      setRecommendationsError('Choose a single property before saving recommendation feedback.');
+      return;
+    }
+    if (!RECOMMENDATIONS_BASE_URL) {
+      setRecommendationsError('Recommendations feedback endpoint is not configured.');
+      return;
+    }
+
+    setRecommendationsError(null);
+    setRecommendationFeedbackLoading((current) => ({ ...current, [recommendationId]: feedbackType }));
+
+    try {
+      const response = await authFetch(`${RECOMMENDATIONS_BASE_URL}/${recommendationId}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
+          feedback_type: feedbackType,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Feedback save failed: ${response.status}`);
+      }
+
+      setRecommendationsData((current) => {
+        if (!current?.recommendations) return current;
+        return {
+          ...current,
+          recommendations: current.recommendations.map((item) => {
+            if (item.storedRecommendationId !== recommendationId) return item;
+            return {
+              ...item,
+              status: payload?.recommendation?.status || item.status,
+              latestFeedbackType: payload?.recommendation?.latestFeedbackType || feedbackType,
+              usefulCount: payload?.recommendation?.usefulCount ?? item.usefulCount,
+              notUsefulCount: payload?.recommendation?.notUsefulCount ?? item.notUsefulCount,
+            };
+          }),
+        };
+      });
+    } catch (error) {
+      console.error('Recommendation feedback save failed', error);
+      setRecommendationsError(error.message || 'Unable to save recommendation feedback.');
+    } finally {
+      setRecommendationFeedbackLoading((current) => {
+        const next = { ...current };
+        delete next[recommendationId];
+        return next;
+      });
+    }
+  };
+
+  const createTaskFromRecommendation = async (recommendation) => {
+    const recommendationId = recommendation?.storedRecommendationId;
+    if (!recommendationId) {
+      setRecommendationsError('This recommendation was not stored yet, so a task cannot be created.');
+      return;
+    }
+    if (!selectedPropertyId || isAllPropertiesSelected) {
+      setRecommendationsError('Choose a single property before creating a recommendation task.');
+      return;
+    }
+
+    setRecommendationsError(null);
+    setRecommendationFeedbackLoading((current) => ({ ...current, [recommendationId]: 'task' }));
+
+    try {
+      const response = await authFetch(`${RECOMMENDATIONS_BASE_URL}/${recommendationId}/task`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property_id: selectedPropertyId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Task creation failed: ${response.status}`);
+      }
+      if (payload.task) {
+        const savedTask = normalizeTaskRecord({
+          id: payload.task.id,
+          owner_user_id: currentUser?.id,
+          property_id: payload.task.propertyId,
+          title: payload.task.title,
+          description: payload.task.description,
+          notes: payload.task.notes,
+          due_date: payload.task.dueDate,
+          status: payload.task.status,
+          created_at: payload.task.createdAt,
+          updated_at: payload.task.updatedAt,
+        });
+        setTasks((current) => current.some((task) => task.id === savedTask.id) ? current : [savedTask, ...current]);
+      }
+      setRecommendationsData((current) => {
+        if (!current?.recommendations) return current;
+        return {
+          ...current,
+          recommendations: current.recommendations.map((item) => (
+            item.storedRecommendationId === recommendationId
+              ? {
+                  ...item,
+                  taskId: payload?.recommendation?.taskId || item.taskId,
+                  status: payload?.recommendation?.status || item.status,
+                  latestFeedbackType: payload?.recommendation?.latestFeedbackType || item.latestFeedbackType,
+                  implementationStatus: payload?.recommendation?.implementationStatus || item.implementationStatus,
+                }
+              : item
+          )),
+        };
+      });
+    } catch (error) {
+      console.error('Recommendation task creation failed', error);
+      setRecommendationsError(error.message || 'Unable to create a task from this recommendation.');
+    } finally {
+      setRecommendationFeedbackLoading((current) => {
+        const next = { ...current };
+        delete next[recommendationId];
+        return next;
+      });
+    }
+  };
+
+  const reviewRecommendationImpact = async (recommendation) => {
+    const recommendationId = recommendation?.storedRecommendationId;
+    if (!recommendationId) {
+      setRecommendationsError('This recommendation was not stored yet, so impact cannot be reviewed.');
+      return;
+    }
+    if (!selectedPropertyId || isAllPropertiesSelected) {
+      setRecommendationsError('Choose a single property before reviewing recommendation impact.');
+      return;
+    }
+
+    setRecommendationsError(null);
+    setRecommendationFeedbackLoading((current) => ({ ...current, [recommendationId]: 'impact' }));
+
+    try {
+      const response = await authFetch(`${RECOMMENDATIONS_BASE_URL}/${recommendationId}/impact-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property_id: selectedPropertyId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Impact review failed: ${response.status}`);
+      }
+      setRecommendationsData((current) => {
+        if (!current?.recommendations) return current;
+        return {
+          ...current,
+          recommendations: current.recommendations.map((item) => (
+            item.storedRecommendationId === recommendationId
+              ? {
+                  ...item,
+                  implementationStatus: payload?.recommendation?.implementationStatus || item.implementationStatus,
+                  implementationReview: payload?.recommendation?.implementationReview || item.implementationReview,
+                  implementationReviewedAt: payload?.recommendation?.implementationReviewedAt || item.implementationReviewedAt,
+                }
+              : item
+          )),
+        };
+      });
+    } catch (error) {
+      console.error('Recommendation impact review failed', error);
+      setRecommendationsError(error.message || 'Unable to review recommendation impact.');
+    } finally {
+      setRecommendationFeedbackLoading((current) => {
+        const next = { ...current };
+        delete next[recommendationId];
+        return next;
+      });
     }
   };
 
@@ -7103,6 +7348,188 @@ const DashboardApp = ({
     </div>
   );
 
+  const renderRecommendations = () => {
+    const recommendations = Array.isArray(recommendationsData?.recommendations) ? recommendationsData.recommendations : [];
+    const analyticsLoaded = recommendationsData?.contextSummary?.analyticsLoaded || {};
+    const websiteLoaded = recommendationsData?.contextSummary?.websiteLoaded || {};
+    const learningSummary = recommendationsData?.learningSummary || {};
+    const sourceLabels = [
+      analyticsLoaded.ga4 ? 'GA4' : null,
+      analyticsLoaded.googleAds ? 'Google Ads' : null,
+      analyticsLoaded.metaAds ? 'Meta Ads' : null,
+      analyticsLoaded.reputation ? 'Reputation' : null,
+      websiteLoaded.heatmap ? 'Heatmaps' : null,
+      websiteLoaded.siteAudit ? 'Site Audit' : null,
+    ].filter(Boolean);
+
+    return (
+      <div className="recommendations-view">
+        <div className="recommendations-hero">
+          <div>
+            <div className="recommendations-kicker">AI recommendations</div>
+            <h2 className="recommendations-headline">{selectedPropertyLabel}</h2>
+            <p className="recommendations-copy">
+              Leasing, spend, paid media, website behavior, audit findings, and reputation context in one readout.
+            </p>
+          </div>
+          <div className="recommendations-action-panel">
+            <div className="recommendations-window">
+              {formatDateInputValue(rangeDates.start)} to {formatDateInputValue(rangeDates.end)}
+            </div>
+            <button
+              type="button"
+              className="website-manager-button website-manager-button--primary"
+              onClick={generateRecommendations}
+              disabled={recommendationsLoading || !selectedPropertyId || isAllPropertiesSelected}
+            >
+              {recommendationsLoading ? 'Generating...' : 'Generate Recommendations'}
+            </button>
+          </div>
+        </div>
+
+        {recommendationsError && (
+          <div className="tasks-message tasks-message--error">{recommendationsError}</div>
+        )}
+
+        {recommendationsData?.summary && (
+          <div className="recommendations-summary">
+            <span>Executive readout</span>
+            <strong>{recommendationsData.summary}</strong>
+          </div>
+        )}
+
+        <div className="recommendations-meta-grid">
+          <div className="reports-panel">
+            <div className="reports-panel__eyebrow">Model</div>
+            <h3 className="reports-panel__title">{recommendationsData?.model || 'Ready when generated'}</h3>
+            <div className="reports-empty">
+              Structured recommendations return as priority, category, evidence, action, impact, and confidence.
+            </div>
+          </div>
+          <div className="reports-panel">
+            <div className="reports-panel__eyebrow">Context</div>
+            <h3 className="reports-panel__title">{sourceLabels.length ? sourceLabels.join(' + ') : 'Source coverage pending'}</h3>
+            <div className="reports-empty">
+              Leasing and ROI context lead the readout; cached analytics and website summaries join when available.
+            </div>
+          </div>
+          <div className="reports-panel">
+            <div className="reports-panel__eyebrow">Memory</div>
+            <h3 className="reports-panel__title">
+              {recommendationsData
+                ? `${learningSummary.positiveExampleCount || 0} preferred / ${learningSummary.negativeExampleCount || 0} suppressed`
+                : 'Feedback memory ready'}
+            </h3>
+            <div className="reports-empty">
+              Approved and useful recommendations influence future prompts; dismissed ideas are avoided when titles repeat.
+            </div>
+          </div>
+        </div>
+
+        {recommendationsLoading && (
+          <div className="recommendations-loading">Reading the property data and asking OpenAI for a structured recommendation set...</div>
+        )}
+
+        {!recommendationsLoading && recommendations.length === 0 && (
+          <div className="recommendations-empty">
+            No recommendations have been generated for this window yet.
+          </div>
+        )}
+
+        <div className="recommendations-grid">
+          {recommendations.map((recommendation) => {
+            const recommendationId = recommendation.storedRecommendationId;
+            const feedbackLoading = recommendationFeedbackLoading[recommendationId];
+            return (
+              <article key={recommendation.id} className={`recommendation-card recommendation-card--${recommendation.priority}`}>
+                <div className="recommendation-card__top">
+                  <span className={`recommendation-priority recommendation-priority--${recommendation.priority}`}>
+                    {recommendation.priority || 'medium'}
+                  </span>
+                  <span className="recommendation-category">{recommendation.category || 'general'}</span>
+                </div>
+                <h3>{recommendation.title}</h3>
+                <p>{recommendation.reasoning}</p>
+                {recommendation.suggestedAction && (
+                  <div className="recommendation-action">
+                    <span>Suggested action</span>
+                    <strong>{recommendation.suggestedAction}</strong>
+                  </div>
+                )}
+                {recommendation.expectedImpact && (
+                  <div className="recommendation-impact">{recommendation.expectedImpact}</div>
+                )}
+                {Array.isArray(recommendation.evidence) && recommendation.evidence.length > 0 && (
+                  <div className="recommendation-evidence">
+                    <span>Evidence</span>
+                    {recommendation.evidence.slice(0, 4).map((item, index) => (
+                      <div key={`${recommendation.id}-evidence-${index}`}>{item}</div>
+                    ))}
+                  </div>
+                )}
+                <div className="recommendation-feedback">
+                  <button
+                    type="button"
+                    className={recommendation.status === 'approved' ? 'is-active' : ''}
+                    onClick={() => submitRecommendationFeedback(recommendation, 'approve')}
+                    disabled={Boolean(feedbackLoading)}
+                  >
+                    {feedbackLoading === 'approve' ? 'Saving...' : 'Approve'}
+                  </button>
+                  <button
+                    type="button"
+                    className={recommendation.latestFeedbackType === 'useful' ? 'is-active' : ''}
+                    onClick={() => submitRecommendationFeedback(recommendation, 'useful')}
+                    disabled={Boolean(feedbackLoading)}
+                  >
+                    {feedbackLoading === 'useful' ? 'Saving...' : 'Useful'}
+                  </button>
+                  <button
+                    type="button"
+                    className={recommendation.status === 'dismissed' ? 'is-active is-dismissed' : ''}
+                    onClick={() => submitRecommendationFeedback(recommendation, 'dismiss')}
+                    disabled={Boolean(feedbackLoading)}
+                  >
+                    {feedbackLoading === 'dismiss' ? 'Saving...' : 'Dismiss'}
+                  </button>
+                  <button
+                    type="button"
+                    className={recommendation.taskId ? 'is-active' : ''}
+                    onClick={() => createTaskFromRecommendation(recommendation)}
+                    disabled={Boolean(feedbackLoading)}
+                  >
+                    {feedbackLoading === 'task' ? 'Creating...' : recommendation.taskId ? 'Task Linked' : 'Create Task'}
+                  </button>
+                  <button
+                    type="button"
+                    className={recommendation.implementationStatus && !['not_started', 'task_created'].includes(recommendation.implementationStatus) ? 'is-active' : ''}
+                    onClick={() => reviewRecommendationImpact(recommendation)}
+                    disabled={Boolean(feedbackLoading)}
+                  >
+                    {feedbackLoading === 'impact' ? 'Reviewing...' : 'Review Impact'}
+                  </button>
+                </div>
+                {recommendation.implementationReview?.summary && (
+                  <div className={`recommendation-impact-review recommendation-impact-review--${recommendation.implementationStatus || 'inconclusive'}`}>
+                    <span>{recommendation.implementationStatus === 'worked' ? 'Worked' : recommendation.implementationStatus === 'did_not_move_metric' ? 'Did not move metric' : 'Impact review'}</span>
+                    <strong>{recommendation.implementationReview.summary}</strong>
+                    {Array.isArray(recommendation.implementationReview.metricMovement) && recommendation.implementationReview.metricMovement.length > 0 && (
+                      <div>{recommendation.implementationReview.metricMovement.slice(0, 2).join(' | ')}</div>
+                    )}
+                  </div>
+                )}
+                <div className="recommendation-card__footer">
+                  <span>{Array.isArray(recommendation.sourceAreas) ? recommendation.sourceAreas.join(' / ') : 'Source context'}</span>
+                  <strong>{recommendation.confidence ? `${Math.round(Number(recommendation.confidence) * 100)}% confidence` : 'Confidence pending'}</strong>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const renderTasks = () => (
     <div className="tasks-view">
       <div className="tasks-hero">
@@ -8034,8 +8461,17 @@ const DashboardApp = ({
         ) : (
           <>
             {websiteSchemaDraft.groups.map((group) => (
-              <div key={group.id} className="website-schema-group">
+              <div key={group.id} className={`website-schema-group ${expandedWebsiteSchemaGroups.has(group.id) ? 'is-expanded' : 'is-collapsed'}`}>
                 <div className="website-schema-group__top">
+                  <button
+                    type="button"
+                    className="website-schema-icon-button website-schema-group__toggle"
+                    onClick={() => toggleWebsiteSchemaGroup(group.id)}
+                    aria-expanded={expandedWebsiteSchemaGroups.has(group.id)}
+                    title={expandedWebsiteSchemaGroups.has(group.id) ? 'Collapse group' : 'Expand group'}
+                  >
+                    {expandedWebsiteSchemaGroups.has(group.id) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                  </button>
                   <label className="admin-access-field website-schema-group__label">
                     <span>Group label</span>
                     <input
@@ -8056,6 +8492,7 @@ const DashboardApp = ({
                   </div>
                 </div>
 
+                {expandedWebsiteSchemaGroups.has(group.id) && (
                 <div className="website-schema-field-list">
                   {group.fields.map((field, fieldIndex) => (
                     <div key={`${group.id}-${fieldIndex}`} className="website-schema-field-card">
@@ -8110,6 +8547,7 @@ const DashboardApp = ({
                     </div>
                   ))}
                 </div>
+                )}
               </div>
             ))}
 
@@ -8288,11 +8726,7 @@ const DashboardApp = ({
           )}
           <div className="header-status">
             <div className="header-status__identity">
-              <span className="header-status__meta">v2.0 - Live Entrata Data</span>
               <span className="header-status__name">{displayName}</span>
-              {currentUser?.email && (
-                <span className="header-status__email">{currentUser.email}</span>
-              )}
             </div>
             <div className="header-status__actions">
               <button
@@ -8325,9 +8759,9 @@ const DashboardApp = ({
         </div>
 
         <div className={`content-body ${activeTab === 'reports' ? 'content-body--reports' : ''}`}>
-          <div className="dashboard-title-row">
-            <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
-            {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (
+          {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (
+            <div className="dashboard-title-row">
+              <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
               <div className="global-date-controls">
                 <div className="global-date-controls__picker">
                   <div className="global-date-controls__label">Date range</div>
@@ -8378,13 +8812,14 @@ const DashboardApp = ({
                   </div>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {activeTab === 'dashboard' && renderDashboard()}
           {activeTab === 'website manager' && renderWebsiteManager()}
           {activeTab === 'property info' && renderPropertyInfo()}
           {activeTab === 'reports' && renderReports()}
+          {activeTab === 'recommendations' && renderRecommendations()}
           {activeTab === 'audit' && renderAuditCommandCenter()}
           {activeTab === 'analytics' && renderAnalytics()}
           {activeTab === 'reputation' && renderReputation()}

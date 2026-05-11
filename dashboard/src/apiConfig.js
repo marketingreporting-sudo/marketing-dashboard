@@ -19,6 +19,16 @@ export const ROI_PIPELINE_STATUS_URL = resolveApiUrl(
   '/api/roi/pipeline-status'
 );
 
+export const RECOMMENDATIONS_GENERATE_URL = resolveApiUrl(
+  import.meta.env.VITE_RECOMMENDATIONS_GENERATE_URL || '',
+  '/api/recommendations/generate'
+);
+
+export const RECOMMENDATIONS_BASE_URL = resolveApiUrl(
+  import.meta.env.VITE_RECOMMENDATIONS_BASE_URL || '',
+  '/api/recommendations'
+);
+
 export const PROPERTY_REPORTING_OVERVIEW_URL = resolveApiUrl(
   import.meta.env.VITE_PROPERTY_REPORTING_OVERVIEW_URL || '',
   '/api/reporting/property-overview'

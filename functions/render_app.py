@@ -68,6 +68,13 @@ from render_supabase_heatmaps import (
     save_heatmap_site_summary,
 )
 from render_supabase_roi import get_supabase_roi_pipeline_status_summary
+from render_recommendations import (
+    build_recommendations_training_export_summary,
+    create_recommendation_task_summary,
+    generate_recommendations_summary,
+    record_recommendation_feedback_summary,
+    review_recommendation_impact_summary,
+)
 from render_supabase_sync_state import get_supabase_sync_health_summary, get_supabase_sync_state_summary
 from render_supabase_validation import (
     SupabaseValidationConfigError,
@@ -274,6 +281,182 @@ def create_app() -> Flask:
         payload = get_supabase_roi_pipeline_status_summary(access_token=access_token)
         status_code = 200 if payload.get("status") == "ok" else 503
         return jsonify(payload), status_code
+
+    @app.route("/api/recommendations/generate", methods=["POST", "OPTIONS"])
+    def generate_recommendations():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, user = require_any_property_permission(str(property_id), ("reports.view", "analytics.view"))
+            payload = generate_recommendations_summary(
+                property_id=str(property_id),
+                property_name=request.args.get("property_name") or req_json.get("property_name") or req_json.get("propertyName"),
+                start_date_value=request.args.get("start_date") or req_json.get("start_date"),
+                end_date_value=request.args.get("end_date") or req_json.get("end_date"),
+                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
+                access_token=access_token,
+                user_id=user.get("id"),
+            )
+            return build_cors_json_response(payload)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=400)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/recommendations/<recommendation_id>/feedback", methods=["POST", "OPTIONS"])
+    def record_recommendation_feedback(recommendation_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = req_json.get("property_id") or req_json.get("propertyId")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            _access_token, user = require_property_permission(str(property_id), "reports.view")
+            payload = record_recommendation_feedback_summary(
+                recommendation_id=str(recommendation_id),
+                feedback_type=req_json.get("feedback_type") or req_json.get("feedbackType"),
+                notes=req_json.get("notes"),
+                user_id=user.get("id"),
+                expected_property_id=str(property_id),
+            )
+            return build_cors_json_response(payload)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=404)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=400)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=403)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/recommendations/<recommendation_id>/task", methods=["POST", "OPTIONS"])
+    def create_recommendation_task(recommendation_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = req_json.get("property_id") or req_json.get("propertyId")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            _access_token, user = require_property_permission(str(property_id), "tasks.view")
+            payload = create_recommendation_task_summary(
+                recommendation_id=str(recommendation_id),
+                expected_property_id=str(property_id),
+                user_id=user.get("id"),
+            )
+            return build_cors_json_response(payload)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=404)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=403)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/recommendations/<recommendation_id>/impact-review", methods=["POST", "OPTIONS"])
+    def review_recommendation_impact(recommendation_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        property_id = req_json.get("property_id") or req_json.get("propertyId")
+        if not property_id:
+            return build_cors_json_response(
+                {"status": "error", "error": "Missing required parameter: property_id", "staging_only": True},
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("reports.view", "analytics.view"))
+            payload = review_recommendation_impact_summary(
+                recommendation_id=str(recommendation_id),
+                expected_property_id=str(property_id),
+                access_token=access_token,
+            )
+            return build_cors_json_response(payload)
+        except LookupError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=404)
+        except PermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=403)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/recommendations/training-export", methods=["GET", "POST", "OPTIONS"])
+    def export_recommendation_training_examples():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        try:
+            require_platform_permission("users.manage")
+            payload = build_recommendations_training_export_summary(
+                minimum_positive_examples=int(
+                    request.args.get("minimum_positive_examples")
+                    or req_json.get("minimum_positive_examples")
+                    or req_json.get("minimumPositiveExamples")
+                    or 25
+                ),
+                limit=int(request.args.get("limit") or req_json.get("limit") or 500),
+            )
+            return build_cors_json_response(payload)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=400)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
 
     @app.route("/api/analytics/reputation", methods=["GET", "POST", "OPTIONS"])
     def staged_reputation_dashboard():

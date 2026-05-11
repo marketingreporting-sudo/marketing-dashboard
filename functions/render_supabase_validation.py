@@ -28,6 +28,8 @@ VALIDATION_TABLES = (
     "property_site_audits",
     "property_heatmap_daily_cells",
     "property_site_page_daily_summaries",
+    "ai_recommendations",
+    "ai_recommendation_feedback",
 )
 
 
