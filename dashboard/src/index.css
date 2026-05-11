@@ -6619,13 +6619,41 @@ th {
 }
 
 .admin-access-banner--info {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
   border-color: rgba(238, 132, 19, 0.28);
   background: rgba(84, 49, 18, 0.28);
 }
 
-.admin-access-banner a {
+.admin-access-banner__label {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.admin-access-banner__link-text {
+  min-width: 0;
+  flex: 1 1 auto;
   color: var(--primary-white);
   word-break: break-all;
+}
+
+.admin-access-banner__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--primary-white);
+  padding: 0.45rem 0.7rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-access-banner__copy:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .admin-access-layout {

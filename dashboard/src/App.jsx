@@ -70,6 +70,8 @@ import {
   MessageSquareText,
   Globe,
   Mail,
+  Copy,
+  Check,
   KeyRound,
   UserRound,
   X,
@@ -1407,6 +1409,7 @@ const DashboardApp = ({
   const [adminAccessNotice, setAdminAccessNotice] = useState(null);
   const [adminInviteLink, setAdminInviteLink] = useState('');
   const [adminPasswordResetLink, setAdminPasswordResetLink] = useState('');
+  const [adminCopiedLinkType, setAdminCopiedLinkType] = useState('');
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminRoles, setAdminRoles] = useState([]);
   const [adminProperties, setAdminProperties] = useState([]);
@@ -7812,6 +7815,7 @@ const DashboardApp = ({
     setAdminAccessLoading(true);
     setAdminAccessError(null);
     setAdminAccessNotice(null);
+    setAdminCopiedLinkType('');
     setAdminInviteLink('');
     setAdminPasswordResetLink('');
 
@@ -7858,6 +7862,7 @@ const DashboardApp = ({
     setAdminAccessLoading(true);
     setAdminAccessError(null);
     setAdminAccessNotice(null);
+    setAdminCopiedLinkType('');
     setAdminInviteLink('');
     setAdminPasswordResetLink('');
 
@@ -7880,6 +7885,20 @@ const DashboardApp = ({
     } catch (error) {
       setAdminAccessError(error.message || 'Unable to create a password reset link.');
       setAdminAccessLoading(false);
+    }
+  };
+
+  const copyAdminAccessLink = async (link, linkType) => {
+    if (!link) return;
+
+    try {
+      await navigator.clipboard.writeText(link);
+      setAdminCopiedLinkType(linkType);
+      window.setTimeout(() => {
+        setAdminCopiedLinkType((current) => current === linkType ? '' : current);
+      }, 1800);
+    } catch {
+      setAdminAccessError('Unable to copy the link. Select the link text and copy it manually.');
     }
   };
 
@@ -8234,13 +8253,35 @@ const DashboardApp = ({
 
       {adminInviteLink && (
         <div className="admin-access-banner admin-access-banner--info">
-          Invite link: <span>{adminInviteLink}</span>
+          <span className="admin-access-banner__label">Invite link:</span>
+          <span className="admin-access-banner__link-text">{adminInviteLink}</span>
+          <button
+            type="button"
+            className="admin-access-banner__copy"
+            onClick={() => copyAdminAccessLink(adminInviteLink, 'invite')}
+            title="Copy invite link"
+            aria-label="Copy invite link"
+          >
+            {adminCopiedLinkType === 'invite' ? <Check size={16} /> : <Copy size={16} />}
+            <span>{adminCopiedLinkType === 'invite' ? 'Copied' : 'Copy'}</span>
+          </button>
         </div>
       )}
 
       {adminPasswordResetLink && (
         <div className="admin-access-banner admin-access-banner--info">
-          Password reset link: <span>{adminPasswordResetLink}</span>
+          <span className="admin-access-banner__label">Password reset link:</span>
+          <span className="admin-access-banner__link-text">{adminPasswordResetLink}</span>
+          <button
+            type="button"
+            className="admin-access-banner__copy"
+            onClick={() => copyAdminAccessLink(adminPasswordResetLink, 'reset')}
+            title="Copy password reset link"
+            aria-label="Copy password reset link"
+          >
+            {adminCopiedLinkType === 'reset' ? <Check size={16} /> : <Copy size={16} />}
+            <span>{adminCopiedLinkType === 'reset' ? 'Copied' : 'Copy'}</span>
+          </button>
         </div>
       )}
 
