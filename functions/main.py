@@ -37,6 +37,7 @@ from google.analytics.data_v1beta.types import (
     RunReportRequest,
 )
 from property_catalog import ALL_PROPERTY_IDS, PROPERTY_PORTFOLIO_BY_ID
+from opiniion_property_map import OPINIION_PROPERTY_MAP_BY_ID
 
 ENTRATA_PROPERTY_ID = int(os.environ.get("ENTRATA_PROPERTY_ID", "100135280"))
 ENTRATA_STUDENT_ORG_SLUG = os.environ.get("ENTRATA_STUDENT_ORG_SLUG", "redstoneresidential")
@@ -2848,7 +2849,50 @@ def fetch_opiniion_reviews(location_id, api_key, start_ms=None, end_ms=None):
     reviews = payload.get("reviews") or []
     return reviews if isinstance(reviews, list) else []
 
+def get_canonical_opiniion_mapping(property_id):
+    mapped = OPINIION_PROPERTY_MAP_BY_ID.get(str(property_id))
+    if not isinstance(mapped, dict):
+        return None
+    location_id = str(mapped.get("locationId") or "").strip()
+    location_name = str(mapped.get("locationName") or "").strip()
+    if not location_id and not location_name:
+        return None
+    return {
+        "locationId": location_id,
+        "locationName": location_name,
+    }
+
 def resolve_opiniion_location(property_id, property_data, available_locations, explicit_location_id=None, explicit_location_name=None, property_name=None, property_city=None):
+    canonical_mapping = get_canonical_opiniion_mapping(property_id)
+    if canonical_mapping:
+        canonical_location_id = canonical_mapping.get("locationId")
+        if canonical_location_id:
+            for location in available_locations:
+                if location["locationId"] == canonical_location_id:
+                    return location
+            raise ValueError(
+                f"Canonical Opiniion location {canonical_location_id} for property {property_id} "
+                "was not returned for the configured user."
+            )
+
+        canonical_location_name = canonical_mapping.get("locationName")
+        if canonical_location_name:
+            target = normalize_matching_text(canonical_location_name)
+            exact_name_matches = [
+                location for location in available_locations
+                if normalize_matching_text(location.get("name")) == target
+            ]
+            if len(exact_name_matches) == 1:
+                return exact_name_matches[0]
+            if len(exact_name_matches) > 1:
+                raise ValueError(
+                    f"Canonical Opiniion name '{canonical_location_name}' matched multiple locations for property {property_id}."
+                )
+            raise ValueError(
+                f"Canonical Opiniion name '{canonical_location_name}' for property {property_id} "
+                "was not returned for the configured user."
+            )
+
     if explicit_location_id:
         explicit = str(explicit_location_id)
         for location in available_locations:
@@ -2989,10 +3033,16 @@ def fetch_opiniion_reputation_payload(property_id, location_id=None, location_na
     normalized["overview"]["averageRating"] = parse_numeric_candidate(location_details.get("currentGoogleRating"))
     normalized["overview"]["reviewCount"] = len(reviews)
     normalized["recentReviews"] = map_opiniion_reviews(reviews, resolved_location["locationId"])
+    canonical_mapping = get_canonical_opiniion_mapping(property_id)
     normalized["summary"] = [
         f"Matched Opiniion location: {resolved_location.get('name')} ({resolved_location['locationId']})",
         f"Fetched {len(reviews)} reviews in the selected window.",
     ]
+    if canonical_mapping:
+        normalized["summary"].insert(
+            0,
+            f"Used canonical property mapping for Entrata property {property_id}.",
+        )
     normalized["rawTopLevelKeys"] = ["location", "reviews"]
     return normalized
 
