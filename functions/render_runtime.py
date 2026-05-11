@@ -1000,8 +1000,6 @@ def build_lead_index(property_id: int, lookback_days: int = legacy.LEASE_ATTRIBU
 
     for row in rows:
         lead_data = dict(row.get("raw_data") or {})
-        if legacy.is_guest_card_record(lead_data):
-            continue
         identifiers = legacy.get_collection_identifiers(lead_data, legacy.LEAD_IDENTIFIER_KEYS)
         contact_fields = legacy.extract_lead_contact_fields(lead_data)
         if not identifiers and not any(contact_fields.values()):
@@ -1344,9 +1342,7 @@ def get_retry_jobs(limit: int) -> list[dict[str, Any]]:
 
 
 def sync_property_date(property_id: int, date_str: str) -> None:
-    legacy.fetch_leads_for_date(property_id, date_str)
     legacy.fetch_events_for_date(property_id, date_str)
-    legacy.fetch_leases_for_date(property_id, date_str)
     legacy.fetch_invoices_for_date(property_id, date_str)
     # Keep daily refresh focused on the core reporting entities. Availability
     # requests are handled by dedicated jobs and have known Entrata quirks that
@@ -1354,9 +1350,7 @@ def sync_property_date(property_id: int, date_str: str) -> None:
 
 
 def sync_property_date_for_roi(property_id: int, date_str: str) -> None:
-    legacy.fetch_leads_for_date(property_id, date_str)
     legacy.fetch_events_for_date(property_id, date_str)
-    legacy.fetch_leases_for_date(property_id, date_str)
     legacy.fetch_invoices_for_date(property_id, date_str)
 
 
@@ -2247,14 +2241,14 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
     default_property_id = int(legacy.ENTRATA_PROPERTY_ID)
 
     if job_name == "fetch_daily_entrata_leads":
-        legacy.fetch_leads_for_date(default_property_id, today_str)
-        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "leads"}
+        legacy.fetch_events_for_date(default_property_id, today_str)
+        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "lead_events"}
     elif job_name == "fetch_daily_entrata_events":
         legacy.fetch_events_for_date(default_property_id, today_str)
         result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "events"}
     elif job_name == "fetch_daily_entrata_leases":
-        legacy.fetch_leases_for_date(default_property_id, today_str)
-        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "leases"}
+        legacy.fetch_events_for_date(default_property_id, today_str)
+        result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "lead_events"}
     elif job_name == "fetch_daily_entrata_invoices":
         legacy.fetch_invoices_for_date(default_property_id, today_str)
         result = {"scope": "default_property_canary", "property_id": default_property_id, "date": today_str, "dataset": "invoices"}

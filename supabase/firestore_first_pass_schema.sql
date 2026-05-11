@@ -491,8 +491,15 @@ select
   snapshot.property_id,
   snapshot.activity_date,
   count(distinct lead.id) as lead_count,
-  count(distinct event.id) filter (where event.type_id = 12) as application_count,
-  count(distinct event.id) filter (where event.type_id = 13) as lease_event_count,
+  count(distinct event.id) filter (
+    where event.type_id = 12
+      and lower(coalesce(event.event_reason, event.event_type, '')) like '%application%completed%'
+  ) as application_count,
+  count(distinct event.id) filter (
+    where event.type_id = 13
+      and lower(coalesce(event.event_reason, event.event_type, '')) like '%lease status%approved%'
+      and lower(coalesce(event.event_reason, event.event_type, '')) not like '%renewal lease%'
+  ) as lease_event_count,
   coalesce(sum(invoice.amount), 0) as invoice_amount
 from public.property_daily_snapshots snapshot
 left join public.property_leads lead on lead.property_snapshot_id = snapshot.id

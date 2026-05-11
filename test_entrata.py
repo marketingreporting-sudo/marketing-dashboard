@@ -36,14 +36,13 @@ def test_entrata_sync():
         "auth": {"type": "apikey"},
         "requestId": "15",
         "method": {
-            "name": "getLeads",
+            "name": "getLeadEvents",
             "version": "r1",
             "params": {
                 "propertyId": PROPERTY_ID,
-                "includeDemographics": "0",
-                "fromDate": today_str,
-                "toDate": today_str,
-                "excludeAmenities": "0"
+                "eventTypeIds": "1,3,7,9,10,70,78,12,13,21",
+                "eventDateFrom": today_str,
+                "eventDateTo": today_str
             }
         }
     }

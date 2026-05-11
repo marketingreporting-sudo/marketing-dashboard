@@ -47,7 +47,7 @@ OPINIION_API_BASE_URL = os.environ.get("OPINIION_API_BASE_URL", "https://api.opi
 OPINIION_LOCATION_FIELD = os.environ.get("OPINIION_LOCATION_FIELD", "opiniionLocationId")
 
 DOCUMENT_ID_CANDIDATES = {
-    "leads": ["leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID", "id"],
+    "leads": ["leadEventId", "eventId", "eventID", "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID", "id"],
     "events": ["eventId", "eventID", "id"],
     "leases": ["leaseId", "leaseID", "residentLeaseId", "residentLeaseID", "recordId", "id"],
     "invoices": ["invoiceId", "invoiceID", "arInvoiceId", "arInvoiceID", "referenceNumber", "id"],
@@ -56,6 +56,9 @@ DOCUMENT_ID_CANDIDATES = {
 }
 
 LEAD_EVENT_TYPE_IDS = "1,3,7,9,10,70,78,12,13,21"
+ONLINE_GUEST_CARD_EVENT_TYPE_ID = 10
+APPLICATION_PROGRESS_EVENT_TYPE_ID = 12
+LEASE_PROGRESS_EVENT_TYPE_ID = 13
 MARKETING_GL_ACCOUNT_FROM = os.environ.get("MARKETING_GL_ACCOUNT_FROM", "5300-0010")
 MARKETING_GL_ACCOUNT_TO = os.environ.get("MARKETING_GL_ACCOUNT_TO", "5300-0410")
 APP_TIMEZONE = ZoneInfo(os.environ.get("APP_TIMEZONE", "America/Denver"))
@@ -600,6 +603,40 @@ def recursively_find_first_value(value, candidate_keys):
 def is_guest_card_record(record):
     search_space = " ".join(collect_primitive_values(record)).lower()
     return "guest card" in search_space or "guestcard" in search_space
+
+def get_event_type_id(event):
+    value = event.get("typeId")
+    try:
+        return int(value) if value not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+def get_event_reason_text(event):
+    return str(first_non_empty(event.get("eventReason"), event.get("type"), event.get("name"), "")).strip().lower()
+
+def normalize_event_reason_for_match(event):
+    return re.sub(r"\s+", " ", get_event_reason_text(event).replace(" :", ":")).strip()
+
+def is_online_guest_card_event(event):
+    if get_event_type_id(event) == ONLINE_GUEST_CARD_EVENT_TYPE_ID:
+        return True
+    reason = normalize_event_reason_for_match(event)
+    return "online guest card" in reason or "guest card" in reason
+
+def is_completed_application_event(event):
+    if get_event_type_id(event) != APPLICATION_PROGRESS_EVENT_TYPE_ID:
+        return False
+    reason = normalize_event_reason_for_match(event)
+    return (
+        "application status: completed" in reason
+        or "application: completed" in reason
+    )
+
+def is_new_lease_approved_event(event):
+    if get_event_type_id(event) != LEASE_PROGRESS_EVENT_TYPE_ID:
+        return False
+    reason = normalize_event_reason_for_match(event)
+    return "lease status: approved" in reason and "renewal lease" not in reason
 
 def collect_primitive_values(value):
     if isinstance(value, list):
@@ -3626,19 +3663,36 @@ def fetch_paginated_leases_for_range(property_id, params, per_page=LEASE_ATTRIBU
 
     return all_items, last_meta
 
-def fetch_leads_for_date(property_id, date_str):
-    params = {
-        "propertyId": property_id,
-        "fromDate": date_str,
-        "toDate": date_str,
-        "includeDemographics": "0",
-        "excludeAmenities": "0"
+def build_lead_event_record(event, prospect_context):
+    prospect_ids = {
+        key: prospect_context.get(key)
+        for key in [
+            "leadId",
+            "leadID",
+            "prospectId",
+            "prospectID",
+            "customerId",
+            "customerID",
+            "id",
+        ]
+        if prospect_context.get(key) not in (None, "")
     }
-    result = make_entrata_request("getLeads", "v1/leads", params, property_id)
-    
-    # Entrata returns prospects as a list containing a dict with a prospect list
-    items = extract_nested_items(result, "prospects", "prospect")
-    save_raw_data(property_id, "leads", items, date_str)
+    event_id = first_non_empty(event.get("eventId"), event.get("eventID"), event.get("id"))
+    return {
+        **prospect_context,
+        **event,
+        **prospect_ids,
+        "leadEventId": event_id,
+        "leadId": first_non_empty(prospect_context.get("leadId"), prospect_context.get("leadID"), event_id),
+        "source": get_lead_source({**prospect_context, **event}),
+        "_sourceApi": "getLeadEvents",
+        "_sourceEventType": "online_guest_card",
+    }
+
+def fetch_leads_for_date(property_id, date_str):
+    # Compatibility wrapper: lead rows now come from Online Guest Card events in
+    # getLeadEvents, so callers should fetch events once for the date.
+    fetch_events_for_date(property_id, date_str)
 
 def fetch_events_for_date(property_id, date_str):
     params = {
@@ -3655,18 +3709,34 @@ def fetch_events_for_date(property_id, date_str):
         items = [items]
 
     flattened_events = []
+    flattened_leads = []
     for prospect in items:
+        prospect_context = {
+            key: value
+            for key, value in prospect.items()
+            if key != "events"
+        }
         application_id = prospect.get("applicationId")
         nested_events = prospect.get("events", {}).get("event", [])
         if isinstance(nested_events, dict):
             nested_events = [nested_events]
 
         for event in nested_events:
-            flattened_events.append({
+            event_record = {
                 **event,
-                "applicationId": application_id
-            })
+                **{
+                    f"prospect_{key}": value
+                    for key, value in prospect_context.items()
+                    if key not in event
+                },
+                "applicationId": application_id,
+                "_sourceApi": "getLeadEvents",
+            }
+            flattened_events.append(event_record)
+            if is_online_guest_card_event(event):
+                flattened_leads.append(build_lead_event_record(event, prospect_context))
 
+    save_raw_data(property_id, "leads", flattened_leads, date_str)
     save_raw_data(property_id, "events", flattened_events, date_str)
 
 def fetch_leases_for_date(property_id, date_str):
@@ -3787,9 +3857,7 @@ def fetch_units_availability_and_pricing(property_id, move_in_start_date=None, m
     return store_property_availability_pricing(property_id, result)
 
 def sync_property_date_for_roi(property_id, date_str):
-    fetch_leads_for_date(property_id, date_str)
     fetch_events_for_date(property_id, date_str)
-    fetch_leases_for_date(property_id, date_str)
     fetch_invoices_for_date(property_id, date_str)
 
 def extract_lead_contact_fields(lead_data):
@@ -3842,8 +3910,6 @@ def build_lead_index(property_id, lookback_days=LEASE_ATTRIBUTION_LEAD_LOOKBACK_
         for lead_snapshot in parent_snapshot.reference.collection("leads").stream():
             wrapper = lead_snapshot.to_dict() or {}
             lead_data = wrapper.get("data", {}) or {}
-            if is_guest_card_record(lead_data):
-                continue
             identifiers = get_collection_identifiers(lead_data, LEAD_IDENTIFIER_KEYS)
             contact_fields = extract_lead_contact_fields(lead_data)
             if not identifiers and not any(contact_fields.values()):
@@ -4760,9 +4826,7 @@ def get_roi_pipeline_status_payload():
     }
 
 def sync_property_date(property_id, date_str):
-    fetch_leads_for_date(property_id, date_str)
     fetch_events_for_date(property_id, date_str)
-    fetch_leases_for_date(property_id, date_str)
     fetch_invoices_for_date(property_id, date_str)
     # Keep daily refresh focused on the core reporting entities. Availability
     # requests are handled by dedicated jobs and have known Entrata quirks that
@@ -5044,6 +5108,14 @@ def save_raw_data(property_id, subcollection_name, item_list, date_str):
     subcol_ref = parent_ref.collection(subcollection_name)
     batch = db.batch()
     count = 0
+
+    for existing_doc in subcol_ref.stream():
+        batch.delete(existing_doc.reference)
+        count += 1
+        if count >= 450:
+            batch.commit()
+            batch = db.batch()
+            count = 0
     
     for index, item in enumerate(item_list):
         if not item: continue
@@ -5103,7 +5175,7 @@ def get_target_property_ids(req=None):
 def fetch_daily_entrata_leads_scheduled(event: scheduler_fn.ScheduledEvent) -> None:
     init_firebase()
     today_str = datetime.datetime.now().strftime("%m/%d/%Y")
-    fetch_leads_for_date(ENTRATA_PROPERTY_ID, today_str)
+    fetch_events_for_date(ENTRATA_PROPERTY_ID, today_str)
 
 @scheduler_fn.on_schedule(schedule="0 2 * * *", timezone="America/Denver", secrets=["ENTRATA_API_KEY", "ENTRATA_API_KEY_MULTIFAMILY"])
 def fetch_daily_entrata_events_scheduled(event: scheduler_fn.ScheduledEvent) -> None:
@@ -5115,7 +5187,7 @@ def fetch_daily_entrata_events_scheduled(event: scheduler_fn.ScheduledEvent) -> 
 def fetch_daily_entrata_leases_scheduled(event: scheduler_fn.ScheduledEvent) -> None:
     init_firebase()
     today_str = datetime.datetime.now().strftime("%m/%d/%Y")
-    fetch_leases_for_date(ENTRATA_PROPERTY_ID, today_str)
+    fetch_events_for_date(ENTRATA_PROPERTY_ID, today_str)
 
 @scheduler_fn.on_schedule(schedule="0 2 * * *", timezone="America/Denver", secrets=["ENTRATA_API_KEY", "ENTRATA_API_KEY_MULTIFAMILY"])
 def fetch_daily_entrata_invoices_scheduled(event: scheduler_fn.ScheduledEvent) -> None:
@@ -5226,9 +5298,7 @@ def trigger_entrata_backfill(req: https_fn.Request) -> https_fn.Response:
             d_str = d.strftime("%m/%d/%Y")
             print(f"Backfilling property {property_id} for {d_str} (day {i+1}/{days})...")
             try:
-                fetch_leads_for_date(property_id, d_str)
                 fetch_events_for_date(property_id, d_str)
-                fetch_leases_for_date(property_id, d_str)
                 fetch_invoices_for_date(property_id, d_str)
                 fetch_availability_for_date(property_id, d_str)
                 success_count += 1

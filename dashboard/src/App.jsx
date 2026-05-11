@@ -833,6 +833,9 @@ const getScopedStableKey = (propertyId, fallbackValue) => {
 
 const getLeadKey = (lead) => {
   const candidates = [
+    lead.leadEventId,
+    lead.eventId,
+    lead.eventID,
     lead.leadId,
     lead.leadID,
     lead.prospectId,
@@ -1033,32 +1036,20 @@ const isRenderAdapterUrl = (value) => {
 };
 
 const isStartedApplicationEvent = (event) => {
-  const reason = String(event.eventReason || event.type || '').toLowerCase();
-  return event.typeId === 12 && (
+  const reason = String(event.eventReason || event.type || '').toLowerCase().replace(/\s+:/g, ':');
+  return Number(event.typeId) === 12 && (
     reason.includes('application status:completed') ||
-    reason.includes('application status: completed')
+    reason.includes('application status: completed') ||
+    reason.includes('application: completed')
   );
 };
 
-const APPLICATION_COMPLETED_DATE_KEYS = [
-  'Application - Completed',
-  'Application Completed',
-  'applicationCompletedOn',
-  'applicationCompletedDate',
-  'applicationDateCompleted',
-  'applicationCompleted',
-  'appCompletedOn',
-  'appCompletedDate'
-];
-
-const LEASE_APPROVED_DATE_KEYS = [
-  'Lease - Approved',
-  'Lease Approved',
-  'leaseApprovedOn',
-  'leaseApprovedDate',
-  'leaseDateApproved',
-  'leaseApproved'
-];
+const isApprovedNewLeaseEvent = (event) => {
+  const reason = String(event.eventReason || event.type || '').toLowerCase().replace(/\s+:/g, ':');
+  return Number(event.typeId) === 13 &&
+    reason.includes('lease status: approved') &&
+    !reason.includes('renewal lease');
+};
 
 const EVENT_OCCURRED_DATE_KEYS = [
   'eventDate',
@@ -1070,8 +1061,6 @@ const EVENT_OCCURRED_DATE_KEYS = [
   'createdAt',
   'created_at'
 ];
-
-const getLifecycleDate = (record, dateKeys) => parseEntrataDate(findNestedValue(record, dateKeys));
 
 const isInDateRange = (date, start, end) => {
   if (!date || Number.isNaN(date.getTime())) return false;
@@ -1466,7 +1455,7 @@ const DashboardApp = ({
   // Real data state
   const [leadItems, setLeadItems] = useState([]);
   const [eventItems, setEventItems] = useState([]);
-  const [leaseItems, setLeaseItems] = useState([]);
+  const [, setLeaseItems] = useState([]);
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [availabilityPricingSnapshot, setAvailabilityPricingSnapshot] = useState(null);
   const [specialsSnapshot, setSpecialsSnapshot] = useState(null);
@@ -2934,49 +2923,35 @@ const DashboardApp = ({
       }
     });
 
-    leaseItems.forEach((lease) => {
-      const completedDate = getLifecycleDate(lease, APPLICATION_COMPLETED_DATE_KEYS);
-      if (!isInDateRange(completedDate, rangeDates.start, rangeDates.end)) return;
-      const key = getCompletedApplicationRecordKey(lease);
-      const existing = completedApplications.get(key);
-      if (!existing || completedDate < existing.sortDate) {
-        completedApplications.set(key, {
-          key,
-          sortDate: completedDate,
-          date: completedDate,
-          source: 'lease',
-          item: lease
-        });
-      }
-    });
-
     return Array.from(completedApplications.values());
-  }, [eventItems, leaseItems, rangeDates]);
+  }, [eventItems, rangeDates]);
 
   const approvedLeaseRecords = useMemo(() => {
     const approvedLeases = new Map();
 
-    leaseItems.forEach((lease) => {
-      const approvedDate = getLifecycleDate(lease, LEASE_APPROVED_DATE_KEYS);
+    eventItems.forEach((event) => {
+      if (!isApprovedNewLeaseEvent(event)) return;
+      const approvedDate = getTrueEventOccurredDate(event);
       if (!isInDateRange(approvedDate, rangeDates.start, rangeDates.end)) return;
-      const key = getApprovedLeaseRecordKey(lease);
+      const key = getApprovedLeaseRecordKey(event);
       const existing = approvedLeases.get(key);
       if (!existing || approvedDate < existing.sortDate) {
         approvedLeases.set(key, {
           key,
           sortDate: approvedDate,
           date: approvedDate,
-          item: lease
+          source: 'event',
+          item: event
         });
       }
     });
 
     return Array.from(approvedLeases.values());
-  }, [leaseItems, rangeDates]);
+  }, [eventItems, rangeDates]);
 
   const totalApplications = completedApplicationRecords.length;
   const totalLeases = approvedLeaseRecords.length;
-  const funnelMetricSource = 'Entrata completed applications + approved leases';
+  const funnelMetricSource = 'Entrata lead events: Online Guest Card, Application Status: Completed, Lease Status: Approved';
 
   const normalizedInvoiceItems = useMemo(() => {
     const uniqueInvoices = new Map();

@@ -184,11 +184,58 @@ class RoiLogicTests(unittest.TestCase):
              mock.patch.object(main, "fetch_availability_for_date") as availability:
             main.sync_property_date_for_roi(100076494, "03/31/2026")
 
-        leads.assert_called_once()
+        leads.assert_not_called()
         events.assert_called_once()
-        leases.assert_called_once()
+        leases.assert_not_called()
         invoices.assert_called_once()
         availability.assert_not_called()
+
+    def test_fetch_events_derives_leads_from_online_guest_card_events(self):
+        api_result = {
+            "prospects": {
+                "prospect": [
+                    {
+                        "prospectId": "prospect-1",
+                        "applicationId": "app-1",
+                        "firstName": "Sam",
+                        "lastName": "Resident",
+                        "leadSource": "Google Ads",
+                        "events": {
+                            "event": [
+                                {
+                                    "eventId": "event-lead",
+                                    "typeId": "10",
+                                    "eventReason": "Online Guest Card",
+                                    "eventDate": "03/31/2026",
+                                },
+                                {
+                                    "eventId": "event-app",
+                                    "typeId": "12",
+                                    "eventReason": "Application Status: Completed",
+                                    "eventDate": "03/31/2026",
+                                },
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+        with mock.patch.object(main, "make_entrata_request", return_value=api_result), \
+             mock.patch.object(main, "save_raw_data") as save_raw_data:
+            main.fetch_events_for_date(100076494, "03/31/2026")
+
+        lead_call = mock.call(100076494, "leads", mock.ANY, "03/31/2026")
+        event_call = mock.call(100076494, "events", mock.ANY, "03/31/2026")
+        self.assertIn(lead_call, save_raw_data.call_args_list)
+        self.assertIn(event_call, save_raw_data.call_args_list)
+        lead_items = save_raw_data.call_args_list[0].args[2]
+        event_items = save_raw_data.call_args_list[1].args[2]
+        self.assertEqual(len(lead_items), 1)
+        self.assertEqual(lead_items[0]["leadEventId"], "event-lead")
+        self.assertEqual(lead_items[0]["_sourceApi"], "getLeadEvents")
+        self.assertEqual(len(event_items), 2)
+        self.assertEqual(event_items[0]["prospect_prospectId"], "prospect-1")
 
     def test_meta_ads_account_ids_are_normalized_to_act_prefix(self):
         self.assertEqual(main.normalize_meta_ads_account_id("123456789"), "act_123456789")
