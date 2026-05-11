@@ -338,6 +338,7 @@ def create_app() -> Flask:
                 recommendation_id=str(recommendation_id),
                 feedback_type=req_json.get("feedback_type") or req_json.get("feedbackType"),
                 notes=req_json.get("notes"),
+                tags=req_json.get("tags") if isinstance(req_json.get("tags"), list) else [],
                 user_id=user.get("id"),
                 expected_property_id=str(property_id),
             )

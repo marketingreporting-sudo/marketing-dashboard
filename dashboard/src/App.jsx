@@ -120,6 +120,27 @@ const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
 const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
 const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
 const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
+const RECOMMENDATION_FEEDBACK_TAGS = [
+  'Wrong data',
+  'Too generic',
+  'Already done',
+  'Good idea',
+  'Not actionable',
+  'Duplicate',
+  'Needs budget approval',
+  'Worked',
+  'Did not work',
+];
+const RECOMMENDATION_IMPLEMENTATION_LABELS = {
+  not_started: 'New',
+  approved: 'Approved',
+  task_created: 'Task Created',
+  in_progress: 'In Progress',
+  complete: 'Completed',
+  worked: 'Worked',
+  did_not_move_metric: 'Did Not Move Metric',
+  inconclusive: 'Inconclusive',
+};
 const buildSetPasswordLink = (authLinkPayload, type) => {
   const tokenHash = authLinkPayload?.hashedToken;
   if (!tokenHash) {
@@ -1101,6 +1122,19 @@ const getApprovedLeaseRecordKey = (record) => {
 
 const getTrueEventOccurredDate = (event) => parseEntrataDate(findNestedValue(event, EVENT_OCCURRED_DATE_KEYS) || event._date);
 
+const getRecommendationConfidence = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return { label: 'Medium Confidence', className: 'recommendation-confidence--medium' };
+  if (numeric >= 0.75) return { label: 'High Confidence', className: 'recommendation-confidence--high' };
+  if (numeric >= 0.45) return { label: 'Medium Confidence', className: 'recommendation-confidence--medium' };
+  return { label: 'Low Confidence', className: 'recommendation-confidence--low' };
+};
+
+const getRecommendationImplementationLabel = (recommendation) => {
+  const status = recommendation?.implementationStatus || recommendation?.status || 'not_started';
+  return RECOMMENDATION_IMPLEMENTATION_LABELS[status] || RECOMMENDATION_IMPLEMENTATION_LABELS.not_started;
+};
+
 
 const formatPercent = (value, digits = 1) => {
   if (value == null || Number.isNaN(Number(value))) return '—';
@@ -1448,6 +1482,8 @@ const DashboardApp = ({
   const [recommendationsData, setRecommendationsData] = useState(null);
   const [recommendationsError, setRecommendationsError] = useState(null);
   const [recommendationFeedbackLoading, setRecommendationFeedbackLoading] = useState({});
+  const [selectedRecommendationId, setSelectedRecommendationId] = useState(null);
+  const [recommendationFeedbackDrafts, setRecommendationFeedbackDrafts] = useState({});
   const [ga4Data, setGa4Data] = useState(null);
   const [ga4Error, setGa4Error] = useState(null);
   const [googleAdsData, setGoogleAdsData] = useState(null);
@@ -3785,6 +3821,8 @@ const DashboardApp = ({
         throw new Error(payload?.error || `Recommendation generation failed: ${response.status}`);
       }
       setRecommendationsData(payload);
+      setSelectedRecommendationId(null);
+      setRecommendationFeedbackDrafts({});
     } catch (error) {
       console.error('Recommendation generation failed', error);
       setRecommendationsError(error.message || 'Unable to generate recommendations.');
@@ -3793,7 +3831,32 @@ const DashboardApp = ({
     }
   };
 
-  const submitRecommendationFeedback = async (recommendation, feedbackType) => {
+  const getRecommendationFeedbackDraft = (recommendationId) => (
+    recommendationFeedbackDrafts[recommendationId] || { feedbackType: 'useful', notes: '', tags: [] }
+  );
+
+  const updateRecommendationFeedbackDraft = (recommendationId, patch) => {
+    setRecommendationFeedbackDrafts((current) => ({
+      ...current,
+      [recommendationId]: {
+        feedbackType: 'useful',
+        notes: '',
+        tags: [],
+        ...(current[recommendationId] || {}),
+        ...patch,
+      },
+    }));
+  };
+
+  const toggleRecommendationFeedbackTag = (recommendationId, tag) => {
+    const draft = getRecommendationFeedbackDraft(recommendationId);
+    const tags = new Set(draft.tags || []);
+    if (tags.has(tag)) tags.delete(tag);
+    else tags.add(tag);
+    updateRecommendationFeedbackDraft(recommendationId, { tags: Array.from(tags) });
+  };
+
+  const submitRecommendationFeedback = async (recommendation, feedbackType, options = {}) => {
     const recommendationId = recommendation?.storedRecommendationId;
     if (!recommendationId) {
       setRecommendationsError('This recommendation was not stored yet, so feedback cannot be saved.');
@@ -3818,6 +3881,8 @@ const DashboardApp = ({
         body: JSON.stringify({
           property_id: selectedPropertyId,
           feedback_type: feedbackType,
+          notes: options.notes || '',
+          tags: Array.isArray(options.tags) ? options.tags : [],
         }),
       });
       const payload = await response.json();
@@ -3837,10 +3902,19 @@ const DashboardApp = ({
               latestFeedbackType: payload?.recommendation?.latestFeedbackType || feedbackType,
               usefulCount: payload?.recommendation?.usefulCount ?? item.usefulCount,
               notUsefulCount: payload?.recommendation?.notUsefulCount ?? item.notUsefulCount,
+              feedbackHistory: payload?.feedbackItem
+                ? [payload.feedbackItem, ...(Array.isArray(item.feedbackHistory) ? item.feedbackHistory : [])]
+                : item.feedbackHistory,
             };
           }),
         };
       });
+      if (options.clearDraft) {
+        setRecommendationFeedbackDrafts((current) => ({
+          ...current,
+          [recommendationId]: { feedbackType: 'useful', notes: '', tags: [] },
+        }));
+      }
     } catch (error) {
       console.error('Recommendation feedback save failed', error);
       setRecommendationsError(error.message || 'Unable to save recommendation feedback.');
@@ -7743,6 +7817,12 @@ const DashboardApp = ({
     const analyticsLoaded = recommendationsData?.contextSummary?.analyticsLoaded || {};
     const websiteLoaded = recommendationsData?.contextSummary?.websiteLoaded || {};
     const learningSummary = recommendationsData?.learningSummary || {};
+    const selectedRecommendation = recommendations.find((item) => (
+      item.storedRecommendationId === selectedRecommendationId || item.id === selectedRecommendationId
+    )) || null;
+    const selectedDraft = selectedRecommendation
+      ? getRecommendationFeedbackDraft(selectedRecommendation.storedRecommendationId)
+      : { feedbackType: 'useful', notes: '', tags: [] };
     const sourceLabels = [
       analyticsLoaded.ga4 ? 'GA4' : null,
       analyticsLoaded.googleAds ? 'Google Ads' : null,
@@ -7788,31 +7868,16 @@ const DashboardApp = ({
           </div>
         )}
 
-        <div className="recommendations-meta-grid">
-          <div className="reports-panel">
-            <div className="reports-panel__eyebrow">Model</div>
-            <h3 className="reports-panel__title">{recommendationsData?.model || 'Ready when generated'}</h3>
-            <div className="reports-empty">
-              Structured recommendations return as priority, category, evidence, action, impact, and confidence.
-            </div>
-          </div>
-          <div className="reports-panel">
-            <div className="reports-panel__eyebrow">Context</div>
-            <h3 className="reports-panel__title">{sourceLabels.length ? sourceLabels.join(' + ') : 'Source coverage pending'}</h3>
-            <div className="reports-empty">
-              Leasing and ROI context lead the readout; cached analytics and website summaries join when available.
-            </div>
-          </div>
-          <div className="reports-panel">
-            <div className="reports-panel__eyebrow">Memory</div>
-            <h3 className="reports-panel__title">
+        <div className="recommendations-context-strip">
+          <div><span>Model</span><strong>{recommendationsData?.model || 'Ready'}</strong></div>
+          <div><span>Context</span><strong>{sourceLabels.length ? sourceLabels.join(' + ') : 'Pending'}</strong></div>
+          <div>
+            <span>Memory</span>
+            <strong>
               {recommendationsData
                 ? `${learningSummary.positiveExampleCount || 0} preferred / ${learningSummary.negativeExampleCount || 0} suppressed`
-                : 'Feedback memory ready'}
-            </h3>
-            <div className="reports-empty">
-              Approved and useful recommendations influence future prompts; dismissed ideas are avoided when titles repeat.
-            </div>
+                : 'Ready'}
+            </strong>
           </div>
         </div>
 
@@ -7830,13 +7895,18 @@ const DashboardApp = ({
           {recommendations.map((recommendation) => {
             const recommendationId = recommendation.storedRecommendationId;
             const feedbackLoading = recommendationFeedbackLoading[recommendationId];
+            const confidence = getRecommendationConfidence(recommendation.confidence);
+            const canReviewImpact = Boolean(recommendation.taskId);
             return (
               <article key={recommendation.id} className={`recommendation-card recommendation-card--${recommendation.priority}`}>
                 <div className="recommendation-card__top">
-                  <span className={`recommendation-priority recommendation-priority--${recommendation.priority}`}>
-                    {recommendation.priority || 'medium'}
-                  </span>
-                  <span className="recommendation-category">{recommendation.category || 'general'}</span>
+                  <div className="recommendation-card__badges">
+                    <span className={`recommendation-priority recommendation-priority--${recommendation.priority}`}>
+                      {recommendation.priority || 'medium'}
+                    </span>
+                    <span className="recommendation-category">{recommendation.category || 'general'}</span>
+                  </div>
+                  <span className="recommendation-state">{getRecommendationImplementationLabel(recommendation)}</span>
                 </div>
                 <h3>{recommendation.title}</h3>
                 <p>{recommendation.reasoning}</p>
@@ -7857,7 +7927,15 @@ const DashboardApp = ({
                     ))}
                   </div>
                 )}
-                <div className="recommendation-feedback">
+                <button
+                  type="button"
+                  className="recommendation-primary-action"
+                  onClick={() => createTaskFromRecommendation(recommendation)}
+                  disabled={Boolean(feedbackLoading)}
+                >
+                  {feedbackLoading === 'task' ? 'Creating...' : recommendation.taskId ? 'Open Linked Task' : 'Create Task'}
+                </button>
+                <div className="recommendation-secondary-actions">
                   <button
                     type="button"
                     className={recommendation.status === 'approved' ? 'is-active' : ''}
@@ -7884,20 +7962,20 @@ const DashboardApp = ({
                   </button>
                   <button
                     type="button"
-                    className={recommendation.taskId ? 'is-active' : ''}
-                    onClick={() => createTaskFromRecommendation(recommendation)}
-                    disabled={Boolean(feedbackLoading)}
+                    onClick={() => setSelectedRecommendationId(recommendationId || recommendation.id)}
                   >
-                    {feedbackLoading === 'task' ? 'Creating...' : recommendation.taskId ? 'Task Linked' : 'Create Task'}
+                    Details
                   </button>
-                  <button
-                    type="button"
-                    className={recommendation.implementationStatus && !['not_started', 'task_created'].includes(recommendation.implementationStatus) ? 'is-active' : ''}
-                    onClick={() => reviewRecommendationImpact(recommendation)}
-                    disabled={Boolean(feedbackLoading)}
-                  >
-                    {feedbackLoading === 'impact' ? 'Reviewing...' : 'Review Impact'}
-                  </button>
+                  {canReviewImpact && (
+                    <button
+                      type="button"
+                      className={recommendation.implementationStatus && !['not_started', 'task_created'].includes(recommendation.implementationStatus) ? 'is-active' : ''}
+                      onClick={() => reviewRecommendationImpact(recommendation)}
+                      disabled={Boolean(feedbackLoading)}
+                    >
+                      {feedbackLoading === 'impact' ? 'Reviewing...' : 'Review Impact'}
+                    </button>
+                  )}
                 </div>
                 {recommendation.implementationReview?.summary && (
                   <div className={`recommendation-impact-review recommendation-impact-review--${recommendation.implementationStatus || 'inconclusive'}`}>
@@ -7910,12 +7988,142 @@ const DashboardApp = ({
                 )}
                 <div className="recommendation-card__footer">
                   <span>{Array.isArray(recommendation.sourceAreas) ? recommendation.sourceAreas.join(' / ') : 'Source context'}</span>
-                  <strong>{recommendation.confidence ? `${Math.round(Number(recommendation.confidence) * 100)}% confidence` : 'Confidence pending'}</strong>
+                  <strong className={confidence.className}>{confidence.label}</strong>
                 </div>
               </article>
             );
           })}
         </div>
+
+        {selectedRecommendation && (
+          <div className="recommendation-drawer" role="dialog" aria-modal="true">
+            <div className="recommendation-drawer__scrim" onClick={() => setSelectedRecommendationId(null)} />
+            <aside className="recommendation-drawer__panel">
+              <div className="recommendation-drawer__header">
+                <div>
+                  <div className="recommendations-kicker">Recommendation detail</div>
+                  <h3>{selectedRecommendation.title}</h3>
+                </div>
+                <button type="button" onClick={() => setSelectedRecommendationId(null)} aria-label="Close recommendation detail">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="recommendation-detail-grid">
+                <div><span>Status</span><strong>{getRecommendationImplementationLabel(selectedRecommendation)}</strong></div>
+                <div><span>Category</span><strong>{selectedRecommendation.category || 'general'}</strong></div>
+                <div><span>Confidence</span><strong>{getRecommendationConfidence(selectedRecommendation.confidence).label}</strong></div>
+                <div><span>Task</span><strong>{selectedRecommendation.taskId ? 'Linked' : 'Not created'}</strong></div>
+              </div>
+
+              <section className="recommendation-drawer__section">
+                <span>Full reasoning</span>
+                <p>{selectedRecommendation.reasoning || 'No reasoning returned.'}</p>
+              </section>
+
+              <section className="recommendation-drawer__section">
+                <span>Evidence</span>
+                {(selectedRecommendation.evidence || []).length ? (
+                  <div className="recommendation-drawer__list">
+                    {selectedRecommendation.evidence.map((item, index) => (
+                      <div key={`${selectedRecommendation.id}-drawer-evidence-${index}`}>{item}</div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>No evidence returned.</p>
+                )}
+              </section>
+
+              <section className="recommendation-drawer__section">
+                <span>Source data used</span>
+                <p>{(selectedRecommendation.sourceAreas || []).join(' / ') || 'Source areas unavailable.'}</p>
+                <div className="recommendation-drawer__source-grid">
+                  <div>
+                    <span>Reporting rows</span>
+                    <strong>{recommendationsData?.contextSummary?.reportingCounts?.roiDailyRows ?? 'n/a'}</strong>
+                  </div>
+                  <div>
+                    <span>Analytics</span>
+                    <strong>{sourceLabels.length ? sourceLabels.join(', ') : 'pending'}</strong>
+                  </div>
+                </div>
+              </section>
+
+              {selectedRecommendation.implementationReview?.summary && (
+                <section className="recommendation-drawer__section">
+                  <span>Before / after impact review</span>
+                  <p>{selectedRecommendation.implementationReview.summary}</p>
+                  {Array.isArray(selectedRecommendation.implementationReview.metricMovement) && (
+                    <div className="recommendation-drawer__list">
+                      {selectedRecommendation.implementationReview.metricMovement.map((item, index) => (
+                        <div key={`impact-${index}`}>{item}</div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <section className="recommendation-drawer__section">
+                <span>Feedback history</span>
+                {(selectedRecommendation.feedbackHistory || []).length ? (
+                  <div className="recommendation-feedback-history">
+                    {selectedRecommendation.feedbackHistory.map((item) => (
+                      <div key={item.id || `${item.feedbackType}-${item.createdAt}`}>
+                        <strong>{item.feedbackType}</strong>
+                        {item.tags?.length ? <small>{item.tags.join(', ')}</small> : null}
+                        {item.notes ? <p>{item.notes}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p>No feedback saved yet.</p>
+                )}
+              </section>
+
+              <section className="recommendation-drawer__section recommendation-open-feedback">
+                <span>Open-ended training feedback</span>
+                <select
+                  value={selectedDraft.feedbackType}
+                  onChange={(event) => updateRecommendationFeedbackDraft(selectedRecommendation.storedRecommendationId, { feedbackType: event.target.value })}
+                >
+                  <option value="useful">Useful</option>
+                  <option value="not_useful">Not useful</option>
+                  <option value="approve">Approve</option>
+                  <option value="dismiss">Dismiss</option>
+                </select>
+                <div className="recommendation-tag-grid">
+                  {RECOMMENDATION_FEEDBACK_TAGS.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      className={selectedDraft.tags?.includes(tag) ? 'is-active' : ''}
+                      onClick={() => toggleRecommendationFeedbackTag(selectedRecommendation.storedRecommendationId, tag)}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={selectedDraft.notes}
+                  onChange={(event) => updateRecommendationFeedbackDraft(selectedRecommendation.storedRecommendationId, { notes: event.target.value })}
+                  placeholder="What would you change? Was the data wrong? Was this already done? What outcome did you see?"
+                />
+                <button
+                  type="button"
+                  className="recommendation-primary-action"
+                  disabled={Boolean(recommendationFeedbackLoading[selectedRecommendation.storedRecommendationId])}
+                  onClick={() => submitRecommendationFeedback(
+                    selectedRecommendation,
+                    selectedDraft.feedbackType,
+                    { notes: selectedDraft.notes, tags: selectedDraft.tags, clearDraft: true }
+                  )}
+                >
+                  {recommendationFeedbackLoading[selectedRecommendation.storedRecommendationId] ? 'Saving Feedback...' : 'Save Feedback'}
+                </button>
+              </section>
+            </aside>
+          </div>
+        )}
       </div>
     );
   };

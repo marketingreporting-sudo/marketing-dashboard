@@ -313,6 +313,8 @@ def _recommendation_payload(row: dict[str, Any]) -> dict[str, Any]:
 
 def _shape_learning_example(row: dict[str, Any]) -> dict[str, Any]:
     payload = _recommendation_payload(row)
+    feedback_notes = row.get("_feedback_notes") if isinstance(row.get("_feedback_notes"), list) else []
+    feedback_tags = row.get("_feedback_tags") if isinstance(row.get("_feedback_tags"), list) else []
     return {
         "title": str(row.get("title") or payload.get("title") or ""),
         "category": str(row.get("category") or payload.get("category") or "general"),
@@ -325,6 +327,21 @@ def _shape_learning_example(row: dict[str, Any]) -> dict[str, Any]:
         "latestFeedbackType": row.get("latest_feedback_type"),
         "usefulCount": int(row.get("useful_count") or 0),
         "notUsefulCount": int(row.get("not_useful_count") or 0),
+        "feedbackNotes": feedback_notes[:3],
+        "feedbackTags": feedback_tags[:8],
+    }
+
+
+def _shape_feedback(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("feedback_payload") if isinstance(row.get("feedback_payload"), dict) else {}
+    tags = payload.get("tags") if isinstance(payload.get("tags"), list) else []
+    return {
+        "id": row.get("id"),
+        "feedbackType": row.get("feedback_type"),
+        "isUseful": row.get("is_useful"),
+        "notes": row.get("notes") or "",
+        "tags": [str(tag) for tag in tags if tag],
+        "createdAt": row.get("created_at"),
     }
 
 
@@ -359,6 +376,30 @@ def _fetch_learning_context(property_id: str) -> dict[str, Any]:
         ],
         headers=_supabase_headers(),
     )
+    recommendation_ids = [str(row.get("id")) for row in rows if row.get("id")]
+    feedback_by_recommendation: dict[str, list[dict[str, Any]]] = {}
+    if recommendation_ids:
+        feedback_rows = _fetch_json(
+            "ai_recommendation_feedback",
+            [
+                ("select", "id,recommendation_id,feedback_type,notes,feedback_payload,created_at"),
+                ("recommendation_id", f"in.({','.join(recommendation_ids)})"),
+                ("order", "created_at.desc"),
+                ("limit", "500"),
+            ],
+            headers=_supabase_headers(),
+        )
+        for feedback in feedback_rows:
+            feedback_by_recommendation.setdefault(str(feedback.get("recommendation_id")), []).append(feedback)
+        for row in rows:
+            feedback_items = feedback_by_recommendation.get(str(row.get("id")), [])
+            notes = [str(item.get("notes") or "").strip() for item in feedback_items if str(item.get("notes") or "").strip()]
+            tags = []
+            for item in feedback_items:
+                payload = item.get("feedback_payload") if isinstance(item.get("feedback_payload"), dict) else {}
+                tags.extend([str(tag) for tag in payload.get("tags") or [] if tag])
+            row["_feedback_notes"] = notes
+            row["_feedback_tags"] = sorted(set(tags))
     property_rows = [row for row in rows if str(row.get("property_id") or "") == str(property_id)]
     portfolio_rows = [row for row in rows if str(row.get("property_id") or "") != str(property_id)]
 
@@ -463,6 +504,8 @@ def _persist_recommendations(
             "taskId": saved.get("task_id"),
             "implementationStatus": saved.get("implementation_status") or "not_started",
             "implementationReview": saved.get("implementation_review_payload") or {},
+            "createdAt": saved.get("created_at"),
+            "feedbackHistory": [],
         })
 
     return generation_id, stored_recommendations
@@ -605,6 +648,7 @@ def record_recommendation_feedback_summary(
     feedback_type: str,
     notes: str | None,
     user_id: str | None,
+    tags: list[str] | None = None,
     expected_property_id: str | None = None,
 ) -> dict[str, Any]:
     normalized_feedback_type = str(feedback_type or "").strip().lower()
@@ -615,6 +659,7 @@ def record_recommendation_feedback_summary(
     property_id = str(recommendation.get("property_id") or "")
     if expected_property_id and property_id != str(expected_property_id):
         raise PermissionError("Recommendation does not belong to this property.")
+    normalized_tags = [str(tag).strip()[:80] for tag in (tags or []) if str(tag).strip()]
     feedback_row = {
         "recommendation_id": str(recommendation_id),
         "property_id": property_id,
@@ -622,7 +667,7 @@ def record_recommendation_feedback_summary(
         "feedback_type": normalized_feedback_type,
         "is_useful": True if normalized_feedback_type == "useful" else False if normalized_feedback_type == "not_useful" else None,
         "notes": str(notes or "")[:2000],
-        "feedback_payload": {},
+        "feedback_payload": {"tags": normalized_tags},
     }
     saved_feedback = _json_request(
         "ai_recommendation_feedback",
@@ -648,6 +693,7 @@ def record_recommendation_feedback_summary(
     return {
         "status": "ok",
         "feedback": feedback,
+        "feedbackItem": _shape_feedback(feedback),
         "recommendation": {
             "id": updated_recommendation.get("id"),
             "property_id": updated_recommendation.get("property_id"),
@@ -910,6 +956,7 @@ def generate_recommendations_summary(
             "Use positiveExamples as style and pattern guidance when the current property context supports similar advice.",
             "Avoid suppressedExamples and recentRecommendationTitles unless current data provides a materially different reason.",
             "Do not mention the feedback memory directly in the recommendation copy.",
+            "Always return confidence as a number from 0.0 to 1.0 for every recommendation.",
         ],
         "requiredJsonShape": {
             "summary": "One sentence summary of the biggest opportunity.",
