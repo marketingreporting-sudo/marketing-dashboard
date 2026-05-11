@@ -1,20 +1,100 @@
-import React, { useMemo, useState } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
 import { supabase } from '../lib/supabase';
 
 const MIN_PASSWORD_LENGTH = 8;
+const SUPPORTED_LINK_TYPES = new Set(['invite', 'recovery']);
+
+const AuthLoadingScreen = ({ title = 'Checking your secure link.' }) => (
+  <div className="auth-screen auth-screen--loading">
+    <div className="auth-card auth-card--compact">
+      <div className="auth-card__eyebrow">Loading session</div>
+      <h1 className="auth-card__title">{title}</h1>
+      <p className="auth-card__copy">
+        We&apos;re restoring your setup session so you can choose a password.
+      </p>
+    </div>
+  </div>
+);
+
+const getSetupLinkParams = (location) => {
+  const params = new URLSearchParams(location.search);
+  const hash = location.hash?.startsWith('#') ? location.hash.slice(1) : location.hash;
+  const hashParams = new URLSearchParams(hash || '');
+
+  hashParams.forEach((value, key) => {
+    if (!params.has(key)) {
+      params.set(key, value);
+    }
+  });
+
+  return {
+    tokenHash: params.get('token_hash') || params.get('token'),
+    type: params.get('type'),
+  };
+};
 
 const SetPasswordPage = () => {
   const navigate = useNavigate();
-  const { isConfigured, isAuthenticated, user } = useAuth();
+  const location = useLocation();
+  const { isConfigured, isAuthenticated, loading, user } = useAuth();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [verifiedSession, setVerifiedSession] = useState(null);
+  const attemptedTokenRef = useRef('');
 
-  const userEmail = useMemo(() => user?.email || '', [user]);
+  const { tokenHash, type: setupLinkType } = useMemo(
+    () => getSetupLinkParams(location),
+    [location]
+  );
+  const hasSetupLinkToken = Boolean(tokenHash && SUPPORTED_LINK_TYPES.has(setupLinkType));
+  const canSetPassword = isAuthenticated || Boolean(verifiedSession?.user);
+
+  const userEmail = useMemo(
+    () => user?.email || verifiedSession?.user?.email || '',
+    [user, verifiedSession]
+  );
+
+  useEffect(() => {
+    if (!isConfigured || !supabase || loading || isAuthenticated || !hasSetupLinkToken) {
+      return undefined;
+    }
+
+    const tokenKey = `${setupLinkType}:${tokenHash}`;
+    if (attemptedTokenRef.current === tokenKey) {
+      return undefined;
+    }
+
+    let mounted = true;
+    attemptedTokenRef.current = tokenKey;
+
+    const verifySetupLink = async () => {
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: setupLinkType,
+      });
+
+      if (!mounted) return;
+
+      if (error) {
+        setErrorMessage(error.message || 'This secure link is invalid or has expired.');
+        return;
+      }
+
+      setVerifiedSession(data?.session ?? null);
+      window.history.replaceState(window.history.state, '', '/set-password');
+    };
+
+    verifySetupLink();
+
+    return () => {
+      mounted = false;
+    };
+  }, [hasSetupLinkToken, isAuthenticated, isConfigured, loading, setupLinkType, tokenHash]);
 
   if (!isConfigured) {
     return (
@@ -34,7 +114,11 @@ const SetPasswordPage = () => {
     );
   }
 
-  if (!isAuthenticated) {
+  if (loading || (hasSetupLinkToken && !canSetPassword && !errorMessage)) {
+    return <AuthLoadingScreen />;
+  }
+
+  if (!canSetPassword) {
     return (
       <div className="auth-screen">
         <div className="auth-card">
@@ -43,6 +127,7 @@ const SetPasswordPage = () => {
           <p className="auth-card__copy">
             Open the invite email or password reset email again and use the latest link to set your password.
           </p>
+          {errorMessage && <div className="auth-alert auth-alert--error">{errorMessage}</div>}
           <div className="auth-card__footer">
             <Link to="/sign-in">Back to sign in</Link>
           </div>

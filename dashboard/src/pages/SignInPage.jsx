@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 const SignInPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, isConfigured } = useAuth();
+  const { isAuthenticated, isConfigured, loading } = useAuth();
   const [mode, setMode] = useState('sign-in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -19,6 +19,20 @@ const SignInPage = () => {
     const candidate = location.state?.from?.pathname;
     return typeof candidate === 'string' && candidate ? candidate : fallback;
   }, [location.state]);
+
+  if (loading) {
+    return (
+      <div className="auth-screen auth-screen--loading">
+        <div className="auth-card auth-card--compact">
+          <div className="auth-card__eyebrow">Loading session</div>
+          <h1 className="auth-card__title">Checking your dashboard access.</h1>
+          <p className="auth-card__copy">
+            We&apos;re restoring your secure session before routing you forward.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (isAuthenticated) {
     return <Navigate to={nextPath} replace />;
