@@ -7964,28 +7964,34 @@ th {
 
 .local-falcon-grid-map {
   position: relative;
-  width: min(100%, 680px);
+  width: min(100%, 560px);
   max-width: 100%;
   min-width: 0;
-  padding: 0.8rem;
+  aspect-ratio: 1;
+  padding: clamp(0.75rem, 2.5vw, 1.2rem);
   border: 1px solid rgba(16, 33, 38, 0.1);
-  background: rgba(16, 33, 38, 0.04);
+  background-color: rgba(16, 33, 38, 0.04);
+  background-image:
+    linear-gradient(90deg, rgba(16, 33, 38, 0.08) 1px, transparent 1px),
+    linear-gradient(rgba(16, 33, 38, 0.08) 1px, transparent 1px);
   background-position: center;
-  background-size: contain;
-  background-repeat: no-repeat;
+  background-size: 20% 20%;
+  background-repeat: repeat;
   overflow: hidden;
   box-sizing: border-box;
+  display: grid;
+  place-items: center;
 }
 
 .local-falcon-grid-map--with-image {
-  min-height: clamp(300px, 38vw, 440px);
+  background-size: cover;
+  background-repeat: no-repeat;
 }
 
 .local-falcon-grid-map__shade {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(0.5px);
+  background: rgba(255, 255, 255, 0.3);
   pointer-events: none;
 }
 
@@ -7995,9 +8001,10 @@ th {
   display: grid;
   gap: 0.45rem;
   width: 100%;
-  max-width: min(52%, 360px);
+  max-width: min(76%, 380px);
   min-width: 0;
   margin: 0 auto;
+  filter: drop-shadow(0 12px 22px rgba(16, 33, 38, 0.18));
 }
 
 .local-falcon-grid__cell {

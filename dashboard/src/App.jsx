@@ -4306,6 +4306,7 @@ const DashboardApp = ({
     }))
   ), [localFalconTrends]);
   const localFalconHeatmapUrl = localFalconOverview?.heatmap || localFalconLatestReport?.heatmap || localFalconLatestScan?.raw?.heatmap;
+  const localFalconMapImageUrl = localFalconOverview?.image || localFalconLatestReport?.image || localFalconLatestScan?.raw?.image;
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
   const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
   const heatmapTotals = heatmapSummaryData?.totals || {};
@@ -7041,8 +7042,8 @@ const DashboardApp = ({
                   <div className="local-falcon-section">
                     <div className="reports-panel__eyebrow">Grid Rank Map</div>
                     <div
-                      className={`local-falcon-grid-map ${localFalconHeatmapUrl ? 'local-falcon-grid-map--with-image' : ''}`}
-                      style={localFalconHeatmapUrl ? { backgroundImage: `url(${localFalconHeatmapUrl})` } : undefined}
+                      className={`local-falcon-grid-map ${localFalconMapImageUrl ? 'local-falcon-grid-map--with-image' : ''}`}
+                      style={localFalconMapImageUrl ? { backgroundImage: `url(${localFalconMapImageUrl})` } : undefined}
                     >
                       <div className="local-falcon-grid-map__shade" />
                       <div className="local-falcon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(localFalconGridSize, 1)}, minmax(0, 1fr))` }}>
