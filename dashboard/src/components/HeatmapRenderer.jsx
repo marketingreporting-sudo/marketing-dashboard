@@ -39,6 +39,14 @@ const ZOOM_OPTIONS = [
   { key: '150', label: '150%' },
 ];
 
+const SCROLL_HEAT_COLORS = {
+  hot: 'rgba(235, 45, 45, 0.62)',
+  warm: 'rgba(255, 198, 52, 0.58)',
+  mid: 'rgba(86, 205, 112, 0.52)',
+  cool: 'rgba(45, 139, 255, 0.46)',
+  cold: 'rgba(68, 91, 255, 0.34)',
+};
+
 const normalizeTargetKey = (value) => String(value || '').trim().toLowerCase();
 
 const getCellTargetKeys = (cell) => [
@@ -71,6 +79,88 @@ const getConfidence = (eventCount) => {
   if (count < 10) return { label: 'Low confidence', detail: 'Treat patterns as anecdotal until more events arrive.', tone: 'low' };
   if (count < 50) return { label: 'Directional', detail: 'Useful for QA and early trends.', tone: 'medium' };
   return { label: 'High confidence', detail: 'Enough interaction volume for stronger pattern reads.', tone: 'high' };
+};
+
+const formatPercent = (value, digits = 0) => {
+  const parsed = Number(value || 0);
+  if (!Number.isFinite(parsed)) return '0%';
+  return `${Math.round(parsed * 100 * (10 ** digits)) / (10 ** digits)}%`;
+};
+
+const scrollColorForPercent = (percentReached) => {
+  const value = Number(percentReached || 0);
+  if (value >= 0.75) return SCROLL_HEAT_COLORS.hot;
+  if (value >= 0.5) return SCROLL_HEAT_COLORS.warm;
+  if (value >= 0.3) return SCROLL_HEAT_COLORS.mid;
+  if (value >= 0.12) return SCROLL_HEAT_COLORS.cool;
+  return SCROLL_HEAT_COLORS.cold;
+};
+
+const normalizeScrollBands = (scrollSummary, maxScroll) => {
+  const explicitBands = Array.isArray(scrollSummary?.bands) ? scrollSummary.bands : [];
+  const bands = explicitBands
+    .map((band) => {
+      const startPct = Number(band.startPct ?? band.start ?? 0);
+      const endPct = Number(band.endPct ?? band.end ?? 0);
+      const percentReached = parsePercent(band.percentReached ?? band.percent ?? 0);
+      const sessionsReached = Number(band.sessionsReached ?? band.sessions ?? 0);
+      if (!Number.isFinite(startPct) || !Number.isFinite(endPct) || endPct <= startPct) return null;
+      return { startPct, endPct, percentReached, sessionsReached };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startPct - b.startPct);
+  if (bands.length) return bands;
+
+  const reach = scrollSummary?.reach && typeof scrollSummary.reach === 'object' ? scrollSummary.reach : {};
+  const reachBands = Object.entries(reach)
+    .map(([threshold, payload]) => {
+      const endPct = Number(payload?.thresholdPct ?? threshold);
+      const percentReached = parsePercent(payload?.percent ?? 0);
+      const sessionsReached = Number(payload?.sessions ?? 0);
+      if (!Number.isFinite(endPct) || endPct <= 0) return null;
+      return {
+        startPct: Math.max(0, endPct - 10),
+        endPct,
+        percentReached,
+        sessionsReached,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startPct - b.startPct);
+  if (reachBands.length) return reachBands;
+
+  if (maxScroll > 0) {
+    const reachedPct = Math.round(maxScroll * 100);
+    return [
+      { startPct: 0, endPct: reachedPct, percentReached: 1, sessionsReached: 0 },
+      { startPct: reachedPct, endPct: 100, percentReached: 0, sessionsReached: 0 },
+    ].filter((band) => band.endPct > band.startPct);
+  }
+  return [];
+};
+
+const getScrollDropoffInsight = (scrollSummary, totals) => {
+  const avgAbandonment = Number(totals?.avgAbandonmentDepthPct || scrollSummary?.avgAbandonmentDepthPct || 0);
+  if (avgAbandonment > 0) {
+    return `Most visitors drop off around ${Math.round(avgAbandonment * 100)}%.`;
+  }
+  const distribution = Array.isArray(scrollSummary?.abandonmentDepthDistribution)
+    ? scrollSummary.abandonmentDepthDistribution
+    : [];
+  const largestBand = distribution
+    .filter((band) => Number(band.sessions || 0) > 0)
+    .sort((a, b) => Number(b.sessions || 0) - Number(a.sessions || 0))[0];
+  if (!largestBand) return '';
+  const midpoint = (Number(largestBand.startPct || 0) + Number(largestBand.endPct || 0)) / 2;
+  return `Most visitors drop off around ${Math.round(midpoint)}%.`;
+};
+
+const getFoldPercent = (screenshot) => {
+  const captureMetrics = screenshot?.captureMetrics || {};
+  const viewportHeight = Number(captureMetrics.viewportHeight || screenshot?.viewportHeight || 0);
+  const documentHeight = Number(captureMetrics.documentHeight || screenshot?.height || 0);
+  if (!Number.isFinite(viewportHeight) || !Number.isFinite(documentHeight) || viewportHeight <= 0 || documentHeight <= 0) return null;
+  return clampPercent(viewportHeight / documentHeight);
 };
 
 const coordinatePercent = (point, axis, screenshot) => {
@@ -183,6 +273,7 @@ export default function HeatmapRenderer({
   activeLayers,
   onLayerChange,
   highlightedTarget = null,
+  scrollSummary = {},
   formatNumber = (value) => String(value ?? 0),
 }) {
   const layers = useMemo(() => ({
@@ -197,13 +288,18 @@ export default function HeatmapRenderer({
     return serverCells.length > 0 ? serverCells : aggregatePoints(points, layers, screenshot);
   }, [cells, points, layers, screenshot]);
   const maxScroll = clampPercent(totals.maxScrollDepthPct);
+  const scrollBands = useMemo(() => normalizeScrollBands(scrollSummary, maxScroll), [scrollSummary, maxScroll]);
+  const hasScrollReach = scrollBands.some((band) => Number(band.percentReached || 0) > 0);
+  const foldPercent = getFoldPercent(screenshot);
+  const scrollDropoffInsight = getScrollDropoffInsight(scrollSummary, totals);
   const hasScreenshot = Boolean(screenshotUrl);
+  const [hoveredScrollBand, setHoveredScrollBand] = useState(null);
   const [zoomMode, setZoomMode] = useState('fit');
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const [selectedCell, setSelectedCell] = useState(null);
   const [hoveredCell, setHoveredCell] = useState(null);
-  const hasData = aggregateCells.length > 0 || (layers.scroll && maxScroll > 0);
+  const hasData = aggregateCells.length > 0 || (layers.scroll && (maxScroll > 0 || hasScrollReach));
   const trafficEvents = Number(totals.events || 0);
   const confidence = getConfidence(trafficEvents);
   const layerTotals = useMemo(() => {
@@ -263,6 +359,7 @@ export default function HeatmapRenderer({
     setImageFailed(false);
     setSelectedCell(null);
     setHoveredCell(null);
+    setHoveredScrollBand(null);
   }, [screenshotUrl]);
 
   return (
@@ -400,33 +497,80 @@ export default function HeatmapRenderer({
               />
             )}
             <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }} />
-            {layers.scroll && maxScroll > 0 && (
+            {layers.scroll && (hasScrollReach || maxScroll > 0) && (
               <>
-                <div
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    height: `${Math.max(2, maxScroll * 100)}%`,
-                    background: 'linear-gradient(180deg, rgba(71,190,125,0.28), rgba(238,196,94,0.22))',
-                    mixBlendMode: showScreenshot ? 'multiply' : 'screen',
-                    pointerEvents: 'none',
-                  }}
-                />
-                <div
-                  title={`Maximum scroll depth: ${Math.round(maxScroll * 100)}%`}
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    right: 0,
-                    top: `${maxScroll * 100}%`,
-                    height: 2,
-                    background: 'rgba(255,214,99,0.9)',
-                    boxShadow: '0 0 16px rgba(255,214,99,0.55)',
-                    pointerEvents: 'none',
-                  }}
-                />
+                <div className="heatmap-scroll-overlay" aria-label="Scroll reach heatmap">
+                  {scrollBands.map((band) => {
+                    const top = Math.max(0, Math.min(100, Number(band.startPct || 0)));
+                    const bottom = Math.max(top, Math.min(100, Number(band.endPct || 0)));
+                    const percentReached = Number(band.percentReached || 0);
+                    const label = `${Math.round(percentReached * 100)}% reached ${Math.round(bottom)}%`;
+                    return (
+                      <button
+                        key={`${band.startPct}-${band.endPct}`}
+                        type="button"
+                        className="heatmap-scroll-band"
+                        aria-label={label}
+                        title={label}
+                        onMouseEnter={() => setHoveredScrollBand(band)}
+                        onMouseLeave={() => setHoveredScrollBand(null)}
+                        onFocus={() => setHoveredScrollBand(band)}
+                        onBlur={() => setHoveredScrollBand(null)}
+                        style={{
+                          top: `${top}%`,
+                          height: `${Math.max(0.4, bottom - top)}%`,
+                          background: scrollColorForPercent(percentReached),
+                          mixBlendMode: showScreenshot ? 'multiply' : 'screen',
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+                {scrollBands.map((band) => {
+                  const endPct = Math.max(0, Math.min(100, Number(band.endPct || 0)));
+                  const percentReached = Number(band.percentReached || 0);
+                  if (![25, 50, 75, 90, 100].includes(Math.round(endPct)) && endPct % 10 !== 0) return null;
+                  return (
+                    <div
+                      key={`threshold-${endPct}`}
+                      className="heatmap-scroll-threshold"
+                      style={{ top: `${endPct}%` }}
+                    >
+                      <span>{Math.round(percentReached * 100)}% reached this line</span>
+                    </div>
+                  );
+                })}
+                {foldPercent != null && (
+                  <div
+                    className="heatmap-scroll-fold-marker"
+                    style={{ top: `${foldPercent * 100}%` }}
+                  >
+                    <span>Average fold</span>
+                  </div>
+                )}
+                {maxScroll > 0 && (
+                  <div
+                    title={`Maximum scroll depth: ${Math.round(maxScroll * 100)}%`}
+                    className="heatmap-scroll-max-marker"
+                    style={{ top: `${maxScroll * 100}%` }}
+                  />
+                )}
+                {hoveredScrollBand && (
+                  <div
+                    className="heatmap-scroll-tooltip"
+                    style={{
+                      top: `${Math.min(92, Math.max(4, (Number(hoveredScrollBand.startPct || 0) + Number(hoveredScrollBand.endPct || 0)) / 2))}%`,
+                    }}
+                  >
+                    <strong>{formatPercent(hoveredScrollBand.percentReached)} of sessions reached this point</strong>
+                    <span>{formatNumber(hoveredScrollBand.sessionsReached || 0)} sessions reached {Math.round(Number(hoveredScrollBand.endPct || 0))}% depth</span>
+                  </div>
+                )}
+                {scrollDropoffInsight && (
+                  <div className="heatmap-scroll-insight">
+                    {scrollDropoffInsight}
+                  </div>
+                )}
               </>
             )}
             {aggregateCells.map((cell) => {

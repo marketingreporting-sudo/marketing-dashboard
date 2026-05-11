@@ -4239,6 +4239,7 @@ const DashboardApp = ({
   ];
   const heatmapScrollSummary = heatmapSummaryData?.scroll || {};
   const heatmapScrollMilestones = heatmapScrollSummary.milestones || {};
+  const heatmapScrollReach = heatmapScrollSummary.reach || heatmapScrollMilestones || {};
   const heatmapTopSections = Array.isArray(heatmapScrollSummary.topSections) ? heatmapScrollSummary.topSections : [];
   const heatmapBandDurations = heatmapScrollSummary.bandDurationsMs || {};
   const topScrollBand = Object.entries(heatmapBandDurations)
@@ -5996,6 +5997,7 @@ const DashboardApp = ({
             activeLayers={heatmapLayers}
             onLayerChange={updateHeatmapLayer}
             highlightedTarget={highlightedHeatmapTarget}
+            scrollSummary={heatmapScrollSummary}
             formatNumber={formatNumber}
           />
         </div>
@@ -6114,8 +6116,14 @@ const DashboardApp = ({
         </div>
         <div className="heatmap-audit-interaction-grid">
           <div className="reports-list__row">
-            <div><strong>Milestones reached</strong><small>25 / 50 / 75 / 90 / 100 percent scroll depth.</small></div>
-            <div>{['25', '50', '75', '90', '100'].map((key) => formatNumber(heatmapScrollMilestones[key] || 0)).join(' / ')}</div>
+            <div><strong>Reach thresholds</strong><small>10 / 50 / 90 / 100 percent scroll depth.</small></div>
+            <div>{['10', '50', '90', '100'].map((key) => {
+              const value = heatmapScrollReach[key] || heatmapScrollMilestones[key] || 0;
+              if (value && typeof value === 'object') {
+                return `${Math.round(Number(value.percent || 0) * 100)}%`;
+              }
+              return formatNumber(value || 0);
+            }).join(' / ')}</div>
           </div>
           <div className="reports-list__row">
             <div><strong>Abandonment depth</strong><small>Average final depth from page duration/exit events.</small></div>

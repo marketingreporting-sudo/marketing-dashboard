@@ -1163,6 +1163,125 @@ h1, h2, h3 {
   box-shadow: 0 0 0 3px rgba(var(--layer-rgb), 0.14);
 }
 
+.heatmap-scroll-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.heatmap-scroll-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  cursor: crosshair;
+  pointer-events: auto;
+  transition: filter 0.16s ease, opacity 0.16s ease;
+}
+
+.heatmap-scroll-band:hover,
+.heatmap-scroll-band:focus-visible {
+  filter: saturate(1.2) brightness(1.08);
+  outline: 1px solid rgba(255, 255, 255, 0.55);
+  outline-offset: -1px;
+}
+
+.heatmap-scroll-threshold,
+.heatmap-scroll-fold-marker,
+.heatmap-scroll-max-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.heatmap-scroll-threshold {
+  border-top: 1px dashed rgba(255, 255, 255, 0.66);
+}
+
+.heatmap-scroll-threshold span,
+.heatmap-scroll-fold-marker span {
+  position: absolute;
+  top: -0.74rem;
+  left: 0.55rem;
+  border-radius: 999px;
+  padding: 0.18rem 0.45rem;
+  background: rgba(6, 14, 17, 0.72);
+  color: var(--white);
+  font-size: 0.66rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.heatmap-scroll-fold-marker {
+  border-top: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 -1px 0 rgba(6, 14, 17, 0.52);
+}
+
+.heatmap-scroll-fold-marker span {
+  left: auto;
+  right: 0.55rem;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--primary);
+}
+
+.heatmap-scroll-max-marker {
+  height: 2px;
+  background: rgba(255, 214, 99, 0.92);
+  box-shadow: 0 0 16px rgba(255, 214, 99, 0.55);
+}
+
+.heatmap-scroll-tooltip,
+.heatmap-scroll-insight {
+  position: absolute;
+  z-index: 9;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(6, 14, 17, 0.9);
+  color: var(--white);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+}
+
+.heatmap-scroll-tooltip {
+  right: 0.75rem;
+  width: min(280px, calc(100% - 1.5rem));
+  padding: 0.72rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.heatmap-scroll-tooltip strong,
+.heatmap-scroll-tooltip span {
+  display: block;
+}
+
+.heatmap-scroll-tooltip strong {
+  color: var(--primary-tan);
+  font-size: 0.86rem;
+  margin-bottom: 0.22rem;
+}
+
+.heatmap-scroll-tooltip span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.74rem;
+  line-height: 1.35;
+}
+
+.heatmap-scroll-insight {
+  left: 0.75rem;
+  bottom: 2.8rem;
+  max-width: min(360px, calc(100% - 1.5rem));
+  padding: 0.58rem 0.68rem;
+  color: var(--primary-tan);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
 .heatmap-cell-detail {
   position: sticky;
   top: 12px;
