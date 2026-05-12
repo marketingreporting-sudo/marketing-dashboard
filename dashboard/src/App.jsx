@@ -1386,6 +1386,14 @@ const DashboardApp = ({
   const [websiteManagerNotice, setWebsiteManagerNotice] = useState(null);
   const [websiteManagerDoc, setWebsiteManagerDoc] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
   const [websiteManagerDraft, setWebsiteManagerDraft] = useState(WEBSITE_MANAGER_DEFAULT_RECORD);
+  const [websiteManagerSection, setWebsiteManagerSection] = useState('content');
+  const [selectedWebsiteManagerGroupId, setSelectedWebsiteManagerGroupId] = useState('');
+  const [websiteManagerReferenceOpen, setWebsiteManagerReferenceOpen] = useState(true);
+  const [websiteManagerContentSearch, setWebsiteManagerContentSearch] = useState('');
+  const [websiteManagerContentFilter, setWebsiteManagerContentFilter] = useState('all');
+  const [expandedWebsiteManagerGroups, setExpandedWebsiteManagerGroups] = useState(() => new Set());
+  const [copiedWebsiteManagerToken, setCopiedWebsiteManagerToken] = useState('');
+  const [websiteManagerTokenSearch, setWebsiteManagerTokenSearch] = useState('');
   const [heatmapSiteLoading, setHeatmapSiteLoading] = useState(true);
   const [heatmapSiteSaving, setHeatmapSiteSaving] = useState(false);
   const [heatmapSiteError, setHeatmapSiteError] = useState(null);
@@ -3327,10 +3335,158 @@ const DashboardApp = ({
     () => getWebsiteManagerFieldGroups(websiteManagerDraft.schema),
     [websiteManagerDraft.schema]
   );
+  useEffect(() => {
+    if (!websiteManagerSchemaGroups.length) {
+      return;
+    }
+    if (!websiteManagerSchemaGroups.some((group) => group.id === selectedWebsiteManagerGroupId)) {
+      setSelectedWebsiteManagerGroupId(websiteManagerSchemaGroups[0].id);
+    }
+  }, [selectedWebsiteManagerGroupId, websiteManagerSchemaGroups]);
+  const selectedWebsiteManagerGroup = useMemo(
+    () => websiteManagerSchemaGroups.find((group) => group.id === selectedWebsiteManagerGroupId) || websiteManagerSchemaGroups[0] || null,
+    [selectedWebsiteManagerGroupId, websiteManagerSchemaGroups]
+  );
+  const selectedWebsiteManagerGroupFilledCount = useMemo(() => (
+    selectedWebsiteManagerGroup
+      ? selectedWebsiteManagerGroup.fields.filter((field) => String(websiteManagerDraft.content[field.key] || '').trim()).length
+      : 0
+  ), [selectedWebsiteManagerGroup, websiteManagerDraft.content]);
   const websiteManagerContentTokens = useMemo(
     () => getWebsiteManagerFieldTokenDefinitions(websiteManagerDraft.schema),
     [websiteManagerDraft.schema]
   );
+  const websiteManagerTokenSearchTerm = websiteManagerTokenSearch.trim().toLowerCase();
+  const websiteManagerReferenceTokens = useMemo(() => {
+    const propertyTokens = WEBSITE_MANAGER_TOKEN_DEFINITIONS.map((token) => ({
+      groupLabel: 'Property tokens',
+      label: token.label,
+      tokenText: `{{${token.token}}}`,
+      detail: websiteManagerTokenValues[token.token] || 'Not available',
+    }));
+    const contentTokens = websiteManagerContentTokens.map((field) => ({
+      groupLabel: field.groupLabel || 'Content fields',
+      label: field.label,
+      tokenText: field.type === 'url' ? `r:${field.token}` : `{{r:${field.token}}}`,
+      detail: field.type === 'url' ? 'URL token' : 'Content token',
+    }));
+    return [...propertyTokens, ...contentTokens].filter((token) => (
+      !websiteManagerTokenSearchTerm ||
+      [token.groupLabel, token.label, token.tokenText, token.detail].some((value) => (
+        String(value || '').toLowerCase().includes(websiteManagerTokenSearchTerm)
+      ))
+    ));
+  }, [websiteManagerContentTokens, websiteManagerTokenSearchTerm, websiteManagerTokenValues]);
+  const websiteManagerReferenceTokenGroups = useMemo(() => (
+    websiteManagerReferenceTokens.reduce((groups, token) => {
+      if (!groups.has(token.groupLabel)) groups.set(token.groupLabel, []);
+      groups.get(token.groupLabel).push(token);
+      return groups;
+    }, new Map())
+  ), [websiteManagerReferenceTokens]);
+  const websiteManagerSearchTerm = websiteManagerContentSearch.trim().toLowerCase();
+  const getWebsiteManagerFieldStatus = useCallback((field) => {
+    const draftValue = String(websiteManagerDraft.content[field.key] || '').trim();
+    const savedValue = String(websiteManagerDoc.content?.[field.key] || '').trim();
+    const tokenText = `{{r:${field.key}}}`;
+    const isLiveFilled = /\{\{\s*[^}]+\s*\}\}/.test(draftValue);
+    return {
+      draftValue,
+      savedValue,
+      tokenText,
+      isEmpty: !draftValue,
+      isChanged: draftValue !== savedValue,
+      isRequired: !draftValue,
+      isLiveFilled,
+    };
+  }, [websiteManagerDoc.content, websiteManagerDraft.content]);
+  const fieldMatchesWebsiteManagerFilter = useCallback((field) => {
+    const status = getWebsiteManagerFieldStatus(field);
+    if (websiteManagerContentFilter === 'empty') return status.isEmpty;
+    if (websiteManagerContentFilter === 'changed') return status.isChanged;
+    if (websiteManagerContentFilter === 'required') return status.isRequired;
+    if (websiteManagerContentFilter === 'live_filled') return status.isLiveFilled;
+    return true;
+  }, [getWebsiteManagerFieldStatus, websiteManagerContentFilter]);
+  const fieldMatchesWebsiteManagerSearch = useCallback((field, groupLabel = '') => {
+    if (!websiteManagerSearchTerm) return true;
+    const status = getWebsiteManagerFieldStatus(field);
+    return [
+      field.label,
+      field.key,
+      groupLabel,
+      status.draftValue,
+      status.tokenText
+    ].some((value) => String(value || '').toLowerCase().includes(websiteManagerSearchTerm));
+  }, [getWebsiteManagerFieldStatus, websiteManagerSearchTerm]);
+  const visibleWebsiteManagerGroups = useMemo(() => (
+    websiteManagerSchemaGroups
+      .map((group) => ({
+        ...group,
+        fields: group.fields.filter((field) => (
+          fieldMatchesWebsiteManagerFilter(field) && fieldMatchesWebsiteManagerSearch(field, group.label)
+        )),
+      }))
+      .filter((group) => group.fields.length > 0)
+  ), [fieldMatchesWebsiteManagerFilter, fieldMatchesWebsiteManagerSearch, websiteManagerSchemaGroups]);
+  const visibleWebsiteManagerFields = useMemo(
+    () => visibleWebsiteManagerGroups.flatMap((group) => group.fields.map((field) => ({ ...field, groupId: group.id, groupLabel: group.label }))),
+    [visibleWebsiteManagerGroups]
+  );
+  useEffect(() => {
+    if (!visibleWebsiteManagerGroups.length) {
+      return;
+    }
+    if (!visibleWebsiteManagerGroups.some((group) => group.id === selectedWebsiteManagerGroupId)) {
+      setSelectedWebsiteManagerGroupId(visibleWebsiteManagerGroups[0].id);
+    }
+  }, [selectedWebsiteManagerGroupId, visibleWebsiteManagerGroups]);
+  const selectedWebsiteManagerGroupVisibleFields = useMemo(() => (
+    selectedWebsiteManagerGroup
+      ? selectedWebsiteManagerGroup.fields.filter((field) => (
+        fieldMatchesWebsiteManagerFilter(field) && fieldMatchesWebsiteManagerSearch(field, selectedWebsiteManagerGroup.label)
+      ))
+      : []
+  ), [fieldMatchesWebsiteManagerFilter, fieldMatchesWebsiteManagerSearch, selectedWebsiteManagerGroup]);
+  const copyWebsiteManagerToken = useCallback(async (token) => {
+    try {
+      await navigator.clipboard.writeText(token);
+      setCopiedWebsiteManagerToken(token);
+      window.setTimeout(() => {
+        setCopiedWebsiteManagerToken((current) => current === token ? '' : current);
+      }, 1500);
+    } catch (error) {
+      setWebsiteManagerError(error.message || 'Unable to copy token.');
+    }
+  }, []);
+  const insertWebsiteManagerSnippet = useCallback((fieldKey, snippet) => {
+    const currentValue = String(websiteManagerDraft.content[fieldKey] || '');
+    const spacer = currentValue && !currentValue.endsWith(' ') && !currentValue.endsWith('\n') ? ' ' : '';
+    updateWebsiteManagerContentField(fieldKey, `${currentValue}${spacer}${snippet}`);
+    window.setTimeout(() => {
+      document.getElementById(`website-manager-field-${fieldKey}`)?.focus();
+    }, 0);
+  }, [updateWebsiteManagerContentField, websiteManagerDraft.content]);
+  const focusWebsiteManagerField = useCallback((fieldKey) => {
+    window.setTimeout(() => {
+      document.getElementById(`website-manager-field-${fieldKey}`)?.focus();
+    }, 0);
+  }, []);
+  const jumpToWebsiteManagerField = useCallback((field) => {
+    if (!field) return;
+    const group = websiteManagerSchemaGroups.find((item) => item.fields.some((candidate) => candidate.key === field.key));
+    if (group) {
+      setSelectedWebsiteManagerGroupId(group.id);
+      setExpandedWebsiteManagerGroups((current) => new Set([...current, group.id]));
+    }
+    focusWebsiteManagerField(field.key);
+  }, [focusWebsiteManagerField, websiteManagerSchemaGroups]);
+  const jumpToFirstMissingWebsiteManagerField = useCallback(() => {
+    const missingField = websiteManagerSchemaGroups
+      .flatMap((group) => group.fields.map((field) => ({ ...field, groupId: group.id })))
+      .find((field) => getWebsiteManagerFieldStatus(field).isEmpty);
+    jumpToWebsiteManagerField(missingField);
+  }, [getWebsiteManagerFieldStatus, jumpToWebsiteManagerField, websiteManagerSchemaGroups]);
   const websiteManagerPreviewItems = useMemo(() => (
     [
       ...websiteManagerContentTokens.map((field) => ({
@@ -7291,7 +7447,7 @@ const DashboardApp = ({
           <div className="website-manager-kicker">WordPress Content Control Layer</div>
           <div className="website-manager-headline">Website Editor</div>
           <div className="website-manager-subhead">
-            Give on-site and regional teams a property-scoped place to update approved website messaging without routing every request through the web team. This tab stores the platform classification and the content payload we want to push into WordPress.
+            Property-scoped content drafts, preview tokens, and WordPress sync controls.
           </div>
         </div>
         <div className="website-manager-pill-row">
@@ -7305,41 +7461,26 @@ const DashboardApp = ({
         </div>
       </div>
 
-      <div className="website-manager-summary-grid">
-        <div className="website-manager-card">
-          <div className="website-manager-card__label">Platform status</div>
-          <div className="website-manager-card__value">{websitePlatformMeta.label}</div>
-          <div className="website-manager-card__meta">{websitePlatformMeta.description}</div>
+      <div className="website-manager-status-strip">
+        <div className="website-manager-status-item">
+          <span>Platform</span>
+          <strong>{websitePlatformMeta.label}</strong>
         </div>
-        <div className="website-manager-card">
-          <div className="website-manager-card__label">Dashboard editable</div>
-          <div className="website-manager-card__value">{websiteManagerEditable ? 'Yes' : 'No'}</div>
-          <div className="website-manager-card__meta">
-            {websiteManagerEditable
-              ? 'This property can keep content drafts here for WordPress injection.'
-              : 'Entrata and non-WordPress sites stay read-only until the platform is changed.'}
-          </div>
+        <div className="website-manager-status-item">
+          <span>Editable</span>
+          <strong>{websiteManagerEditable ? 'Yes' : 'No'}</strong>
         </div>
-        <div className="website-manager-card">
-          <div className="website-manager-card__label">Configured fields</div>
-          <div className="website-manager-card__value">
-            {Object.values(websiteManagerDraft.content).filter((value) => String(value || '').trim()).length}
-          </div>
-          <div className="website-manager-card__meta">Fields with non-empty content ready for review or deployment.</div>
+        <div className="website-manager-status-item">
+          <span>Filled fields</span>
+          <strong>{Object.values(websiteManagerDraft.content).filter((value) => String(value || '').trim()).length}</strong>
         </div>
-        <div className="website-manager-card">
-          <div className="website-manager-card__label">Entrata live sync</div>
-          <div className="website-manager-card__value">
-            {getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}
-          </div>
-          <div className="website-manager-card__meta">Pricing and specials snapshots refresh on a four-hour cadence.</div>
+        <div className="website-manager-status-item">
+          <span>Entrata sync</span>
+          <strong>{getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}</strong>
         </div>
-        <div className="website-manager-card">
-          <div className="website-manager-card__label">WordPress key</div>
-          <div className="website-manager-card__value">
-            {websiteManagerDraft.wordpressSiteKey || 'Not set'}
-          </div>
-          <div className="website-manager-card__meta">Use this for the eventual site-level sync target or content mapping job.</div>
+        <div className="website-manager-status-item">
+          <span>WordPress key</span>
+          <strong>{websiteManagerDraft.wordpressSiteKey || 'Not set'}</strong>
         </div>
       </div>
 
@@ -7360,428 +7501,805 @@ const DashboardApp = ({
         </div>
       )}
 
-      <div className="website-manager-layout">
-        <div className="website-manager-panel website-manager-panel--editor">
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Property setup</div>
-              <h3 className="website-manager-panel__title">Website classification and sync metadata</h3>
-            </div>
-          </div>
-
-          <div className="website-manager-form-grid">
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Website platform</span>
-              <select
-                value={websiteManagerDraft.platform}
-                onChange={(event) => updateWebsiteManagerField('platform', event.target.value)}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager}
-              >
-                {[
-                  { value: 'unknown', label: 'Needs review' },
-                  { value: 'wordpress_custom', label: 'WordPress custom' },
-                  { value: 'entrata', label: 'Entrata website' },
-                  { value: 'other', label: 'Other platform' }
-                ].map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Public website URL</span>
-              <input
-                type="text"
-                value={websiteManagerDraft.websiteUrl}
-                onChange={(event) => updateWebsiteManagerField('websiteUrl', event.target.value)}
-                className="website-manager-field__input"
-                placeholder="https://www.example.com"
-                disabled={!canEditWebsiteManager}
-              />
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">WordPress site key</span>
-              <input
-                type="text"
-                value={websiteManagerDraft.wordpressSiteKey}
-                onChange={(event) => updateWebsiteManagerField('wordpressSiteKey', event.target.value)}
-                className="website-manager-field__input"
-                placeholder="montaire"
-                disabled={!canEditWebsiteManager}
-              />
-            </label>
-            <label className="website-manager-field website-manager-field--wide">
-              <span className="website-manager-field__label">Implementation notes</span>
-              <textarea
-                value={websiteManagerDraft.notes}
-                onChange={(event) => updateWebsiteManagerField('notes', event.target.value)}
-                className="website-manager-field__input website-manager-field__input--textarea"
-                placeholder="Add rollout notes, environment reminders, or page-level mapping details."
-                disabled={!canEditWebsiteManager}
-              />
-            </label>
-          </div>
-
-          <div className={`website-manager-lockup ${websiteManagerEditable ? 'website-manager-lockup--editable' : 'website-manager-lockup--blocked'}`}>
-            <strong>{websiteManagerEditable ? 'WordPress path is open.' : 'Content editing is currently blocked.'}</strong>
-            <span>
-              {websiteManagerEditable
-                ? 'These fields can be maintained here and later pushed into WordPress templates or database values.'
-                : 'Set the platform to WordPress custom before using this tab as a content source. Entrata properties stay informational only.'}
-            </span>
-          </div>
-
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Tracking setup</div>
-              <h3 className="website-manager-panel__title">Heatmap and audit snippet configuration</h3>
-            </div>
-          </div>
-
-          <div className="website-manager-form-grid">
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Tracking site name</span>
-              <input
-                type="text"
-                value={heatmapSiteDraft.name}
-                onChange={(event) => updateHeatmapSiteField('name', event.target.value)}
-                className="website-manager-field__input"
-                placeholder={selectedPropertyLabel}
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              />
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Heatmap/audit site key</span>
-              <input
-                type="text"
-                value={heatmapSiteDraft.siteKey || (heatmapSiteDraft.id ? 'Generated after save' : '')}
-                onChange={(event) => updateHeatmapSiteField('siteKey', event.target.value)}
-                className="website-manager-field__input"
-                placeholder="Generated when saved"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.siteKey}
-              />
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Sampling rate</span>
-              <select
-                value={String(heatmapSiteDraft.samplingRate)}
-                onChange={(event) => updateHeatmapSiteField('samplingRate', Number(event.target.value))}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              >
-                <option value="0.1">10%</option>
-                <option value="0.25">25%</option>
-                <option value="0.5">50%</option>
-                <option value="1">100%</option>
-              </select>
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Screenshot capture</span>
-              <select
-                value={heatmapSiteDraft.screenshotCaptureFrequency}
-                onChange={(event) => updateHeatmapSiteField('screenshotCaptureFrequency', event.target.value)}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.featureFlags.screenshots}
-              >
-                <option value="manual">Manual / disabled</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Consent mode</span>
-              <select
-                value={heatmapSiteDraft.consentMode}
-                onChange={(event) => updateHeatmapSiteField('consentMode', event.target.value)}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              >
-                <option value="opt_out">Opt-out unless denied</option>
-                <option value="required">Require explicit opt-in</option>
-                <option value="disabled">Disable consent checks</option>
-              </select>
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Screenshot minimum interval</span>
-              <input
-                type="number"
-                min="1"
-                max="720"
-                value={heatmapSiteDraft.screenshotMinIntervalHours}
-                onChange={(event) => updateHeatmapSiteField('screenshotMinIntervalHours', Number(event.target.value))}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.featureFlags.screenshots}
-              />
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Raw event retention</span>
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={heatmapSiteDraft.rawEventRetentionDays}
-                onChange={(event) => updateHeatmapSiteField('rawEventRetentionDays', Number(event.target.value))}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              />
-            </label>
-            <label className="website-manager-field">
-              <span className="website-manager-field__label">Aggregate retention</span>
-              <input
-                type="number"
-                min="30"
-                max="3650"
-                value={heatmapSiteDraft.aggregateRetentionDays}
-                onChange={(event) => updateHeatmapSiteField('aggregateRetentionDays', Number(event.target.value))}
-                className="website-manager-field__input"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              />
-            </label>
-            <label className="website-manager-field website-manager-field--wide">
-              <span className="website-manager-field__label">Allowed domains</span>
-              <textarea
-                value={toDomainText(heatmapSiteDraft.allowedDomains)}
-                onChange={(event) => updateHeatmapSiteField('allowedDomains', parseDomainText(event.target.value))}
-                className="website-manager-field__input website-manager-field__input--textarea"
-                placeholder="example.com"
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              />
-            </label>
-          </div>
-
-          <div className="website-manager-checklist">
-            <label className="website-manager-checklist__item">
-              <input
-                type="checkbox"
-                checked={heatmapSiteDraft.trackingEnabled}
-                onChange={(event) => updateHeatmapSiteField('trackingEnabled', event.target.checked)}
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              /> Tracking enabled
-            </label>
-            <label className="website-manager-checklist__item">
-              <input
-                type="checkbox"
-                checked={heatmapSiteDraft.featureFlags.heatmaps}
-                onChange={(event) => updateHeatmapFeatureFlag('heatmaps', event.target.checked)}
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              /> Behavioral heatmaps
-            </label>
-            <label className="website-manager-checklist__item">
-              <input
-                type="checkbox"
-                checked={heatmapSiteDraft.featureFlags.pageSnapshots}
-                onChange={(event) => updateHeatmapFeatureFlag('pageSnapshots', event.target.checked)}
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              /> Page audit snapshots
-            </label>
-            <label className="website-manager-checklist__item">
-              <input
-                type="checkbox"
-                checked={heatmapSiteDraft.featureFlags.screenshots}
-                onChange={(event) => updateHeatmapFeatureFlag('screenshots', event.target.checked)}
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              /> Screenshot capture
-            </label>
-            <label className="website-manager-checklist__item">
-              <input
-                type="checkbox"
-                checked={heatmapSiteDraft.respectDnt}
-                onChange={(event) => updateHeatmapSiteField('respectDnt', event.target.checked)}
-                disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
-              /> Respect Do Not Track
-            </label>
-          </div>
-
-          <label className="website-manager-field website-manager-field--wide">
-            <span className="website-manager-field__label">Manual snippet for non-WordPress / Entrata / other platforms</span>
-            <textarea
-              value={manualTrackerSnippet || 'Save tracking setup to generate a site key and snippet.'}
-              readOnly
-              className="website-manager-field__input website-manager-field__input--textarea"
-              rows="3"
-            />
-          </label>
-
-          <div className="website-manager-actions">
-            <button
-              type="button"
-              className="website-manager-button website-manager-button--ghost"
-              onClick={resetHeatmapSiteDraft}
-              disabled={!heatmapSiteDirty || heatmapSiteSaving || !canEditWebsiteManager}
-            >
-              Reset Tracking
-            </button>
-            <button
-              type="button"
-              className="website-manager-button website-manager-button--primary"
-              onClick={persistHeatmapSiteDraft}
-              disabled={heatmapSiteSaving || !canEditWebsiteManager || (!heatmapSiteDirty && Boolean(heatmapSiteDraft.siteKey))}
-            >
-              {heatmapSiteSaving ? 'Saving…' : heatmapSiteDraft.siteKey ? 'Save Tracking Setup' : 'Generate Tracking Site'}
-            </button>
-          </div>
-
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Content fields</div>
-              <h3 className="website-manager-panel__title">Editable payload for the site</h3>
-            </div>
-          </div>
-
-          <div className="website-manager-groups">
-            {websiteManagerSchemaGroups.map((group) => (
-              <div key={group.id} className="website-manager-group">
-                <div className="website-manager-group__title">{group.label}</div>
-                <div className="website-manager-form-grid">
-                  {group.fields.map((field) => (
-                    <label key={field.key} className={`website-manager-field ${field.type === 'richtext' ? 'website-manager-field--wide' : ''}`}>
-                      <span className="website-manager-field__label">{field.label}</span>
-                      {field.type === 'richtext' ? (
-                        <textarea
-                          value={websiteManagerDraft.content[field.key]}
-                          onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
-                          className="website-manager-field__input website-manager-field__input--textarea"
-                          placeholder={field.placeholder || ''}
-                          disabled={!websiteManagerEditable || !canEditWebsiteManager}
-                        />
-                      ) : (
-                        <input
-                          type="text"
-                          value={websiteManagerDraft.content[field.key]}
-                          onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
-                          className="website-manager-field__input"
-                          placeholder={field.placeholder || ''}
-                          disabled={!websiteManagerEditable || !canEditWebsiteManager}
-                        />
-                      )}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="website-manager-actions">
-            <button
-              type="button"
-              className="website-manager-button website-manager-button--ghost"
-              onClick={resetWebsiteManagerDraft}
-              disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
-            >
-              Reset
-            </button>
-            <button
-              type="button"
-              className="website-manager-button website-manager-button--primary"
-              onClick={() => persistWebsiteManagerDraft({ publish: false })}
-              disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
-            >
-              {websiteManagerSaving && websiteManagerAction === 'save' ? 'Saving…' : 'Save Draft'}
-            </button>
-            <button
-              type="button"
-              className="website-manager-button website-manager-button--primary"
-              onClick={() => persistWebsiteManagerDraft({ publish: true })}
-              disabled={websiteManagerSaving || !websiteManagerPublishReady}
-            >
-              {websiteManagerSaving && websiteManagerAction === 'publish' ? 'Updating…' : 'Update Website'}
-            </button>
+      <div className="website-manager-command-bar">
+        <div className="website-manager-command-bar__meta">
+          <div className="website-manager-command-bar__property">{selectedPropertyLabel}</div>
+          <div className="website-manager-command-bar__status">
+            <span>{websiteManagerLoading ? 'Loading saved content…' : websiteManagerDirty ? 'Unsaved changes' : 'All changes saved'}</span>
+            <span>{websitePlatformMeta.label}</span>
+            <span>Entrata sync: {getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}</span>
           </div>
         </div>
+        <div className="website-manager-command-bar__actions">
+          <button
+            type="button"
+            className="website-manager-button website-manager-button--ghost"
+            onClick={resetWebsiteManagerDraft}
+            disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            className="website-manager-button website-manager-button--ghost"
+            onClick={() => setWebsiteManagerSection('preview')}
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            className="website-manager-button website-manager-button--primary"
+            onClick={() => persistWebsiteManagerDraft({ publish: false })}
+            disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
+          >
+            {websiteManagerSaving && websiteManagerAction === 'save' ? 'Saving…' : 'Save Draft'}
+          </button>
+          <button
+            type="button"
+            className="website-manager-button website-manager-button--primary"
+            onClick={() => persistWebsiteManagerDraft({ publish: true })}
+            disabled={websiteManagerSaving || !websiteManagerPublishReady}
+          >
+            {websiteManagerSaving && websiteManagerAction === 'publish' ? 'Updating…' : 'Update Website'}
+          </button>
+        </div>
+      </div>
 
-        <div className="website-manager-panel website-manager-panel--sidebar">
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Mustache tokens</div>
-              <h3 className="website-manager-panel__title">Dynamic placeholders available today</h3>
-            </div>
-          </div>
+      <div className="website-manager-workspace">
+        <nav className="website-manager-section-nav" aria-label="Website editor sections">
+          {[
+            { id: 'setup', label: 'Setup', detail: 'Platform, URL, WordPress key, tracking' },
+            { id: 'content', label: 'Content Editor', detail: `${websiteManagerSchemaGroups.length} content groups` },
+            { id: 'preview', label: 'Preview', detail: 'Resolved content, tokens, live fields' },
+            { id: 'deploy', label: 'Deploy / Sync', detail: websiteManagerDirty ? 'Draft has unsaved changes' : 'Draft is current' }
+          ].map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className={`website-manager-section-nav__item ${websiteManagerSection === section.id ? 'is-active' : ''}`}
+              onClick={() => setWebsiteManagerSection(section.id)}
+            >
+              <span>{section.label}</span>
+              <small>{section.detail}</small>
+            </button>
+          ))}
+        </nav>
 
-          <div className="website-manager-token-list">
-            {WEBSITE_MANAGER_TOKEN_DEFINITIONS.map((token) => (
-              <div key={token.token} className="website-manager-token">
-                <div className="website-manager-token__name">{`{{${token.token}}}`}</div>
-                <div className="website-manager-token__detail">
-                  {token.label}: <strong>{websiteManagerTokenValues[token.token] || 'Not available'}</strong>
+        <div className="website-manager-section-panel">
+          {websiteManagerSection === 'setup' && (
+            <div className="website-manager-panel">
+              <div className="website-manager-section-head">
+                <div>
+                  <div className="website-manager-panel__eyebrow">Setup</div>
+                  <h3 className="website-manager-panel__title">Website classification and tracking configuration</h3>
                 </div>
               </div>
-            ))}
-            {websiteManagerContentTokens.slice(0, 18).map((field) => (
-              <div key={field.token} className="website-manager-token">
-                <div className="website-manager-token__name">
-                  {field.type === 'url' ? `r:${field.token}` : `{{r:${field.token}}}`}
-                </div>
-                <div className="website-manager-token__detail">
-                  {field.groupLabel}: <strong>{field.label}</strong>
+
+              <div className="website-manager-form-grid">
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Website platform</span>
+                  <select
+                    value={websiteManagerDraft.platform}
+                    onChange={(event) => updateWebsiteManagerField('platform', event.target.value)}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager}
+                  >
+                    {[
+                      { value: 'unknown', label: 'Needs review' },
+                      { value: 'wordpress_custom', label: 'WordPress custom' },
+                      { value: 'entrata', label: 'Entrata website' },
+                      { value: 'other', label: 'Other platform' }
+                    ].map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Public website URL</span>
+                  <input
+                    type="text"
+                    value={websiteManagerDraft.websiteUrl}
+                    onChange={(event) => updateWebsiteManagerField('websiteUrl', event.target.value)}
+                    className="website-manager-field__input"
+                    placeholder="https://www.example.com"
+                    disabled={!canEditWebsiteManager}
+                  />
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">WordPress site key</span>
+                  <input
+                    type="text"
+                    value={websiteManagerDraft.wordpressSiteKey}
+                    onChange={(event) => updateWebsiteManagerField('wordpressSiteKey', event.target.value)}
+                    className="website-manager-field__input"
+                    placeholder="montaire"
+                    disabled={!canEditWebsiteManager}
+                  />
+                </label>
+                <label className="website-manager-field website-manager-field--wide">
+                  <span className="website-manager-field__label">Implementation notes</span>
+                  <textarea
+                    value={websiteManagerDraft.notes}
+                    onChange={(event) => updateWebsiteManagerField('notes', event.target.value)}
+                    className="website-manager-field__input website-manager-field__input--textarea"
+                    placeholder="Add rollout notes, environment reminders, or page-level mapping details."
+                    disabled={!canEditWebsiteManager}
+                  />
+                </label>
+              </div>
+
+              <div className={`website-manager-lockup ${websiteManagerEditable ? 'website-manager-lockup--editable' : 'website-manager-lockup--blocked'}`}>
+                <strong>{websiteManagerEditable ? 'WordPress path is open.' : 'Content editing is currently blocked.'}</strong>
+                <span>
+                  {websiteManagerEditable
+                    ? 'These fields can be maintained here and later pushed into WordPress templates or database values.'
+                    : 'Set the platform to WordPress custom before using this tab as a content source. Entrata properties stay informational only.'}
+                </span>
+              </div>
+
+              <div className="website-manager-section-divider" />
+
+              <div className="website-manager-section-head">
+                <div>
+                  <div className="website-manager-panel__eyebrow">Tracking setup</div>
+                  <h3 className="website-manager-panel__title">Heatmap and audit snippet configuration</h3>
                 </div>
               </div>
-            ))}
-          </div>
 
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Resolved preview</div>
-              <h3 className="website-manager-panel__title">What the content would look like on-site</h3>
-            </div>
-          </div>
+              <div className="website-manager-form-grid">
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Tracking site name</span>
+                  <input
+                    type="text"
+                    value={heatmapSiteDraft.name}
+                    onChange={(event) => updateHeatmapSiteField('name', event.target.value)}
+                    className="website-manager-field__input"
+                    placeholder={selectedPropertyLabel}
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  />
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Heatmap/audit site key</span>
+                  <input
+                    type="text"
+                    value={heatmapSiteDraft.siteKey || (heatmapSiteDraft.id ? 'Generated after save' : '')}
+                    onChange={(event) => updateHeatmapSiteField('siteKey', event.target.value)}
+                    className="website-manager-field__input"
+                    placeholder="Generated when saved"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.siteKey}
+                  />
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Sampling rate</span>
+                  <select
+                    value={String(heatmapSiteDraft.samplingRate)}
+                    onChange={(event) => updateHeatmapSiteField('samplingRate', Number(event.target.value))}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  >
+                    <option value="0.1">10%</option>
+                    <option value="0.25">25%</option>
+                    <option value="0.5">50%</option>
+                    <option value="1">100%</option>
+                  </select>
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Screenshot capture</span>
+                  <select
+                    value={heatmapSiteDraft.screenshotCaptureFrequency}
+                    onChange={(event) => updateHeatmapSiteField('screenshotCaptureFrequency', event.target.value)}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.featureFlags.screenshots}
+                  >
+                    <option value="manual">Manual / disabled</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Consent mode</span>
+                  <select
+                    value={heatmapSiteDraft.consentMode}
+                    onChange={(event) => updateHeatmapSiteField('consentMode', event.target.value)}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  >
+                    <option value="opt_out">Opt-out unless denied</option>
+                    <option value="required">Require explicit opt-in</option>
+                    <option value="disabled">Disable consent checks</option>
+                  </select>
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Screenshot minimum interval</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="720"
+                    value={heatmapSiteDraft.screenshotMinIntervalHours}
+                    onChange={(event) => updateHeatmapSiteField('screenshotMinIntervalHours', Number(event.target.value))}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading || !heatmapSiteDraft.featureFlags.screenshots}
+                  />
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Raw event retention</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="365"
+                    value={heatmapSiteDraft.rawEventRetentionDays}
+                    onChange={(event) => updateHeatmapSiteField('rawEventRetentionDays', Number(event.target.value))}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  />
+                </label>
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Aggregate retention</span>
+                  <input
+                    type="number"
+                    min="30"
+                    max="3650"
+                    value={heatmapSiteDraft.aggregateRetentionDays}
+                    onChange={(event) => updateHeatmapSiteField('aggregateRetentionDays', Number(event.target.value))}
+                    className="website-manager-field__input"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  />
+                </label>
+                <label className="website-manager-field website-manager-field--wide">
+                  <span className="website-manager-field__label">Allowed domains</span>
+                  <textarea
+                    value={toDomainText(heatmapSiteDraft.allowedDomains)}
+                    onChange={(event) => updateHeatmapSiteField('allowedDomains', parseDomainText(event.target.value))}
+                    className="website-manager-field__input website-manager-field__input--textarea"
+                    placeholder="example.com"
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  />
+                </label>
+              </div>
 
-          {websiteManagerPreviewItems.length > 0 ? (
-            <div className="website-manager-preview-list">
-              {websiteManagerPreviewItems.map((item) => (
-                <div key={item.label} className="website-manager-preview">
-                  <div className="website-manager-preview__label">{item.label}</div>
-                  <div className="website-manager-preview__value">{item.resolved}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="website-manager-empty">
-              Start filling in content fields to generate a live preview using the selected property tokens.
+              <div className="website-manager-checklist">
+                <label className="website-manager-checklist__item">
+                  <input
+                    type="checkbox"
+                    checked={heatmapSiteDraft.trackingEnabled}
+                    onChange={(event) => updateHeatmapSiteField('trackingEnabled', event.target.checked)}
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  /> Tracking enabled
+                </label>
+                <label className="website-manager-checklist__item">
+                  <input
+                    type="checkbox"
+                    checked={heatmapSiteDraft.featureFlags.heatmaps}
+                    onChange={(event) => updateHeatmapFeatureFlag('heatmaps', event.target.checked)}
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  /> Behavioral heatmaps
+                </label>
+                <label className="website-manager-checklist__item">
+                  <input
+                    type="checkbox"
+                    checked={heatmapSiteDraft.featureFlags.pageSnapshots}
+                    onChange={(event) => updateHeatmapFeatureFlag('pageSnapshots', event.target.checked)}
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  /> Page audit snapshots
+                </label>
+                <label className="website-manager-checklist__item">
+                  <input
+                    type="checkbox"
+                    checked={heatmapSiteDraft.featureFlags.screenshots}
+                    onChange={(event) => updateHeatmapFeatureFlag('screenshots', event.target.checked)}
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  /> Screenshot capture
+                </label>
+                <label className="website-manager-checklist__item">
+                  <input
+                    type="checkbox"
+                    checked={heatmapSiteDraft.respectDnt}
+                    onChange={(event) => updateHeatmapSiteField('respectDnt', event.target.checked)}
+                    disabled={!canEditWebsiteManager || heatmapSiteSaving || heatmapSiteLoading}
+                  /> Respect Do Not Track
+                </label>
+              </div>
+
+              <label className="website-manager-field website-manager-field--wide">
+                <span className="website-manager-field__label">Manual snippet for non-WordPress / Entrata / other platforms</span>
+                <textarea
+                  value={manualTrackerSnippet || 'Save tracking setup to generate a site key and snippet.'}
+                  readOnly
+                  className="website-manager-field__input website-manager-field__input--textarea"
+                  rows="3"
+                />
+              </label>
+
+              <div className="website-manager-actions">
+                <button
+                  type="button"
+                  className="website-manager-button website-manager-button--ghost"
+                  onClick={resetHeatmapSiteDraft}
+                  disabled={!heatmapSiteDirty || heatmapSiteSaving || !canEditWebsiteManager}
+                >
+                  Reset Tracking
+                </button>
+                <button
+                  type="button"
+                  className="website-manager-button website-manager-button--primary"
+                  onClick={persistHeatmapSiteDraft}
+                  disabled={heatmapSiteSaving || !canEditWebsiteManager || (!heatmapSiteDirty && Boolean(heatmapSiteDraft.siteKey))}
+                >
+                  {heatmapSiteSaving ? 'Saving…' : heatmapSiteDraft.siteKey ? 'Save Tracking Setup' : 'Generate Tracking Site'}
+                </button>
+              </div>
             </div>
           )}
 
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Live Entrata fields</div>
-              <h3 className="website-manager-panel__title">Auto-filled pricing, specials, and availability</h3>
-            </div>
-          </div>
+          {websiteManagerSection === 'content' && (
+            <div className={`website-manager-editor-workbench ${websiteManagerReferenceOpen ? 'has-reference' : 'is-reference-collapsed'}`}>
+              <aside className="website-manager-content-rail" aria-label="Website content sections">
+                <div className="website-manager-content-rail__head">
+                  <div className="website-manager-panel__eyebrow">Sections</div>
+                  <strong>{visibleWebsiteManagerGroups.length}/{websiteManagerSchemaGroups.length}</strong>
+                </div>
+                <label className="website-manager-search">
+                  <span className="website-manager-field__label">Search content</span>
+                  <input
+                    type="search"
+                    value={websiteManagerContentSearch}
+                    onChange={(event) => setWebsiteManagerContentSearch(event.target.value)}
+                    className="website-manager-field__input"
+                    placeholder="Label, content, token..."
+                  />
+                </label>
+                <div className="website-manager-filter-row" aria-label="Content filters">
+                  {[
+                    { id: 'all', label: 'All' },
+                    { id: 'empty', label: 'Empty' },
+                    { id: 'changed', label: 'Changed' },
+                    { id: 'required', label: 'Required' },
+                    { id: 'live_filled', label: 'Live-filled' }
+                  ].map((filter) => (
+                    <button
+                      key={filter.id}
+                      type="button"
+                      className={`website-manager-filter-chip ${websiteManagerContentFilter === filter.id ? 'is-active' : ''}`}
+                      onClick={() => setWebsiteManagerContentFilter(filter.id)}
+                    >
+                      {filter.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="website-manager-actions website-manager-actions--rail">
+                  <button
+                    type="button"
+                    className="website-manager-button website-manager-button--ghost"
+                    onClick={jumpToFirstMissingWebsiteManagerField}
+                    disabled={!websiteManagerSchemaGroups.some((group) => group.fields.some((field) => getWebsiteManagerFieldStatus(field).isEmpty))}
+                  >
+                    First Missing
+                  </button>
+                </div>
+                <div className="website-manager-content-rail__list">
+                  {visibleWebsiteManagerGroups.map((group) => {
+                    const filledFields = group.fields.filter((field) => String(websiteManagerDraft.content[field.key] || '').trim()).length;
+                    const changedFields = group.fields.filter((field) => getWebsiteManagerFieldStatus(field).isChanged).length;
+                    const isExpanded = expandedWebsiteManagerGroups.has(group.id);
+                    return (
+                      <div key={group.id} className={`website-manager-content-rail__group ${selectedWebsiteManagerGroup?.id === group.id ? 'is-active' : ''}`}>
+                        <button
+                          type="button"
+                          className="website-manager-content-rail__item"
+                          onClick={() => setSelectedWebsiteManagerGroupId(group.id)}
+                        >
+                          <span>{group.label}</span>
+                          <small>{filledFields}/{group.fields.length} fields</small>
+                        </button>
+                        <div className="website-manager-content-rail__meta">
+                          <span className={`website-manager-state-badge ${changedFields ? 'is-unsaved' : 'is-published'}`}>
+                            {changedFields ? `${changedFields} changed` : 'Published'}
+                          </span>
+                          <button
+                            type="button"
+                            className="website-manager-rail-toggle"
+                            onClick={() => setExpandedWebsiteManagerGroups((current) => {
+                              const next = new Set(current);
+                              if (next.has(group.id)) next.delete(group.id);
+                              else next.add(group.id);
+                              return next;
+                            })}
+                          >
+                            {isExpanded ? 'Collapse' : 'Fields'}
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="website-manager-content-rail__fields">
+                            {group.fields.map((field) => {
+                              const status = getWebsiteManagerFieldStatus(field);
+                              return (
+                                <button
+                                  key={field.key}
+                                  type="button"
+                                  className="website-manager-content-rail__field"
+                                  onClick={() => jumpToWebsiteManagerField(field)}
+                                >
+                                  <span>{field.label}</span>
+                                  <small>{status.isEmpty ? 'Empty' : status.isChanged ? 'Changed' : 'Saved'}</small>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {visibleWebsiteManagerGroups.length === 0 && (
+                    <div className="website-manager-empty">No fields match the current search and filter.</div>
+                  )}
+                </div>
+              </aside>
 
-          <div className="website-manager-preview-list">
-            <div className="website-manager-preview">
-              <div className="website-manager-preview__label">Pricing summary</div>
-              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.pricingSummary || 'No pricing snapshot available yet.'}</div>
-            </div>
-            <div className="website-manager-preview">
-              <div className="website-manager-preview__label">Availability summary</div>
-              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.availabilitySummary || 'No availability snapshot available yet.'}</div>
-            </div>
-            <div className="website-manager-preview">
-              <div className="website-manager-preview__label">Specials summary</div>
-              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.specialsSummary || 'No current specials snapshot available yet.'}</div>
-            </div>
-            <div className="website-manager-preview">
-              <div className="website-manager-preview__label">Availability URL</div>
-              <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.availabilityUrl || 'Not provided by Entrata.'}</div>
-            </div>
-          </div>
+              <div className="website-manager-panel website-manager-panel--editor">
+                <div className="website-manager-section-head website-manager-section-head--sticky">
+                  <div>
+                    <div className="website-manager-panel__eyebrow">Content editor</div>
+                    <h3 className="website-manager-panel__title">{selectedWebsiteManagerGroup?.label || 'Editable payload for the site'}</h3>
+                  </div>
+                  {selectedWebsiteManagerGroup && (
+                    <div className="website-manager-edit-status">
+                      <span className="website-manager-edit-count">
+                        {selectedWebsiteManagerGroupFilledCount}/{selectedWebsiteManagerGroup.fields.length} filled
+                      </span>
+                      <span className={`website-manager-state-badge ${websiteManagerDirty ? 'is-unsaved' : 'is-published'}`}>
+                        {websiteManagerDirty ? 'Unsaved' : 'Published'}
+                      </span>
+                    </div>
+                  )}
+                </div>
 
-          <div className="website-manager-section-head">
-            <div>
-              <div className="website-manager-panel__eyebrow">Suggested next backend step</div>
-              <h3 className="website-manager-panel__title">How this tab should connect to WordPress</h3>
-            </div>
-          </div>
+                {selectedWebsiteManagerGroup ? (
+                  <div className="website-manager-group website-manager-group--active">
+                    <div className="website-manager-form-grid">
+                      {selectedWebsiteManagerGroupVisibleFields.map((field) => {
+                        const status = getWebsiteManagerFieldStatus(field);
+                        return (
+                          <label key={field.key} className={`website-manager-field ${field.type === 'richtext' ? 'website-manager-field--wide' : ''}`}>
+                            <span className="website-manager-field__header">
+                              <span className="website-manager-field__label">{field.label}</span>
+                              <span className="website-manager-field__badges">
+                                {status.isEmpty && <span className="website-manager-state-badge is-empty">Empty</span>}
+                                {status.isChanged && <span className="website-manager-state-badge is-changed">Changed</span>}
+                                {!status.isChanged && !status.isEmpty && <span className="website-manager-state-badge is-published">Published</span>}
+                                {status.isLiveFilled && <span className="website-manager-state-badge">Live-filled</span>}
+                              </span>
+                            </span>
+                            {field.type === 'richtext' ? (
+                              <>
+                                <div className="website-manager-format-row" aria-label={`${field.label} formatting helpers`}>
+                                  <span>HTML</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => insertWebsiteManagerSnippet(field.key, '<strong>Important text</strong>')}
+                                    disabled={!websiteManagerEditable || !canEditWebsiteManager}
+                                  >
+                                    Bold
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => insertWebsiteManagerSnippet(field.key, '<br>')}
+                                    disabled={!websiteManagerEditable || !canEditWebsiteManager}
+                                  >
+                                    Line break
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => insertWebsiteManagerSnippet(field.key, '<a href=\"/floorplans\">View floor plans</a>')}
+                                    disabled={!websiteManagerEditable || !canEditWebsiteManager}
+                                  >
+                                    Link
+                                  </button>
+                                </div>
+                                <textarea
+                                  id={`website-manager-field-${field.key}`}
+                                  value={websiteManagerDraft.content[field.key]}
+                                  onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
+                                  className={`website-manager-field__input website-manager-field__input--textarea website-manager-field__input--editor ${status.draftValue.length > 140 ? 'has-long-content' : ''}`}
+                                  placeholder={field.placeholder || ''}
+                                  disabled={!websiteManagerEditable || !canEditWebsiteManager}
+                                />
+                                <span className="website-manager-field__hint">Supports basic HTML such as strong text, line breaks, and links.</span>
+                              </>
+                            ) : (
+                              <input
+                                id={`website-manager-field-${field.key}`}
+                                type="text"
+                                value={websiteManagerDraft.content[field.key]}
+                                onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
+                                className="website-manager-field__input"
+                                placeholder={field.placeholder || ''}
+                                disabled={!websiteManagerEditable || !canEditWebsiteManager}
+                              />
+                            )}
+                            <button
+                              type="button"
+                              className="website-manager-token-copy"
+                              onClick={() => copyWebsiteManagerToken(status.tokenText)}
+                            >
+                              {copiedWebsiteManagerToken === status.tokenText ? <Check size={14} /> : <Copy size={14} />}
+                              <span>{copiedWebsiteManagerToken === status.tokenText ? 'Copied' : status.tokenText}</span>
+                            </button>
+                          </label>
+                        );
+                      })}
+                      {selectedWebsiteManagerGroupVisibleFields.length === 0 && (
+                        <div className="website-manager-empty website-manager-field--wide">No fields in this section match the current search and filter.</div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="website-manager-empty">No editable content sections are configured for this property yet.</div>
+                )}
+              </div>
 
-          <div className="website-manager-checklist">
-            <div className="website-manager-checklist__item">
-              Persist per-property content in <code>{`properties/${selectedPropertyId}/website_manager/current`}</code>.
+              <aside className="website-manager-reference-drawer">
+                <button
+                  type="button"
+                  className="website-manager-reference-drawer__toggle"
+                  onClick={() => setWebsiteManagerReferenceOpen((isOpen) => !isOpen)}
+                >
+                  {websiteManagerReferenceOpen ? 'Hide reference' : 'Show reference'}
+                </button>
+
+                {websiteManagerReferenceOpen && (
+                  <div className="website-manager-reference-drawer__content">
+                    <div className="website-manager-reference-section">
+                      <div className="website-manager-panel__eyebrow">Resolved preview</div>
+                      {websiteManagerPreviewItems.length > 0 ? (
+                        <div className="website-manager-preview-list website-manager-preview-list--compact">
+                          {websiteManagerPreviewItems.slice(0, 5).map((item) => (
+                            <div key={item.label} className="website-manager-preview">
+                              <div className="website-manager-preview__label">{item.label}</div>
+                              <div className="website-manager-preview__value">{item.resolved}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="website-manager-empty">Fill in content fields to generate a resolved preview.</div>
+                      )}
+                    </div>
+
+                    <div className="website-manager-reference-section">
+                      <div className="website-manager-panel__eyebrow">Tokens</div>
+                      <label className="website-manager-search">
+                        <span className="website-manager-field__label">Search tokens</span>
+                        <input
+                          type="search"
+                          value={websiteManagerTokenSearch}
+                          onChange={(event) => setWebsiteManagerTokenSearch(event.target.value)}
+                          className="website-manager-field__input"
+                          placeholder="Token, section, value..."
+                        />
+                      </label>
+                      <div className="website-manager-token-groups">
+                        {Array.from(websiteManagerReferenceTokenGroups.entries()).map(([groupLabel, tokens]) => (
+                          <div key={groupLabel} className="website-manager-token-group">
+                            <div className="website-manager-token-group__title">{groupLabel}</div>
+                            <div className="website-manager-token-list website-manager-token-list--compact">
+                              {tokens.map((token) => (
+                                <button
+                                  key={`${groupLabel}-${token.tokenText}-${token.label}`}
+                                  type="button"
+                                  className="website-manager-token website-manager-token--button"
+                                  onClick={() => copyWebsiteManagerToken(token.tokenText)}
+                                >
+                                  <span>
+                                    <span className="website-manager-token__name">{token.tokenText}</span>
+                                    <span className="website-manager-token__detail">
+                                      {token.label}: <strong>{token.detail}</strong>
+                                    </span>
+                                  </span>
+                                  {copiedWebsiteManagerToken === token.tokenText ? <Check size={14} /> : <Copy size={14} />}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                        {websiteManagerReferenceTokens.length === 0 && (
+                          <div className="website-manager-empty">No tokens match that search.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="website-manager-reference-section">
+                      <div className="website-manager-panel__eyebrow">Live fields</div>
+                      <div className="website-manager-preview-list website-manager-preview-list--compact">
+                        <div className="website-manager-preview">
+                          <div className="website-manager-preview__label">Pricing</div>
+                          <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.pricingSummary || 'No pricing snapshot available yet.'}</div>
+                        </div>
+                        <div className="website-manager-preview">
+                          <div className="website-manager-preview__label">Specials</div>
+                          <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.specialsSummary || 'No current specials snapshot available yet.'}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="website-manager-reference-section">
+                      <div className="website-manager-panel__eyebrow">Sync notes</div>
+                      <div className="website-manager-checklist">
+                        <div className="website-manager-checklist__item">
+                          Persist path: <code>{`properties/${selectedPropertyId}/website_manager/current`}</code>
+                        </div>
+                        <div className="website-manager-checklist__item">
+                          Entrata sync: {getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </aside>
             </div>
-            <div className="website-manager-checklist__item">Manual copy and Entrata-derived fields are bundled into one signed WordPress publish payload.</div>
-            <div className="website-manager-checklist__item">The WordPress plugin echoes current option values and flushes caches after updates.</div>
-            <div className="website-manager-checklist__item">A backend cron republishes WordPress properties every four hours after Entrata snapshots refresh.</div>
-            <div className="website-manager-checklist__item">Entrata properties still remain read-only until the platform is switched to `wordpress_custom`.</div>
-          </div>
+          )}
+
+          {websiteManagerSection === 'preview' && (
+            <div className="website-manager-preview-grid">
+              <div className="website-manager-panel">
+                <div className="website-manager-section-head">
+                  <div>
+                    <div className="website-manager-panel__eyebrow">Resolved preview</div>
+                    <h3 className="website-manager-panel__title">What the content would look like on-site</h3>
+                  </div>
+                </div>
+
+                {websiteManagerPreviewItems.length > 0 ? (
+                  <div className="website-manager-preview-list">
+                    {websiteManagerPreviewItems.map((item) => (
+                      <div key={item.label} className="website-manager-preview">
+                        <div className="website-manager-preview__label">{item.label}</div>
+                        <div className="website-manager-preview__value">{item.resolved}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="website-manager-empty">
+                    Start filling in content fields to generate a live preview using the selected property tokens.
+                  </div>
+                )}
+
+                <div className="website-manager-section-divider" />
+
+                <div className="website-manager-section-head">
+                  <div>
+                    <div className="website-manager-panel__eyebrow">Live Entrata fields</div>
+                    <h3 className="website-manager-panel__title">Auto-filled pricing, specials, and availability</h3>
+                  </div>
+                </div>
+
+                <div className="website-manager-preview-list">
+                  <div className="website-manager-preview">
+                    <div className="website-manager-preview__label">Pricing summary</div>
+                    <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.pricingSummary || 'No pricing snapshot available yet.'}</div>
+                  </div>
+                  <div className="website-manager-preview">
+                    <div className="website-manager-preview__label">Availability summary</div>
+                    <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.availabilitySummary || 'No availability snapshot available yet.'}</div>
+                  </div>
+                  <div className="website-manager-preview">
+                    <div className="website-manager-preview__label">Specials summary</div>
+                    <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.specialsSummary || 'No current specials snapshot available yet.'}</div>
+                  </div>
+                  <div className="website-manager-preview">
+                    <div className="website-manager-preview__label">Availability URL</div>
+                    <div className="website-manager-preview__value">{websiteManagerDraft.derivedContent.availabilityUrl || 'Not provided by Entrata.'}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="website-manager-panel">
+                <div className="website-manager-section-head">
+                  <div>
+                    <div className="website-manager-panel__eyebrow">Mustache tokens</div>
+                    <h3 className="website-manager-panel__title">Dynamic placeholders available today</h3>
+                  </div>
+                </div>
+
+                <div className="website-manager-token-list">
+                  {WEBSITE_MANAGER_TOKEN_DEFINITIONS.map((token) => (
+                    <div key={token.token} className="website-manager-token">
+                      <div className="website-manager-token__name">{`{{${token.token}}}`}</div>
+                      <div className="website-manager-token__detail">
+                        {token.label}: <strong>{websiteManagerTokenValues[token.token] || 'Not available'}</strong>
+                      </div>
+                    </div>
+                  ))}
+                  {websiteManagerContentTokens.slice(0, 18).map((field) => (
+                    <div key={field.token} className="website-manager-token">
+                      <div className="website-manager-token__name">
+                        {field.type === 'url' ? `r:${field.token}` : `{{r:${field.token}}}`}
+                      </div>
+                      <div className="website-manager-token__detail">
+                        {field.groupLabel}: <strong>{field.label}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {websiteManagerSection === 'deploy' && (
+            <div className="website-manager-panel">
+              <div className="website-manager-section-head">
+                <div>
+                  <div className="website-manager-panel__eyebrow">Deploy / sync</div>
+                  <h3 className="website-manager-panel__title">Save drafts, update WordPress, and confirm backend flow</h3>
+                </div>
+              </div>
+
+              <div className="website-manager-deploy-grid">
+                <div className="website-manager-preview">
+                  <div className="website-manager-preview__label">Content draft</div>
+                  <div className="website-manager-preview__value">
+                    {websiteManagerDirty ? 'Unsaved changes are waiting in this dashboard draft.' : 'Dashboard content matches the saved draft.'}
+                  </div>
+                </div>
+                <div className="website-manager-preview">
+                  <div className="website-manager-preview__label">Publish readiness</div>
+                  <div className="website-manager-preview__value">
+                    {websiteManagerPublishReady ? 'Ready to push to the linked WordPress endpoint.' : 'Publishing needs WordPress custom platform, a public URL, and a site key.'}
+                  </div>
+                </div>
+                <div className="website-manager-preview">
+                  <div className="website-manager-preview__label">Entrata live sync</div>
+                  <div className="website-manager-preview__value">
+                    {getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="website-manager-actions website-manager-actions--left">
+                <button
+                  type="button"
+                  className="website-manager-button website-manager-button--ghost"
+                  onClick={resetWebsiteManagerDraft}
+                  disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="website-manager-button website-manager-button--primary"
+                  onClick={() => persistWebsiteManagerDraft({ publish: false })}
+                  disabled={!websiteManagerDirty || websiteManagerSaving || !canEditWebsiteManager}
+                >
+                  {websiteManagerSaving && websiteManagerAction === 'save' ? 'Saving…' : 'Save Draft'}
+                </button>
+                <button
+                  type="button"
+                  className="website-manager-button website-manager-button--primary"
+                  onClick={() => persistWebsiteManagerDraft({ publish: true })}
+                  disabled={websiteManagerSaving || !websiteManagerPublishReady}
+                >
+                  {websiteManagerSaving && websiteManagerAction === 'publish' ? 'Updating…' : 'Update Website'}
+                </button>
+              </div>
+
+              <div className="website-manager-section-divider" />
+
+              <div className="website-manager-section-head">
+                <div>
+                  <div className="website-manager-panel__eyebrow">Suggested next backend step</div>
+                  <h3 className="website-manager-panel__title">How this tab should connect to WordPress</h3>
+                </div>
+              </div>
+
+              <div className="website-manager-checklist">
+                <div className="website-manager-checklist__item">
+                  Persist per-property content in <code>{`properties/${selectedPropertyId}/website_manager/current`}</code>.
+                </div>
+                <div className="website-manager-checklist__item">Manual copy and Entrata-derived fields are bundled into one signed WordPress publish payload.</div>
+                <div className="website-manager-checklist__item">The WordPress plugin echoes current option values and flushes caches after updates.</div>
+                <div className="website-manager-checklist__item">A backend cron republishes WordPress properties every four hours after Entrata snapshots refresh.</div>
+                <div className="website-manager-checklist__item">Entrata properties still remain read-only until the platform is switched to `wordpress_custom`.</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -3711,10 +3711,12 @@ td {
 }
 
 .website-manager-hero {
-  display: grid;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 1rem;
-  padding: 1.6rem;
-  border-radius: 22px;
+  padding: 1rem 1.15rem;
+  border-radius: 18px;
   color: var(--white);
   background:
     radial-gradient(circle at top right, rgba(108, 178, 139, 0.18), transparent 28%),
@@ -3728,20 +3730,20 @@ td {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   opacity: 0.72;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
 }
 
 .website-manager-headline {
-  font-size: 2rem;
+  font-size: 1.65rem;
   line-height: 1;
   font-weight: 200;
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.35rem;
 }
 
 .website-manager-subhead {
   max-width: 70ch;
-  font-size: 0.92rem;
-  line-height: 1.55;
+  font-size: 0.86rem;
+  line-height: 1.35;
   color: rgba(255, 255, 255, 0.8);
 }
 
@@ -3767,10 +3769,38 @@ td {
   background: rgba(197, 107, 83, 0.16);
 }
 
-.website-manager-summary-grid {
+.website-manager-status-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  box-shadow: 0 12px 24px rgba(16, 33, 38, 0.05);
+}
+
+.website-manager-status-item {
   display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.2rem;
+  min-width: 150px;
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  background: rgba(16, 33, 38, 0.035);
+}
+
+.website-manager-status-item span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(16, 33, 38, 0.58);
+}
+
+.website-manager-status-item strong {
+  font-size: 0.92rem;
+  color: var(--analytics-ink);
+  line-height: 1.2;
 }
 
 .website-manager-card {
@@ -3826,6 +3856,456 @@ td {
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(0, 1.8fr) minmax(320px, 1fr);
+}
+
+.website-manager-command-bar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  box-shadow: 0 14px 28px rgba(16, 33, 38, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.website-manager-command-bar__meta {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.website-manager-command-bar__property {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--analytics-ink);
+}
+
+.website-manager-command-bar__status,
+.website-manager-command-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.website-manager-command-bar__status span {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(16, 33, 38, 0.05);
+  color: rgba(16, 33, 38, 0.66);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.website-manager-workspace {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.website-manager-section-nav {
+  position: sticky;
+  top: 1rem;
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border-radius: 20px;
+  background: #ffffff;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  box-shadow: 0 14px 28px rgba(16, 33, 38, 0.05);
+}
+
+.website-manager-section-nav__item {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.9rem 0.95rem;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  border-radius: 14px;
+  background: rgba(16, 33, 38, 0.035);
+  color: rgba(16, 33, 38, 0.72);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.website-manager-section-nav__item:hover,
+.website-manager-section-nav__item.is-active {
+  border-color: rgba(16, 33, 38, 0.18);
+  background: #f8f3ed;
+  color: var(--analytics-ink);
+}
+
+.website-manager-section-nav__item span {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.website-manager-section-nav__item small {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: rgba(16, 33, 38, 0.58);
+}
+
+.website-manager-section-panel {
+  min-width: 0;
+}
+
+.website-manager-section-divider {
+  height: 1px;
+  background: rgba(16, 33, 38, 0.1);
+  margin: 0.25rem 0;
+}
+
+.website-manager-preview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  align-items: start;
+}
+
+.website-manager-deploy-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.website-manager-editor-workbench {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(300px, 360px);
+  align-items: start;
+}
+
+.website-manager-editor-workbench.is-reference-collapsed {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) auto;
+}
+
+.website-manager-content-rail,
+.website-manager-reference-drawer {
+  position: sticky;
+  top: 5.75rem;
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 18px;
+  background: #ffffff;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  box-shadow: 0 14px 28px rgba(16, 33, 38, 0.05);
+}
+
+.website-manager-content-rail__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.website-manager-content-rail__head strong,
+.website-manager-edit-count {
+  border-radius: 999px;
+  padding: 0.4rem 0.6rem;
+  background: rgba(16, 33, 38, 0.06);
+  color: var(--analytics-ink);
+  font-size: 0.78rem;
+}
+
+.website-manager-content-rail__list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.website-manager-search {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.website-manager-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.website-manager-filter-chip,
+.website-manager-rail-toggle,
+.website-manager-token-copy {
+  border: 1px solid rgba(16, 33, 38, 0.1);
+  border-radius: 999px;
+  background: rgba(16, 33, 38, 0.05);
+  color: var(--analytics-ink);
+  cursor: pointer;
+  font: inherit;
+}
+
+.website-manager-filter-chip {
+  padding: 0.45rem 0.62rem;
+  font-size: 0.72rem;
+}
+
+.website-manager-filter-chip.is-active {
+  background: #f8f3ed;
+  border-color: rgba(16, 33, 38, 0.18);
+}
+
+.website-manager-actions--rail {
+  justify-content: stretch;
+}
+
+.website-manager-actions--rail .website-manager-button {
+  width: 100%;
+}
+
+.website-manager-content-rail__group {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.35rem;
+  border-radius: 14px;
+  border: 1px solid transparent;
+}
+
+.website-manager-content-rail__group.is-active {
+  border-color: rgba(16, 33, 38, 0.16);
+  background: rgba(16, 33, 38, 0.025);
+}
+
+.website-manager-content-rail__item {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.75rem 0.8rem;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  border-radius: 12px;
+  background: rgba(16, 33, 38, 0.035);
+  color: rgba(16, 33, 38, 0.7);
+  text-align: left;
+  cursor: pointer;
+}
+
+.website-manager-content-rail__item:hover,
+.website-manager-content-rail__item.is-active {
+  border-color: rgba(16, 33, 38, 0.18);
+  background: #f8f3ed;
+  color: var(--analytics-ink);
+}
+
+.website-manager-content-rail__item span {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.website-manager-content-rail__item small {
+  font-size: 0.74rem;
+  color: rgba(16, 33, 38, 0.58);
+}
+
+.website-manager-content-rail__meta {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.website-manager-rail-toggle {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.7rem;
+}
+
+.website-manager-content-rail__fields {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.website-manager-content-rail__field {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  border-radius: 10px;
+  background: rgba(16, 33, 38, 0.03);
+  color: rgba(16, 33, 38, 0.72);
+  text-align: left;
+  cursor: pointer;
+}
+
+.website-manager-content-rail__field span {
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.website-manager-content-rail__field small {
+  font-size: 0.68rem;
+  color: rgba(16, 33, 38, 0.58);
+}
+
+.website-manager-section-head--sticky {
+  position: sticky;
+  top: 5.75rem;
+  z-index: 3;
+  padding-bottom: 0.75rem;
+  background: inherit;
+}
+
+.website-manager-edit-status,
+.website-manager-field__header,
+.website-manager-field__badges,
+.website-manager-token-copy,
+.website-manager-token--button {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.website-manager-edit-status,
+.website-manager-field__badges {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.website-manager-field__header {
+  justify-content: space-between;
+}
+
+.website-manager-state-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0.25rem 0.48rem;
+  border-radius: 999px;
+  background: rgba(16, 33, 38, 0.06);
+  color: rgba(16, 33, 38, 0.7);
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.website-manager-state-badge.is-unsaved,
+.website-manager-state-badge.is-changed {
+  background: rgba(197, 107, 83, 0.14);
+  color: #7c3026;
+}
+
+.website-manager-state-badge.is-empty {
+  background: rgba(121, 41, 36, 0.12);
+  color: #6d1f1b;
+}
+
+.website-manager-state-badge.is-published {
+  background: rgba(108, 178, 139, 0.14);
+  color: #204c37;
+}
+
+.website-manager-group--active {
+  background: rgba(16, 33, 38, 0.025);
+}
+
+.website-manager-field__input--editor {
+  min-height: 96px;
+  transition: min-height 0.18s ease, border-color 0.18s ease;
+}
+
+.website-manager-field__input--editor:focus,
+.website-manager-field__input--editor.has-long-content {
+  min-height: 180px;
+}
+
+.website-manager-format-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.website-manager-format-row span,
+.website-manager-field__hint {
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.72rem;
+}
+
+.website-manager-format-row button {
+  border: 1px solid rgba(16, 33, 38, 0.1);
+  border-radius: 999px;
+  background: rgba(16, 33, 38, 0.05);
+  color: var(--analytics-ink);
+  cursor: pointer;
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+  font-size: 0.72rem;
+}
+
+.website-manager-format-row button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.website-manager-token-copy {
+  justify-self: start;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.website-manager-reference-drawer {
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+}
+
+.website-manager-reference-drawer__toggle {
+  width: 100%;
+  border: 1px solid rgba(16, 33, 38, 0.1);
+  border-radius: 999px;
+  background: rgba(16, 33, 38, 0.05);
+  color: var(--analytics-ink);
+  cursor: pointer;
+  padding: 0.7rem 0.85rem;
+  font: inherit;
+}
+
+.website-manager-reference-drawer__content,
+.website-manager-reference-section {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.website-manager-token-list--compact,
+.website-manager-preview-list--compact {
+  gap: 0.5rem;
+}
+
+.website-manager-token-list--compact .website-manager-token,
+.website-manager-preview-list--compact .website-manager-preview,
+.website-manager-reference-section .website-manager-checklist__item {
+  padding: 0.75rem;
+  font-size: 0.78rem;
+}
+
+.website-manager-token-groups,
+.website-manager-token-group {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.website-manager-token-group__title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--analytics-ink);
+}
+
+.website-manager-token--button {
+  width: 100%;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+}
+
+.website-manager-token--button > span {
+  display: grid;
+  gap: 0.25rem;
 }
 
 .website-manager-panel {
@@ -3945,6 +4425,11 @@ td {
   display: flex;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.website-manager-actions--left {
+  justify-content: flex-start;
+  flex-wrap: wrap;
 }
 
 .website-manager-button {
@@ -4255,12 +4740,36 @@ td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .website-manager-status-strip,
   .website-manager-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .website-manager-layout {
     grid-template-columns: 1fr;
+  }
+
+  .website-manager-workspace,
+  .website-manager-preview-grid,
+  .website-manager-deploy-grid,
+  .website-manager-editor-workbench,
+  .website-manager-editor-workbench.is-reference-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .website-manager-section-nav {
+    position: static;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .website-manager-content-rail,
+  .website-manager-reference-drawer {
+    position: static;
+    max-height: none;
+  }
+
+  .website-manager-content-rail__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .website-schema-field-card__grid {
@@ -4360,10 +4869,36 @@ td {
   .grid-layout,
   .property-info-grid,
   .property-info-panels,
+  .website-manager-status-strip,
   .website-manager-summary-grid,
+  .website-manager-section-nav,
+  .website-manager-content-rail__list,
   .analytics-kpis,
   .analytics-grid {
     grid-template-columns: 1fr;
+  }
+
+  .website-manager-command-bar {
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .website-manager-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .website-manager-status-item {
+    min-width: 100%;
+  }
+
+  .website-manager-command-bar__actions {
+    justify-content: stretch;
+  }
+
+  .website-manager-command-bar__actions .website-manager-button {
+    flex: 1;
   }
 
   .website-manager-form-grid {
@@ -5354,6 +5889,9 @@ td {
 .website-manager-lockup,
 .website-manager-group,
 .website-manager-field__input,
+.website-manager-filter-chip,
+.website-manager-rail-toggle,
+.website-manager-token-copy,
 .property-selector,
 .global-date-controls__picker,
 .global-date-controls__select,
@@ -5661,8 +6199,21 @@ body,
 .analytics-search-card,
 .analytics-search-kpis,
 .website-manager-view,
+.website-manager-status-strip,
+.website-manager-status-item,
 .website-manager-summary-grid,
 .website-manager-layout,
+.website-manager-command-bar,
+.website-manager-command-bar__actions,
+.website-manager-command-bar__status,
+.website-manager-workspace,
+.website-manager-section-panel,
+.website-manager-preview-grid,
+.website-manager-deploy-grid,
+.website-manager-editor-workbench,
+.website-manager-content-rail,
+.website-manager-reference-drawer,
+.website-manager-reference-drawer__content,
 .website-manager-panel,
 .website-manager-form-grid,
 .website-manager-groups,
@@ -5709,6 +6260,21 @@ body,
 .website-manager-card,
 .website-manager-banner,
 .website-manager-panel,
+.website-manager-status-strip,
+.website-manager-status-item,
+.website-manager-command-bar,
+.website-manager-content-rail,
+.website-manager-content-rail__group,
+.website-manager-content-rail__item,
+.website-manager-content-rail__field,
+.website-manager-reference-drawer,
+.website-manager-reference-drawer__toggle,
+.website-manager-filter-chip,
+.website-manager-rail-toggle,
+.website-manager-state-badge,
+.website-manager-token-copy,
+.website-manager-section-nav,
+.website-manager-section-nav__item,
 .website-manager-token,
 .website-manager-preview,
 .website-manager-checklist__item,
@@ -5779,12 +6345,33 @@ body,
 .website-manager-card,
 .website-manager-banner,
 .website-manager-panel,
+.website-manager-status-strip,
+.website-manager-status-item,
+.website-manager-status-item span,
+.website-manager-status-item strong,
+.website-manager-command-bar,
+.website-manager-command-bar__status span,
+.website-manager-content-rail,
+.website-manager-content-rail__group,
+.website-manager-content-rail__item,
+.website-manager-content-rail__field,
+.website-manager-content-rail__head strong,
+.website-manager-edit-count,
+.website-manager-reference-drawer,
+.website-manager-reference-drawer__toggle,
+.website-manager-filter-chip,
+.website-manager-rail-toggle,
+.website-manager-state-badge,
+.website-manager-token-copy,
+.website-manager-section-nav,
+.website-manager-section-nav__item,
 .website-manager-token,
 .website-manager-preview,
 .website-manager-checklist__item,
 .website-manager-lockup,
 .website-manager-group,
 .website-manager-field__input,
+.website-manager-format-row button,
 .website-schema-group,
 .website-schema-field-card,
 .website-schema-icon-button,
@@ -5814,6 +6401,10 @@ body,
 .reports-minimap__actions button,
 .reports-admin-actions button,
 .website-manager-button,
+.website-manager-format-row button,
+.website-manager-content-rail__item.is-active,
+.website-manager-filter-chip.is-active,
+.website-manager-section-nav__item.is-active,
 .website-schema-action,
 .property-selector,
 .global-date-controls__picker,
@@ -6291,6 +6882,12 @@ svg.recharts-surface {
 .property-info-panels,
 .analytics-grid,
 .website-manager-layout,
+.website-manager-command-bar,
+.website-manager-status-strip,
+.website-manager-workspace,
+.website-manager-preview-grid,
+.website-manager-deploy-grid,
+.website-manager-editor-workbench,
 .website-manager-summary-grid {
   gap: 1.15rem !important;
 }
@@ -6520,6 +7117,12 @@ th {
   .property-info-panels,
   .analytics-grid,
   .website-manager-layout,
+  .website-manager-command-bar,
+  .website-manager-status-strip,
+  .website-manager-workspace,
+  .website-manager-preview-grid,
+  .website-manager-deploy-grid,
+  .website-manager-editor-workbench,
   .website-manager-summary-grid {
     gap: 1rem !important;
   }
@@ -6589,6 +7192,12 @@ th {
 .reports-panels > *,
 .property-info-panels > *,
 .website-manager-layout > *,
+.website-manager-command-bar > *,
+.website-manager-status-strip > *,
+.website-manager-workspace > *,
+.website-manager-preview-grid > *,
+.website-manager-deploy-grid > *,
+.website-manager-editor-workbench > *,
 .website-manager-summary-grid > * {
   min-width: 0;
 }
