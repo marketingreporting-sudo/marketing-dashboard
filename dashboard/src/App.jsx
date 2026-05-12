@@ -56,6 +56,7 @@ import {
   LayoutDashboard, 
   FileText, 
   ClipboardList, 
+  PhoneCall,
   ChevronDown, 
   ChevronRight,
   ChevronsLeft,
@@ -174,6 +175,21 @@ const TASK_STATUSES = [
   { id: 'complete', label: 'Complete' },
 ];
 const TASK_STATUS_IDS = TASK_STATUSES.map((status) => status.id);
+const CALL_PREP_PERIODS = [
+  { days: 7, label: 'Last 7 Days', shortLabel: '7D' },
+  { days: 30, label: 'Last 30 Days', shortLabel: '30D' },
+  { days: 60, label: 'Last 60 Days', shortLabel: '60D' },
+];
+const CALL_PREP_METRIC_ROWS = [
+  { key: 'leads', label: 'Lead Volume', format: 'number' },
+  { key: 'applications', label: 'Applications', format: 'number' },
+  { key: 'leases', label: 'Leases', format: 'number' },
+  { key: 'leadToAppRate', label: 'Lead to App', format: 'percent' },
+  { key: 'leadToLeaseRate', label: 'Lead to Lease', format: 'percent' },
+  { key: 'appToLeaseRate', label: 'App to Lease', format: 'percent' },
+  { key: 'performanceMarketingSpend', label: 'Paid Media Spend', format: 'currency' },
+  { key: 'costPerLead', label: 'Cost per Lead', format: 'currency' },
+];
 const WEBSITE_SCHEMA_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const WEBSITE_SCHEMA_FIELD_TYPES = [
   { value: 'text', label: 'Text' },
@@ -185,6 +201,7 @@ const NAV_ITEMS = [
   { id: 'website manager', label: 'Website Editor', icon: Globe, permission: TAB_PERMISSIONS['website manager'] },
   { id: 'property info', label: 'Property Info', icon: Home, permission: TAB_PERMISSIONS['property info'] },
   { id: 'reports', label: 'Reports', icon: FileText, permission: TAB_PERMISSIONS.reports },
+  { id: 'call prep', label: 'Call Prep', icon: PhoneCall, permission: TAB_PERMISSIONS['call prep'] },
   { id: 'recommendations', label: 'Recommendations', icon: Lightbulb, permission: TAB_PERMISSIONS.recommendations },
   { id: 'audit', label: 'Audit', icon: AlertTriangle, permission: TAB_PERMISSIONS.audit },
   { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
@@ -1067,6 +1084,237 @@ const isInDateRange = (date, start, end) => {
   return date >= start && date <= end;
 };
 
+const getCallPrepWindowRange = (days, offsetDays = 0) => {
+  const end = new Date();
+  end.setDate(end.getDate() - offsetDays);
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setDate(end.getDate() - days + 1);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+};
+
+const getPriorWindowRange = ({ start }, days) => {
+  const end = new Date(start);
+  end.setDate(start.getDate() - 1);
+  end.setHours(23, 59, 59, 999);
+  const priorStart = new Date(end);
+  priorStart.setDate(end.getDate() - days + 1);
+  priorStart.setHours(0, 0, 0, 0);
+  return { start: priorStart, end };
+};
+
+const getItemPropertyId = (item) => String(item?._propertyId ?? item?.property_id ?? item?.propertyId ?? '');
+
+const itemMatchesProperty = (item, propertyId) => {
+  if (!propertyId) return true;
+  return getItemPropertyId(item) === String(propertyId);
+};
+
+const getCallPrepInvoiceKey = (invoice) => getScopedStableKey(getItemPropertyId(invoice), getInvoiceKey(invoice));
+
+const getCallPrepDate = (value) => {
+  const parsed = value instanceof Date ? value : parseEntrataDate(value);
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+};
+
+const percentChange = (current, previous) => {
+  const currentValue = Number(current || 0);
+  const previousValue = Number(previous || 0);
+  if (previousValue === 0) return currentValue === 0 ? 0 : null;
+  return (currentValue - previousValue) / previousValue;
+};
+
+const safeRate = (numerator, denominator) => {
+  const denominatorValue = Number(denominator || 0);
+  if (denominatorValue <= 0) return null;
+  return Number(numerator || 0) / denominatorValue;
+};
+
+const averageNumbers = (values) => {
+  const numericValues = values.map((value) => Number(value)).filter(Number.isFinite);
+  if (numericValues.length === 0) return null;
+  return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
+};
+
+const getCallPrepMetricValue = (metrics, key) => {
+  if (!metrics) return null;
+  if (key === 'leadToAppRate') return metrics.leadToAppRate;
+  if (key === 'leadToLeaseRate') return metrics.leadToLeaseRate;
+  if (key === 'appToLeaseRate') return metrics.appToLeaseRate;
+  if (key === 'performanceMarketingSpend') return metrics.performanceMarketingSpend;
+  if (key === 'totalMarketingSpend') return metrics.totalMarketingSpend;
+  if (key === 'costPerLead') return metrics.costPerLead;
+  if (key === 'costPerLease') return metrics.costPerLease;
+  return metrics[key];
+};
+
+const buildCallPrepMetrics = (payload, range, propertyId = null) => {
+  const leadItemsForWindow = (payload?.lead_items || []).filter((lead) => (
+    itemMatchesProperty(lead, propertyId) &&
+    isInDateRange(getCallPrepDate(lead._date || lead.activity_date || lead.date), range.start, range.end)
+  ));
+  const canonicalLeads = new Map();
+  leadItemsForWindow.forEach((lead) => {
+    const key = getLeadKey(lead);
+    const current = canonicalLeads.get(key);
+    if (!current || String(lead._date || '') < String(current._date || '9999-12-31')) {
+      canonicalLeads.set(key, lead);
+    }
+  });
+  const leads = Array.from(canonicalLeads.values());
+
+  const applicationRecords = new Map();
+  const leaseRecords = new Map();
+  (payload?.event_items || []).forEach((event) => {
+    if (!itemMatchesProperty(event, propertyId)) return;
+    const eventDate = getTrueEventOccurredDate(event);
+    if (!isInDateRange(eventDate, range.start, range.end)) return;
+    if (isStartedApplicationEvent(event)) {
+      const key = getCompletedApplicationRecordKey(event);
+      const existing = applicationRecords.get(key);
+      if (!existing || eventDate < existing.date) applicationRecords.set(key, { date: eventDate, item: event });
+    }
+    if (isApprovedNewLeaseEvent(event)) {
+      const key = getApprovedLeaseRecordKey(event);
+      const existing = leaseRecords.get(key);
+      if (!existing || eventDate < existing.date) leaseRecords.set(key, { date: eventDate, item: event });
+    }
+  });
+
+  const uniqueInvoices = new Map();
+  (payload?.invoice_items || []).forEach((invoice) => {
+    if (!itemMatchesProperty(invoice, propertyId)) return;
+    const key = getCallPrepInvoiceKey(invoice);
+    const existing = uniqueInvoices.get(key);
+    if (!existing) {
+      uniqueInvoices.set(key, invoice);
+      return;
+    }
+    const effectiveDate = getInvoiceEffectiveDate(invoice);
+    const existingDate = getInvoiceEffectiveDate(existing);
+    if (effectiveDate && existingDate && effectiveDate < existingDate) {
+      uniqueInvoices.set(key, invoice);
+    }
+  });
+  const invoices = Array.from(uniqueInvoices.values());
+  const marketingInvoices = invoices.filter((invoice) => (
+    hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS)
+  ));
+  const performanceInvoices = invoices.filter((invoice) => (
+    hasInvoiceClassification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS)
+  ));
+  const totalMarketingSpend = marketingInvoices.reduce((total, invoice) => (
+    total + getAllocatedInvoiceAmountInRange(invoice, range.start, range.end)
+  ), 0);
+  const performanceMarketingSpend = performanceInvoices.reduce((total, invoice) => (
+    total + getAllocatedInvoiceAmountInRange(invoice, range.start, range.end)
+  ), 0);
+
+  const leadCount = leads.length;
+  const applicationCount = applicationRecords.size;
+  const leaseCount = leaseRecords.size;
+  const sourceMap = new Map();
+  leads.forEach((lead) => {
+    const source = lead.leadSource || lead.internetListingService || 'Unknown';
+    sourceMap.set(source, (sourceMap.get(source) || 0) + 1);
+  });
+
+  return {
+    leads: leadCount,
+    applications: applicationCount,
+    leases: leaseCount,
+    leadToAppRate: safeRate(applicationCount, leadCount),
+    leadToLeaseRate: safeRate(leaseCount, leadCount),
+    appToLeaseRate: safeRate(leaseCount, applicationCount),
+    totalMarketingSpend,
+    performanceMarketingSpend,
+    costPerLead: leadCount > 0 && performanceMarketingSpend > 0 ? performanceMarketingSpend / leadCount : null,
+    costPerLease: leaseCount > 0 && performanceMarketingSpend > 0 ? performanceMarketingSpend / leaseCount : null,
+    sourceBreakdown: Array.from(sourceMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([source, count]) => ({
+        source,
+        leads: count,
+        share: safeRate(count, leadCount),
+      })),
+  };
+};
+
+const buildCallPrepPortfolioAverage = (payload, range, selectedPropertyId, propertyIds) => {
+  const comparisonIds = propertyIds
+    .map((propertyId) => String(propertyId))
+    .filter((propertyId) => propertyId && propertyId !== String(selectedPropertyId));
+  if (comparisonIds.length === 0) return null;
+  const metricsByProperty = comparisonIds.map((propertyId) => buildCallPrepMetrics(payload, range, propertyId));
+  const averageMetric = (key) => averageNumbers(metricsByProperty.map((metrics) => getCallPrepMetricValue(metrics, key)));
+  return {
+    propertyCount: comparisonIds.length,
+    leads: averageMetric('leads'),
+    applications: averageMetric('applications'),
+    leases: averageMetric('leases'),
+    leadToAppRate: averageMetric('leadToAppRate'),
+    leadToLeaseRate: averageMetric('leadToLeaseRate'),
+    appToLeaseRate: averageMetric('appToLeaseRate'),
+    totalMarketingSpend: averageMetric('totalMarketingSpend'),
+    performanceMarketingSpend: averageMetric('performanceMarketingSpend'),
+    costPerLead: averageMetric('costPerLead'),
+    costPerLease: averageMetric('costPerLease'),
+  };
+};
+
+const buildCallPrepSpendRows = (payload, range, propertyId) => {
+  const grouped = new Map();
+  const invoices = payload?.invoice_items || [];
+  invoices.forEach((invoice) => {
+    if (!itemMatchesProperty(invoice, propertyId)) return;
+    if (!hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS)) return;
+    const allocation = getInvoiceAllocationMonth(invoice);
+    if (!allocation || allocation.monthEnd < range.start || allocation.monthStart > range.end) return;
+    const label = getInvoiceBreakdownLabel(invoice);
+    const key = `${formatDateInputValue(allocation.monthStart)}:${label}`;
+    const current = grouped.get(key) || {
+      key,
+      month: allocation.monthStart,
+      label,
+      glCodes: getInvoiceGlCodes(invoice).join(', '),
+      amount: 0,
+      allocatedInWindow: 0,
+    };
+    current.amount += getInvoiceAmount(invoice);
+    current.allocatedInWindow += getAllocatedInvoiceAmountInRange(invoice, range.start, range.end);
+    grouped.set(key, current);
+  });
+  return Array.from(grouped.values())
+    .sort((a, b) => b.month.getTime() - a.month.getTime() || b.amount - a.amount)
+    .slice(0, 12);
+};
+
+const taskTouchedInRange = (task, range) => {
+  const dates = [
+    task.createdAt,
+    task.updatedAt,
+    task.dueDate,
+  ].map(getCallPrepDate).filter(Boolean);
+  return dates.some((date) => isInDateRange(date, range.start, range.end));
+};
+
+const buildTaskTalkingPoint = (task) => {
+  const status = TASK_STATUSES.find((item) => item.id === task.status)?.label || 'In Review';
+  const summary = task.description || task.notes || task.title;
+  if (task.status === 'complete') {
+    return `${task.title} has been completed. Client-ready note: ${summary}`;
+  }
+  if (task.status === 'approved') {
+    return `${task.title} is approved and ready to discuss as an active or recently approved change. Client-ready note: ${summary}`;
+  }
+  if (task.status === 'in_progress') {
+    return `${task.title} is currently in progress. Client-ready note: ${summary}`;
+  }
+  return `${task.title} is currently ${status.toLowerCase()}. Client-ready note: ${summary}`;
+};
+
 
 const getCompletedApplicationRecordKey = (record) => {
   const candidates = [
@@ -1498,6 +1746,11 @@ const DashboardApp = ({
   const [taskDraft, setTaskDraft] = useState(() => createEmptyTaskDraft(savedWorkspaceState.selectedPropertyId));
   const [tasksError, setTasksError] = useState(null);
   const [tasksNotice, setTasksNotice] = useState(null);
+  const [callPrepLoading, setCallPrepLoading] = useState(false);
+  const [callPrepError, setCallPrepError] = useState(null);
+  const [callPrepOverview, setCallPrepOverview] = useState(null);
+  const [callPrepPortfolioOverview, setCallPrepPortfolioOverview] = useState(null);
+  const [callPrepAnalyticsByPeriod, setCallPrepAnalyticsByPeriod] = useState({});
   const [adminAccessLoading, setAdminAccessLoading] = useState(false);
   const [adminAccessError, setAdminAccessError] = useState(null);
   const [adminAccessNotice, setAdminAccessNotice] = useState(null);
@@ -1829,9 +2082,151 @@ const DashboardApp = ({
   }, [currentUser]);
 
   useEffect(() => {
-    if (activeTab !== 'tasks') return;
+    if (activeTab !== 'tasks' && activeTab !== 'call prep') return;
     loadTasks();
   }, [activeTab, loadTasks]);
+
+  useEffect(() => {
+    if (activeTab !== 'call prep') return;
+
+    let cancelled = false;
+
+    const loadCallPrepData = async () => {
+      if (!propertyScopedSelectionId || isAllPropertiesSelected) {
+        setCallPrepOverview(null);
+        setCallPrepPortfolioOverview(null);
+        setCallPrepAnalyticsByPeriod({});
+        setCallPrepError('Choose a single property to build call prep.');
+        setCallPrepLoading(false);
+        return;
+      }
+      if (!PROPERTY_REPORTING_OVERVIEW_URL) {
+        setCallPrepOverview(null);
+        setCallPrepPortfolioOverview(null);
+        setCallPrepAnalyticsByPeriod({});
+        setCallPrepError('Reporting overview endpoint is not configured.');
+        setCallPrepLoading(false);
+        return;
+      }
+
+      setCallPrepLoading(true);
+      setCallPrepError(null);
+
+      const sixtyDayRange = getCallPrepWindowRange(60);
+      const priorSixtyDayRange = getPriorWindowRange(sixtyDayRange, 60);
+      const overviewStart = formatDateInputValue(priorSixtyDayRange.start);
+      const overviewEnd = formatDateInputValue(sixtyDayRange.end);
+      const propertyIds = availableProperties.map((property) => property.propertyId);
+
+      const fetchJson = async (url, label) => {
+        const response = await authFetch(url);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || payload?.message || `${label} failed: ${response.status}`);
+        }
+        return payload;
+      };
+
+      try {
+        const propertyParams = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          start_date: overviewStart,
+          end_date: overviewEnd,
+        });
+        const portfolioParams = new URLSearchParams({
+          property_id: 'all',
+          property_ids: JSON.stringify(propertyIds),
+          start_date: overviewStart,
+          end_date: overviewEnd,
+        });
+
+        const [propertyResult, portfolioResult] = await Promise.allSettled([
+          fetchJson(`${PROPERTY_REPORTING_OVERVIEW_URL}?${propertyParams.toString()}`, 'Call prep property overview'),
+          fetchJson(`${PROPERTY_REPORTING_OVERVIEW_URL}?${portfolioParams.toString()}`, 'Call prep portfolio overview'),
+        ]);
+
+        if (cancelled) return;
+        if (propertyResult.status === 'fulfilled') {
+          setCallPrepOverview(propertyResult.value);
+        } else {
+          setCallPrepOverview(null);
+          throw propertyResult.reason;
+        }
+        setCallPrepPortfolioOverview(portfolioResult.status === 'fulfilled' ? portfolioResult.value : null);
+
+        const analyticsEntries = await Promise.all(CALL_PREP_PERIODS.map(async (period) => {
+          const range = getCallPrepWindowRange(period.days);
+          const startDate = formatDateInputValue(range.start);
+          const endDate = formatDateInputValue(range.end);
+          const entry = {
+            googleAds: null,
+            googleAdsError: selectedProperty?.googleAdsId ? null : 'No Google Ads customer ID is configured.',
+            ga4: null,
+            ga4Error: selectedProperty?.googleAnalyticsId ? null : 'No GA4 property ID is configured.',
+          };
+
+          if (selectedProperty?.googleAdsId && GOOGLE_ADS_DASHBOARD_URL) {
+            const params = new URLSearchParams({
+              property_id: propertyScopedSelectionId,
+              google_ads_customer_id: selectedProperty.googleAdsId,
+              property_name: selectedProperty?.name || '',
+              start_date: startDate,
+              end_date: endDate,
+            });
+            try {
+              entry.googleAds = await fetchJson(`${GOOGLE_ADS_DASHBOARD_URL}?${params.toString()}`, 'Call prep Google Ads');
+              entry.googleAdsError = null;
+            } catch (error) {
+              entry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
+            }
+          }
+
+          if (selectedProperty?.googleAnalyticsId && GA4_DASHBOARD_URL) {
+            const params = new URLSearchParams({
+              property_id: propertyScopedSelectionId,
+              ga4_property_id: selectedProperty.googleAnalyticsId,
+              start_date: startDate,
+              end_date: endDate,
+            });
+            try {
+              entry.ga4 = await fetchJson(`${GA4_DASHBOARD_URL}?${params.toString()}`, 'Call prep GA4');
+              entry.ga4Error = null;
+            } catch (error) {
+              entry.ga4Error = error.message || 'Unable to load GA4 metrics.';
+            }
+          }
+
+          return [period.days, entry];
+        }));
+
+        if (!cancelled) {
+          setCallPrepAnalyticsByPeriod(Object.fromEntries(analyticsEntries));
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Call prep load failed', error);
+        setCallPrepError(error.message || 'Unable to load call prep data.');
+        setCallPrepOverview(null);
+        setCallPrepPortfolioOverview(null);
+        setCallPrepAnalyticsByPeriod({});
+      } finally {
+        if (!cancelled) setCallPrepLoading(false);
+      }
+    };
+
+    loadCallPrepData();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTab,
+    availableProperties,
+    isAllPropertiesSelected,
+    propertyScopedSelectionId,
+    selectedProperty?.googleAdsId,
+    selectedProperty?.googleAnalyticsId,
+    selectedProperty?.name,
+  ]);
 
   const updateTaskDraft = (field, value) => {
     setTasksError(null);
@@ -3430,10 +3825,6 @@ const DashboardApp = ({
       }))
       .filter((group) => group.fields.length > 0)
   ), [fieldMatchesWebsiteManagerFilter, fieldMatchesWebsiteManagerSearch, websiteManagerSchemaGroups]);
-  const visibleWebsiteManagerFields = useMemo(
-    () => visibleWebsiteManagerGroups.flatMap((group) => group.fields.map((field) => ({ ...field, groupId: group.id, groupLabel: group.label }))),
-    [visibleWebsiteManagerGroups]
-  );
   useEffect(() => {
     if (!visibleWebsiteManagerGroups.length) {
       return;
@@ -3924,7 +4315,7 @@ const DashboardApp = ({
     }
   };
 
-  const generateRecommendations = async () => {
+  const generateRecommendations = async (windowOverride = null) => {
     if (!selectedPropertyId || isAllPropertiesSelected) {
       setRecommendationsError('Choose a single property before generating recommendations.');
       return;
@@ -3944,8 +4335,8 @@ const DashboardApp = ({
         body: JSON.stringify({
           property_id: selectedPropertyId,
           property_name: selectedProperty?.name || selectedPropertyLabel,
-          start_date: formatDateInputValue(rangeDates.start),
-          end_date: formatDateInputValue(rangeDates.end),
+          start_date: formatDateInputValue(windowOverride?.start || rangeDates.start),
+          end_date: formatDateInputValue(windowOverride?.end || rangeDates.end),
           siteKey: heatmapSiteDraft.siteKey || undefined,
         }),
       });
@@ -4442,6 +4833,40 @@ const DashboardApp = ({
   const localFalconMapImageUrl = localFalconOverview?.image || localFalconLatestReport?.image || localFalconLatestScan?.raw?.image;
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
   const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
+  const callPrepSections = useMemo(() => (
+    CALL_PREP_PERIODS.map((period) => {
+      const currentRange = getCallPrepWindowRange(period.days);
+      const priorRange = getPriorWindowRange(currentRange, period.days);
+      const current = buildCallPrepMetrics(callPrepOverview, currentRange, propertyScopedSelectionId);
+      const prior = buildCallPrepMetrics(callPrepOverview, priorRange, propertyScopedSelectionId);
+      const portfolioAverage = buildCallPrepPortfolioAverage(
+        callPrepPortfolioOverview,
+        currentRange,
+        propertyScopedSelectionId,
+        availableProperties.map((property) => property.propertyId)
+      );
+      return {
+        ...period,
+        currentRange,
+        priorRange,
+        current,
+        prior,
+        portfolioAverage,
+        analytics: callPrepAnalyticsByPeriod[period.days] || {},
+      };
+    })
+  ), [availableProperties, callPrepAnalyticsByPeriod, callPrepOverview, callPrepPortfolioOverview, propertyScopedSelectionId]);
+  const callPrepSixtyDayRange = useMemo(() => getCallPrepWindowRange(60), []);
+  const callPrepRecentTasks = useMemo(() => (
+    tasks
+      .filter((task) => task.propertyId === propertyScopedSelectionId)
+      .filter((task) => taskTouchedInRange(task, callPrepSixtyDayRange))
+      .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
+      .slice(0, 8)
+  ), [callPrepSixtyDayRange, propertyScopedSelectionId, tasks]);
+  const callPrepSpendRows = useMemo(() => (
+    buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId)
+  ), [callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId]);
   const heatmapTotals = heatmapSummaryData?.totals || {};
   const trackerHealth = heatmapTrackerHealthData?.health || {};
   const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
@@ -5939,6 +6364,221 @@ const DashboardApp = ({
       </div>
     </div>
   );
+
+  const formatCallPrepValue = (value, type = 'number') => {
+    if (type === 'percent') return formatPercent(value, 1);
+    if (type === 'currency') return formatCurrency(value, value != null && Number(value) < 100 ? 2 : 0);
+    return formatNumber(value);
+  };
+
+  const renderCallPrepMetricTable = (section) => (
+    <div className="call-prep-table-wrap">
+      <table className="call-prep-table">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>{selectedProperty?.name || 'Property'}</th>
+            <th>Vs Prior</th>
+            <th>Portfolio Avg</th>
+          </tr>
+        </thead>
+        <tbody>
+          {CALL_PREP_METRIC_ROWS.map((row) => {
+            const currentValue = getCallPrepMetricValue(section.current, row.key);
+            const priorValue = getCallPrepMetricValue(section.prior, row.key);
+            const delta = percentChange(currentValue, priorValue);
+            const portfolioValue = getCallPrepMetricValue(section.portfolioAverage, row.key);
+            return (
+              <tr key={`${section.days}-${row.key}`}>
+                <td>{row.label}</td>
+                <td>{formatCallPrepValue(currentValue, row.format)}</td>
+                <td>
+                  <span className={`analytics-pill analytics-pill--${getDeltaTone(delta)}`}>
+                    {delta == null ? 'New' : formatSignedPercent(delta, 1)}
+                  </span>
+                </td>
+                <td>{section.portfolioAverage ? formatCallPrepValue(portfolioValue, row.format) : '—'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const renderCallPrepAnalyticsTable = (section) => {
+    const googleAds = section.analytics?.googleAds;
+    const googleAdsOverviewCurrent = googleAds?.Overview?.current || {};
+    const googleAdsOverviewDelta = googleAds?.Overview?.delta || {};
+    const ga4 = section.analytics?.ga4;
+    const ga4Current = ga4?.Acquisition?.totals?.current || {};
+    const ga4Previous = ga4?.Acquisition?.totals?.previous || {};
+    const ga4EventCurrent = ga4?.Conversion?.totals?.currentEventCount;
+    const ga4EventPrevious = ga4?.Conversion?.totals?.previousEventCount;
+    const topGa4Event = ga4?.Conversion?.events?.[0] || null;
+
+    return (
+      <div className="call-prep-channel-grid">
+        <div className="call-prep-mini-panel">
+          <div className="reports-panel__eyebrow">Google Ads</div>
+          <div className="call-prep-stat-grid">
+            <div><span>Clicks</span><strong>{formatNumber(googleAdsOverviewCurrent.clicks)}</strong><small>{formatSignedPercent(googleAdsOverviewDelta.clicks, 1)} vs prior</small></div>
+            <div><span>Conversions</span><strong>{formatNumber(googleAdsOverviewCurrent.conversions, 1)}</strong><small>{formatSignedPercent(googleAdsOverviewDelta.conversions, 1)} vs prior</small></div>
+            <div><span>Spend</span><strong>{formatCurrency(googleAdsOverviewCurrent.cost)}</strong><small>CTR {formatPercent(googleAdsOverviewCurrent.ctr, 1)}</small></div>
+          </div>
+          <div className="reports-list">
+            {(googleAds?.ConversionActions?.items || []).slice(0, 3).map((item) => (
+              <div className="reports-list__row" key={item.resourceName || item.name}>
+                <div><strong>{item.name || 'Conversion action'}</strong><small>{item.category || item.source || 'Google Ads conversion'}</small></div>
+                <div>{formatNumber(item.allConversions, 1)}</div>
+              </div>
+            ))}
+            {!googleAds && <div className="reports-empty">{normalizeAnalyticsError(section.analytics?.googleAdsError) || 'Google Ads metrics are not configured for this property.'}</div>}
+          </div>
+        </div>
+
+        <div className="call-prep-mini-panel">
+          <div className="reports-panel__eyebrow">GA4</div>
+          <div className="call-prep-stat-grid">
+            <div><span>Sessions</span><strong>{formatNumber(ga4Current.sessions)}</strong><small>{formatSignedPercent(percentChange(ga4Current.sessions, ga4Previous.sessions), 1)} vs prior</small></div>
+            <div><span>Engagement</span><strong>{formatPercent(ga4Current.engagementRate, 1)}</strong><small>{formatNumber(ga4Current.engagedSessions)} engaged sessions</small></div>
+            <div><span>Key Events</span><strong>{formatNumber(ga4EventCurrent)}</strong><small>{formatSignedPercent(percentChange(ga4EventCurrent, ga4EventPrevious), 1)} vs prior</small></div>
+          </div>
+          <div className="reports-list">
+            {topGa4Event && (
+              <div className="reports-list__row">
+                <div><strong>{topGa4Event.eventName}</strong><small>Top key event in this window</small></div>
+                <div>{formatNumber(topGa4Event.current?.eventCount)}</div>
+              </div>
+            )}
+            {(ga4?.Acquisition?.channels || []).slice(0, 2).map((item) => (
+              <div className="reports-list__row" key={item.channel}>
+                <div><strong>{item.channel}</strong><small>{formatPercent(item.current?.engagementRate, 1)} engagement</small></div>
+                <div>{formatNumber(item.current?.sessions)} sessions</div>
+              </div>
+            ))}
+            {!ga4 && <div className="reports-empty">{normalizeAnalyticsError(section.analytics?.ga4Error) || 'GA4 metrics are not configured for this property.'}</div>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderCallPrep = () => {
+    const latestRecommendationWindow = callPrepSixtyDayRange;
+    const recommendations = Array.isArray(recommendationsData?.recommendations) ? recommendationsData.recommendations : [];
+    return (
+      <div className="call-prep-view">
+        <div className="reports-hero call-prep-hero">
+          <div>
+            <div className="reports-kicker">Manager call prep</div>
+            <div className="reports-headline">{selectedPropertyLabel}</div>
+            <div className="reports-subhead">
+              Fixed 7, 30, and 60 day talking points with prior-period comparisons, portfolio averages, channel performance, recent task changes, and active marketing spend.
+            </div>
+          </div>
+          <div className="reports-chip-row">
+            <span className="reports-chip reports-chip--staged">{callPrepLoading ? 'Refreshing call prep...' : 'Fixed-window view'}</span>
+            <button
+              type="button"
+              className="reports-admin-toggle"
+              onClick={() => generateRecommendations(latestRecommendationWindow)}
+              disabled={recommendationsLoading || !selectedPropertyId || isAllPropertiesSelected}
+            >
+              {recommendationsLoading ? 'Generating...' : 'Generate AI Recommendations'}
+            </button>
+          </div>
+        </div>
+
+        {callPrepError && <div className="tasks-message tasks-message--error">{callPrepError}</div>}
+
+        <div className="call-prep-period-grid">
+          {callPrepSections.map((section) => (
+            <section className="reports-panel call-prep-period" key={section.days}>
+              <div className="call-prep-period__header">
+                <div>
+                  <div className="reports-panel__eyebrow">{section.shortLabel} performance</div>
+                  <div className="reports-panel__title">{section.label}</div>
+                  <small>{formatDateInputValue(section.currentRange.start)} to {formatDateInputValue(section.currentRange.end)}</small>
+                </div>
+                <span className="analytics-pill analytics-pill--neutral">Prior: {formatDateInputValue(section.priorRange.start)} to {formatDateInputValue(section.priorRange.end)}</span>
+              </div>
+              {renderCallPrepMetricTable(section)}
+              <div className="call-prep-source-list">
+                {(section.current.sourceBreakdown || []).map((source) => (
+                  <div key={`${section.days}-${source.source}`} className="reports-list__row">
+                    <div><strong>{source.source}</strong><small>Lead source share {formatPercent(source.share, 1)}</small></div>
+                    <div>{formatNumber(source.leads)} leads</div>
+                  </div>
+                ))}
+                {section.current.sourceBreakdown.length === 0 && <div className="reports-empty">No lead source data in this window.</div>}
+              </div>
+              {renderCallPrepAnalyticsTable(section)}
+            </section>
+          ))}
+        </div>
+
+        <div className="call-prep-bottom-grid">
+          <section className="reports-panel">
+            <div className="reports-panel__eyebrow">AI recommendations</div>
+            <div className="reports-panel__title">Off-the-cuff talking points</div>
+            <div className="reports-list">
+              {recommendations.slice(0, 5).map((recommendation) => (
+                <div className="reports-list__row" key={recommendation.storedRecommendationId || recommendation.id}>
+                  <div>
+                    <strong>{recommendation.title}</strong>
+                    <small>{recommendation.reasoning || recommendation.suggestedAction || 'Recommendation detail available in the Recommendations tab.'}</small>
+                  </div>
+                  <div>{recommendation.priority || 'medium'}</div>
+                </div>
+              ))}
+              {recommendations.length === 0 && (
+                <div className="reports-empty">{recommendationsError || 'Generate recommendations to populate manager-ready AI talking points for the 60 day prep window.'}</div>
+              )}
+            </div>
+          </section>
+
+          <section className="reports-panel">
+            <div className="reports-panel__eyebrow">Recent changes</div>
+            <div className="reports-panel__title">Task-driven updates</div>
+            <div className="reports-list">
+              {callPrepRecentTasks.map((task) => (
+                <div className="reports-list__row call-prep-task-row" key={task.id}>
+                  <div>
+                    <strong>{task.title}</strong>
+                    <small>{buildTaskTalkingPoint(task)}</small>
+                    <small>Created {formatReadableDate(task.createdAt)} | Updated {formatReadableDate(task.updatedAt)} | Due {formatReadableDate(task.dueDate)}</small>
+                  </div>
+                  <div>{TASK_STATUSES.find((status) => status.id === task.status)?.label || task.status}</div>
+                </div>
+              ))}
+              {callPrepRecentTasks.length === 0 && <div className="reports-empty">No property tasks were created, updated, or due in the last 60 days.</div>}
+            </div>
+          </section>
+
+          <section className="reports-panel call-prep-spend-panel">
+            <div className="reports-panel__eyebrow">Active spend</div>
+            <div className="reports-panel__title">Monthly marketing GL lines</div>
+            <div className="reports-list">
+              {callPrepSpendRows.map((row) => (
+                <div className="reports-list__row" key={row.key}>
+                  <div>
+                    <strong>{row.label}</strong>
+                    <small>{row.glCodes || 'Marketing GL'} | {row.month.toLocaleDateString([], { month: 'long', year: 'numeric' })}</small>
+                  </div>
+                  <div>
+                    {formatCurrency(row.amount)}
+                    <small>{formatCurrency(row.allocatedInWindow)} in 60D</small>
+                  </div>
+                </div>
+              ))}
+              {callPrepSpendRows.length === 0 && <div className="reports-empty">No active marketing GL spend was found for the 60 day call prep window.</div>}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  };
 
   // ──────────────── RENDER ────────────────
 
@@ -7982,7 +8622,7 @@ const DashboardApp = ({
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => insertWebsiteManagerSnippet(field.key, '<a href=\"/floorplans\">View floor plans</a>')}
+                                    onClick={() => insertWebsiteManagerSnippet(field.key, '<a href="/floorplans">View floor plans</a>')}
                                     disabled={!websiteManagerEditable || !canEditWebsiteManager}
                                   >
                                     Link
@@ -9791,8 +10431,10 @@ const DashboardApp = ({
     );
   }
 
+  const isReportsPresentationTab = activeTab === 'reports' || activeTab === 'call prep';
+
   return (
-    <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${activeTab === 'reports' ? 'dashboard-container--reports' : ''} ${isClientReportMode ? 'dashboard-container--client-report' : ''}`}>
+    <div className={`dashboard-container ${sidebarCollapsed ? 'is-sidebar-collapsed' : ''} ${isReportsPresentationTab ? 'dashboard-container--reports' : ''} ${isClientReportMode ? 'dashboard-container--client-report' : ''}`}>
       {renderAccountPanel()}
       {showLoader && (
         <div className="loading-overlay" aria-live="polite" aria-busy="true">
@@ -9840,9 +10482,9 @@ const DashboardApp = ({
       )}
 
       {/* Main Content */}
-      <div className={`main-content ${activeTab === 'reports' ? 'main-content--reports' : ''}`}>
+      <div className={`main-content ${isReportsPresentationTab ? 'main-content--reports' : ''}`}>
         {!isClientReportMode && (
-          <div className={`header ${activeTab === 'reports' ? 'header--reports' : ''}`}>
+          <div className={`header ${isReportsPresentationTab ? 'header--reports' : ''}`}>
             {activeTab === 'admin' || activeTab === 'audit' ? (
               <div className="property-selector property-selector--admin">
                 <span className="property-selector__label">{activeTab === 'audit' ? 'Portfolio scope' : 'Access scope'}</span>
@@ -9909,11 +10551,11 @@ const DashboardApp = ({
           </div>
         )}
 
-        <div className={`content-body ${activeTab === 'reports' ? 'content-body--reports' : ''}`}>
+        <div className={`content-body ${isReportsPresentationTab ? 'content-body--reports' : ''}`}>
           {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (
             <div className="dashboard-title-row">
               <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
-              <div className="global-date-controls">
+              {activeTab !== 'call prep' && <div className="global-date-controls">
                 <div className="global-date-controls__picker">
                   <div className="global-date-controls__label">Date range</div>
                   <div className="global-date-controls__control">
@@ -9962,7 +10604,7 @@ const DashboardApp = ({
                     <strong>{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</strong>
                   </div>
                 </div>
-              </div>
+              </div>}
             </div>
           )}
 
@@ -9970,6 +10612,7 @@ const DashboardApp = ({
           {activeTab === 'website manager' && renderWebsiteManager()}
           {activeTab === 'property info' && renderPropertyInfo()}
           {activeTab === 'reports' && renderReports()}
+          {activeTab === 'call prep' && renderCallPrep()}
           {activeTab === 'recommendations' && renderRecommendations()}
           {activeTab === 'audit' && renderAuditCommandCenter()}
           {activeTab === 'analytics' && renderAnalytics()}
