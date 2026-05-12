@@ -3859,9 +3859,19 @@ td {
   align-items: start;
 }
 
-.website-manager-section-nav {
+.website-manager-left-rail {
   position: sticky;
-  top: 1rem;
+  top: 5.75rem;
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+  min-width: 0;
+  max-height: calc(100vh - 6.5rem);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.website-manager-section-nav {
   display: grid;
   gap: 0.65rem;
   padding: 0.75rem;
@@ -3929,12 +3939,12 @@ td {
 .website-manager-editor-workbench {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(300px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
   align-items: start;
 }
 
 .website-manager-editor-workbench.is-reference-collapsed {
-  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .website-manager-content-rail,
@@ -3948,6 +3958,12 @@ td {
   background: #ffffff;
   border: 1px solid rgba(16, 33, 38, 0.08);
   box-shadow: 0 14px 28px rgba(16, 33, 38, 0.05);
+}
+
+.website-manager-left-rail .website-manager-content-rail {
+  position: static;
+  top: auto;
+  max-height: none;
 }
 
 .website-manager-content-rail__head {
@@ -4736,8 +4752,13 @@ td {
     grid-template-columns: 1fr;
   }
 
-  .website-manager-section-nav {
+  .website-manager-left-rail {
     position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .website-manager-section-nav {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
@@ -6181,6 +6202,7 @@ body,
 .website-manager-command-bar__actions,
 .website-manager-command-bar__status,
 .website-manager-workspace,
+.website-manager-left-rail,
 .website-manager-section-panel,
 .website-manager-preview-grid,
 .website-manager-deploy-grid,
@@ -6861,6 +6883,7 @@ svg.recharts-surface {
 .website-manager-command-bar,
 .website-manager-status-strip,
 .website-manager-workspace,
+.website-manager-left-rail,
 .website-manager-preview-grid,
 .website-manager-deploy-grid,
 .website-manager-editor-workbench,
@@ -7096,6 +7119,7 @@ th {
   .website-manager-command-bar,
   .website-manager-status-strip,
   .website-manager-workspace,
+  .website-manager-left-rail,
   .website-manager-preview-grid,
   .website-manager-deploy-grid,
   .website-manager-editor-workbench,
@@ -7171,6 +7195,7 @@ th {
 .website-manager-command-bar > *,
 .website-manager-status-strip > *,
 .website-manager-workspace > *,
+.website-manager-left-rail > *,
 .website-manager-preview-grid > *,
 .website-manager-deploy-grid > *,
 .website-manager-editor-workbench > *,

@@ -7526,24 +7526,130 @@ const DashboardApp = ({
       </div>
 
       <div className="website-manager-workspace">
-        <nav className="website-manager-section-nav" aria-label="Website editor sections">
-          {[
-            { id: 'setup', label: 'Setup', detail: 'Platform, URL, WordPress key, tracking' },
-            { id: 'content', label: 'Content Editor', detail: `${websiteManagerSchemaGroups.length} content groups` },
-            { id: 'preview', label: 'Preview', detail: 'Resolved content, tokens, live fields' },
-            { id: 'deploy', label: 'Deploy / Sync', detail: websiteManagerDirty ? 'Draft has unsaved changes' : 'Draft is current' }
-          ].map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              className={`website-manager-section-nav__item ${websiteManagerSection === section.id ? 'is-active' : ''}`}
-              onClick={() => setWebsiteManagerSection(section.id)}
-            >
-              <span>{section.label}</span>
-              <small>{section.detail}</small>
-            </button>
-          ))}
-        </nav>
+        <div className="website-manager-left-rail">
+          <nav className="website-manager-section-nav" aria-label="Website editor sections">
+            {[
+              { id: 'setup', label: 'Setup', detail: 'Platform, URL, WordPress key, tracking' },
+              { id: 'content', label: 'Content Editor', detail: `${websiteManagerSchemaGroups.length} content groups` },
+              { id: 'preview', label: 'Preview', detail: 'Resolved content, tokens, live fields' },
+              { id: 'deploy', label: 'Deploy / Sync', detail: websiteManagerDirty ? 'Draft has unsaved changes' : 'Draft is current' }
+            ].map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                className={`website-manager-section-nav__item ${websiteManagerSection === section.id ? 'is-active' : ''}`}
+                onClick={() => setWebsiteManagerSection(section.id)}
+              >
+                <span>{section.label}</span>
+                <small>{section.detail}</small>
+              </button>
+            ))}
+          </nav>
+
+          {websiteManagerSection === 'content' && (
+            <aside className="website-manager-content-rail" aria-label="Website content sections">
+              <div className="website-manager-content-rail__head">
+                <div className="website-manager-panel__eyebrow">Sections</div>
+                <strong>{visibleWebsiteManagerGroups.length}/{websiteManagerSchemaGroups.length}</strong>
+              </div>
+              <label className="website-manager-search">
+                <span className="website-manager-field__label">Search content</span>
+                <input
+                  type="search"
+                  value={websiteManagerContentSearch}
+                  onChange={(event) => setWebsiteManagerContentSearch(event.target.value)}
+                  className="website-manager-field__input"
+                  placeholder="Label, content, token..."
+                />
+              </label>
+              <div className="website-manager-filter-row" aria-label="Content filters">
+                {[
+                  { id: 'all', label: 'All' },
+                  { id: 'empty', label: 'Empty' },
+                  { id: 'changed', label: 'Changed' },
+                  { id: 'required', label: 'Required' },
+                  { id: 'live_filled', label: 'Live-filled' }
+                ].map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    className={`website-manager-filter-chip ${websiteManagerContentFilter === filter.id ? 'is-active' : ''}`}
+                    onClick={() => setWebsiteManagerContentFilter(filter.id)}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+              <div className="website-manager-actions website-manager-actions--rail">
+                <button
+                  type="button"
+                  className="website-manager-button website-manager-button--ghost"
+                  onClick={jumpToFirstMissingWebsiteManagerField}
+                  disabled={!websiteManagerSchemaGroups.some((group) => group.fields.some((field) => getWebsiteManagerFieldStatus(field).isEmpty))}
+                >
+                  First Missing
+                </button>
+              </div>
+              <div className="website-manager-content-rail__list">
+                {visibleWebsiteManagerGroups.map((group) => {
+                  const filledFields = group.fields.filter((field) => String(websiteManagerDraft.content[field.key] || '').trim()).length;
+                  const changedFields = group.fields.filter((field) => getWebsiteManagerFieldStatus(field).isChanged).length;
+                  const isExpanded = expandedWebsiteManagerGroups.has(group.id);
+                  return (
+                    <div key={group.id} className={`website-manager-content-rail__group ${selectedWebsiteManagerGroup?.id === group.id ? 'is-active' : ''}`}>
+                      <button
+                        type="button"
+                        className="website-manager-content-rail__item"
+                        onClick={() => setSelectedWebsiteManagerGroupId(group.id)}
+                      >
+                        <span>{group.label}</span>
+                        <small>{filledFields}/{group.fields.length} fields</small>
+                      </button>
+                      <div className="website-manager-content-rail__meta">
+                        <span className={`website-manager-state-badge ${changedFields ? 'is-unsaved' : 'is-published'}`}>
+                          {changedFields ? `${changedFields} changed` : 'Published'}
+                        </span>
+                        <button
+                          type="button"
+                          className="website-manager-rail-toggle"
+                          onClick={() => setExpandedWebsiteManagerGroups((current) => {
+                            const next = new Set(current);
+                            if (next.has(group.id)) next.delete(group.id);
+                            else next.add(group.id);
+                            return next;
+                          })}
+                        >
+                          {isExpanded ? 'Collapse' : 'Fields'}
+                        </button>
+                      </div>
+                      {isExpanded && (
+                        <div className="website-manager-content-rail__fields">
+                          {group.fields.map((field) => {
+                            const status = getWebsiteManagerFieldStatus(field);
+                            return (
+                              <button
+                                key={field.key}
+                                type="button"
+                                className="website-manager-content-rail__field"
+                                onClick={() => jumpToWebsiteManagerField(field)}
+                              >
+                                <span>{field.label}</span>
+                                <small>{status.isEmpty ? 'Empty' : status.isChanged ? 'Changed' : 'Saved'}</small>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {visibleWebsiteManagerGroups.length === 0 && (
+                  <div className="website-manager-empty">No fields match the current search and filter.</div>
+                )}
+              </div>
+            </aside>
+          )}
+        </div>
 
         <div className="website-manager-section-panel">
           {websiteManagerSection === 'setup' && (
@@ -7813,108 +7919,6 @@ const DashboardApp = ({
 
           {websiteManagerSection === 'content' && (
             <div className={`website-manager-editor-workbench ${websiteManagerReferenceOpen ? 'has-reference' : 'is-reference-collapsed'}`}>
-              <aside className="website-manager-content-rail" aria-label="Website content sections">
-                <div className="website-manager-content-rail__head">
-                  <div className="website-manager-panel__eyebrow">Sections</div>
-                  <strong>{visibleWebsiteManagerGroups.length}/{websiteManagerSchemaGroups.length}</strong>
-                </div>
-                <label className="website-manager-search">
-                  <span className="website-manager-field__label">Search content</span>
-                  <input
-                    type="search"
-                    value={websiteManagerContentSearch}
-                    onChange={(event) => setWebsiteManagerContentSearch(event.target.value)}
-                    className="website-manager-field__input"
-                    placeholder="Label, content, token..."
-                  />
-                </label>
-                <div className="website-manager-filter-row" aria-label="Content filters">
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'empty', label: 'Empty' },
-                    { id: 'changed', label: 'Changed' },
-                    { id: 'required', label: 'Required' },
-                    { id: 'live_filled', label: 'Live-filled' }
-                  ].map((filter) => (
-                    <button
-                      key={filter.id}
-                      type="button"
-                      className={`website-manager-filter-chip ${websiteManagerContentFilter === filter.id ? 'is-active' : ''}`}
-                      onClick={() => setWebsiteManagerContentFilter(filter.id)}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="website-manager-actions website-manager-actions--rail">
-                  <button
-                    type="button"
-                    className="website-manager-button website-manager-button--ghost"
-                    onClick={jumpToFirstMissingWebsiteManagerField}
-                    disabled={!websiteManagerSchemaGroups.some((group) => group.fields.some((field) => getWebsiteManagerFieldStatus(field).isEmpty))}
-                  >
-                    First Missing
-                  </button>
-                </div>
-                <div className="website-manager-content-rail__list">
-                  {visibleWebsiteManagerGroups.map((group) => {
-                    const filledFields = group.fields.filter((field) => String(websiteManagerDraft.content[field.key] || '').trim()).length;
-                    const changedFields = group.fields.filter((field) => getWebsiteManagerFieldStatus(field).isChanged).length;
-                    const isExpanded = expandedWebsiteManagerGroups.has(group.id);
-                    return (
-                      <div key={group.id} className={`website-manager-content-rail__group ${selectedWebsiteManagerGroup?.id === group.id ? 'is-active' : ''}`}>
-                        <button
-                          type="button"
-                          className="website-manager-content-rail__item"
-                          onClick={() => setSelectedWebsiteManagerGroupId(group.id)}
-                        >
-                          <span>{group.label}</span>
-                          <small>{filledFields}/{group.fields.length} fields</small>
-                        </button>
-                        <div className="website-manager-content-rail__meta">
-                          <span className={`website-manager-state-badge ${changedFields ? 'is-unsaved' : 'is-published'}`}>
-                            {changedFields ? `${changedFields} changed` : 'Published'}
-                          </span>
-                          <button
-                            type="button"
-                            className="website-manager-rail-toggle"
-                            onClick={() => setExpandedWebsiteManagerGroups((current) => {
-                              const next = new Set(current);
-                              if (next.has(group.id)) next.delete(group.id);
-                              else next.add(group.id);
-                              return next;
-                            })}
-                          >
-                            {isExpanded ? 'Collapse' : 'Fields'}
-                          </button>
-                        </div>
-                        {isExpanded && (
-                          <div className="website-manager-content-rail__fields">
-                            {group.fields.map((field) => {
-                              const status = getWebsiteManagerFieldStatus(field);
-                              return (
-                                <button
-                                  key={field.key}
-                                  type="button"
-                                  className="website-manager-content-rail__field"
-                                  onClick={() => jumpToWebsiteManagerField(field)}
-                                >
-                                  <span>{field.label}</span>
-                                  <small>{status.isEmpty ? 'Empty' : status.isChanged ? 'Changed' : 'Saved'}</small>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {visibleWebsiteManagerGroups.length === 0 && (
-                    <div className="website-manager-empty">No fields match the current search and filter.</div>
-                  )}
-                </div>
-              </aside>
-
               <div className="website-manager-panel website-manager-panel--editor">
                 <div className="website-manager-section-head website-manager-section-head--sticky">
                   <div>
