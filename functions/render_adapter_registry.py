@@ -90,6 +90,13 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Read Entrata background sync state and retry queue preview.",
     ),
     HttpEndpointSpec(
+        route="/api/entrata/archive-backfill-to-2020",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="render_only",
+        purpose="Start or inspect the long-running historical Entrata archive backfill to 2020.",
+        render_handler="start_historical_archive_backfill",
+    ),
+    HttpEndpointSpec(
         route="/api/admin/sync-health",
         methods=("GET",),
         firebase_handler="render_only",
@@ -383,7 +390,7 @@ CRON_JOB_SPECS = (
         name="run_historical_lease_attribution",
         schedule="10-59/15 * * * * UTC",
         firebase_handler="render_only",
-        purpose="Slowly backfill normalized lease attribution across properties for a configured historical window.",
+        purpose="Slowly backfill normalized lease attribution; in archive mode it waits for completed raw years.",
         render_command="python render_cron.py run_historical_lease_attribution",
     ),
     CronJobSpec(

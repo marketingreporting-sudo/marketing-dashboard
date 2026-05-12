@@ -1304,6 +1304,356 @@ def configure_historical_lease_attribution(
     return set_sync_state("entrata_historical_lease_attribution", state, replace=True)
 
 
+ARCHIVE_STATE_NAME = "entrata_historical_archive"
+ARCHIVE_DEFAULT_TARGET_DATE = datetime.date(2020, 1, 1)
+ARCHIVE_DEFAULT_RAW_BATCH_SIZE = 48
+ARCHIVE_DEFAULT_RAW_DELAY_SECONDS = 2.0
+ARCHIVE_DEFAULT_ATTRIBUTION_BATCH_SIZE = 6
+ARCHIVE_DEFAULT_ATTRIBUTION_DELAY_SECONDS = 2.0
+ARCHIVE_DEFAULT_LEAD_LOOKBACK_DAYS = 450
+
+
+def _coerce_years(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    years: list[int] = []
+    for item in value:
+        try:
+            year = int(item)
+        except (TypeError, ValueError):
+            continue
+        if year not in years:
+            years.append(year)
+    return sorted(years, reverse=True)
+
+
+def _completed_raw_archive_years(
+    *,
+    start_date: datetime.date,
+    target_date: datetime.date,
+    current_date: datetime.date | None,
+    completed: bool,
+) -> list[int]:
+    newest_year = start_date.year
+    oldest_year = target_date.year
+    if completed:
+        return list(range(newest_year, oldest_year - 1, -1))
+    if current_date is None:
+        return []
+    return [year for year in range(newest_year, oldest_year - 1, -1) if year > current_date.year]
+
+
+def _year_window(year: int, target_date: datetime.date, start_date: datetime.date) -> tuple[datetime.date, datetime.date]:
+    window_start = max(datetime.date(year, 1, 1), target_date)
+    window_end = min(datetime.date(year, 12, 31), start_date)
+    return window_start, window_end
+
+
+def _archive_pending_attribution_years(archive_state: dict[str, Any]) -> list[int]:
+    raw_completed_years = _coerce_years(archive_state.get("raw_completed_years"))
+    attribution_completed_years = set(_coerce_years(archive_state.get("attribution_completed_years")))
+    return [year for year in raw_completed_years if year not in attribution_completed_years]
+
+
+def _archive_status_message(archive_state: dict[str, Any]) -> str:
+    if not archive_state:
+        return "Historical archive has not been started."
+    if archive_state.get("completed"):
+        return "Historical archive complete."
+    if not archive_state.get("active", True):
+        return "Historical archive paused."
+
+    raw_year = archive_state.get("raw_current_year")
+    pending_years = _archive_pending_attribution_years(archive_state)
+    if pending_years:
+        return f"Raw archive is running; attribution is queued for {pending_years[0]}."
+    if raw_year:
+        return f"Raw archive is running for {raw_year}; attribution is waiting for a completed raw year."
+    return "Historical archive is active."
+
+
+def update_historical_archive_from_raw(
+    *,
+    raw_state: dict[str, Any],
+    current_date: datetime.date | None,
+    completed: bool,
+    processed: int,
+    errors: int,
+) -> dict[str, Any] | None:
+    archive_state = get_sync_state(ARCHIVE_STATE_NAME)
+    if not archive_state:
+        return None
+
+    raw_start_date = legacy.parse_iso_date(archive_state.get("raw_start_date")) or legacy.parse_iso_date(raw_state.get("archive_start_date"))
+    target_date = legacy.parse_iso_date(archive_state.get("target_start_date")) or legacy.parse_iso_date(raw_state.get("archive_target_date"))
+    if raw_start_date is None or target_date is None:
+        return archive_state
+
+    raw_completed_years = _completed_raw_archive_years(
+        start_date=raw_start_date,
+        target_date=target_date,
+        current_date=current_date,
+        completed=completed,
+    )
+    existing_attribution_years = _coerce_years(archive_state.get("attribution_completed_years"))
+    archive_completed = completed and set(raw_completed_years).issubset(set(existing_attribution_years))
+    patch = {
+        **archive_state,
+        "active": bool(archive_state.get("active", True)) and not archive_completed,
+        "completed": archive_completed,
+        "target_start_date": legacy.serialize_date(target_date),
+        "raw_start_date": legacy.serialize_date(raw_start_date),
+        "raw_current_date": legacy.serialize_date(current_date) if current_date else None,
+        "raw_current_year": current_date.year if current_date else None,
+        "current_year": current_date.year if current_date else None,
+        "raw_completed": completed,
+        "raw_completed_years": raw_completed_years,
+        "pending_attribution_years": [
+            year for year in raw_completed_years if year not in set(existing_attribution_years)
+        ],
+        "batch_size": int(raw_state.get("batch_size", ARCHIVE_DEFAULT_RAW_BATCH_SIZE)),
+        "delay_seconds": _coerce_delay_seconds(raw_state.get("delay_seconds"), ARCHIVE_DEFAULT_RAW_DELAY_SECONDS),
+        "last_error_count": errors,
+        "last_raw_error_count": errors,
+        "last_raw_processed_count": processed,
+        "last_raw_processed_at": _iso_now(),
+        "status_message": None,
+    }
+    patch["status_message"] = _archive_status_message(patch)
+    return set_sync_state(ARCHIVE_STATE_NAME, patch)
+
+
+def _complete_archive_attribution_year(year: int, attribution_state: dict[str, Any], errors: int, processed: int) -> dict[str, Any] | None:
+    archive_state = get_sync_state(ARCHIVE_STATE_NAME)
+    if not archive_state:
+        return None
+
+    completed_years = _coerce_years(archive_state.get("attribution_completed_years"))
+    if errors == 0 and year not in completed_years:
+        completed_years.append(year)
+    completed_years = sorted(completed_years, reverse=True)
+
+    pending_years = _archive_pending_attribution_years({**archive_state, "attribution_completed_years": completed_years})
+    raw_completed = bool(archive_state.get("raw_completed"))
+    archive_completed = raw_completed and not pending_years
+    patch = {
+        **archive_state,
+        "active": bool(archive_state.get("active", True)) and not archive_completed,
+        "completed": archive_completed,
+        "attribution_current_year": None,
+        "attribution_completed_years": completed_years,
+        "pending_attribution_years": pending_years,
+        "last_attribution_error_count": errors,
+        "last_attribution_processed_count": processed,
+        "last_attribution_processed_at": _iso_now(),
+        "last_error_count": errors,
+        "status_message": None,
+    }
+    patch["status_message"] = _archive_status_message(patch)
+    return set_sync_state(ARCHIVE_STATE_NAME, patch)
+
+
+def start_historical_archive_backfill(
+    *,
+    target_start_date: datetime.date | None = None,
+    raw_start_date: datetime.date | None = None,
+    property_ids: list[int] | list[str] | None = None,
+    raw_batch_size: int | None = None,
+    raw_delay_seconds: float | None = None,
+    attribution_batch_size: int | None = None,
+    attribution_delay_seconds: float | None = None,
+    lead_lookback_days: int | None = None,
+    active: bool = True,
+) -> dict[str, Any]:
+    target_date = target_start_date or ARCHIVE_DEFAULT_TARGET_DATE
+    start_date = raw_start_date or datetime.date(datetime.date.today().year - 1, 12, 31)
+    if start_date < target_date:
+        raise ValueError("Archive raw_start_date must be on or after target_start_date.")
+
+    normalized_property_ids = _coerce_property_ids(property_ids)
+    raw_batch = max(int(raw_batch_size or ARCHIVE_DEFAULT_RAW_BATCH_SIZE), 1)
+    raw_delay = _coerce_delay_seconds(raw_delay_seconds, ARCHIVE_DEFAULT_RAW_DELAY_SECONDS)
+    attribution_batch = max(int(attribution_batch_size or ARCHIVE_DEFAULT_ATTRIBUTION_BATCH_SIZE), 1)
+    attribution_delay = _coerce_delay_seconds(attribution_delay_seconds, ARCHIVE_DEFAULT_ATTRIBUTION_DELAY_SECONDS)
+    lookback_days = max(int(lead_lookback_days or ARCHIVE_DEFAULT_LEAD_LOOKBACK_DAYS), 1)
+
+    raw_state = configure_historical_backfill(
+        current_date=start_date,
+        end_date=target_date,
+        property_ids=normalized_property_ids,
+        batch_size=raw_batch,
+        delay_seconds=raw_delay,
+        active=active,
+    )
+    raw_state = set_sync_state(
+        "entrata_historical_backfill",
+        {
+            **raw_state,
+            "archive_mode": True,
+            "archive_state_id": ARCHIVE_STATE_NAME,
+            "archive_start_date": legacy.serialize_date(start_date),
+            "archive_target_date": legacy.serialize_date(target_date),
+            "current_year": start_date.year,
+            "completed_years": [],
+            "status_message": f"Historical raw archive active for {start_date.year}, targeting {target_date.isoformat()}.",
+        },
+    )
+
+    attribution_state = configure_historical_lease_attribution(
+        start_date=start_date,
+        end_date=start_date,
+        property_ids=normalized_property_ids,
+        batch_size=attribution_batch,
+        delay_seconds=attribution_delay,
+        lead_lookback_days=lookback_days,
+        active=False,
+    )
+    attribution_state = set_sync_state(
+        "entrata_historical_lease_attribution",
+        {
+            **attribution_state,
+            "archive_mode": True,
+            "archive_state_id": ARCHIVE_STATE_NAME,
+            "archive_waiting": True,
+            "current_year": None,
+            "completed_years": [],
+            "status_message": "Historical attribution waiting for the raw archive to complete a full year.",
+        },
+    )
+
+    archive_state = {
+        "active": active,
+        "completed": False,
+        "target_start_date": legacy.serialize_date(target_date),
+        "raw_start_date": legacy.serialize_date(start_date),
+        "raw_current_date": legacy.serialize_date(start_date),
+        "raw_current_year": start_date.year,
+        "current_year": start_date.year,
+        "raw_completed": False,
+        "raw_completed_years": [],
+        "attribution_current_year": None,
+        "attribution_completed_years": [],
+        "pending_attribution_years": [],
+        "batch_size": raw_batch,
+        "delay_seconds": raw_delay,
+        "raw_batch_size": raw_batch,
+        "raw_delay_seconds": raw_delay,
+        "attribution_batch_size": attribution_batch,
+        "attribution_delay_seconds": attribution_delay,
+        "lead_lookback_days": lookback_days,
+        "property_count": len(normalized_property_ids),
+        "property_ids": normalized_property_ids,
+        "last_error_count": 0,
+        "last_raw_error_count": 0,
+        "last_attribution_error_count": 0,
+        "last_started_at": _iso_now(),
+        "status_message": "Historical archive started; raw backfill is running and attribution is waiting for completed years.",
+    }
+    archive_state = set_sync_state(ARCHIVE_STATE_NAME, archive_state, replace=True)
+    return {
+        "archive": archive_state,
+        "raw_backfill": raw_state,
+        "lease_attribution": attribution_state,
+    }
+
+
+def set_historical_archive_active(active: bool) -> dict[str, Any]:
+    archive_state = get_sync_state(ARCHIVE_STATE_NAME)
+    if not archive_state:
+        raise ValueError("Historical archive has not been started.")
+
+    archive_completed = bool(archive_state.get("completed"))
+    raw_state = get_sync_state("entrata_historical_backfill")
+    attribution_state = get_sync_state("entrata_historical_lease_attribution")
+
+    updated_archive = set_sync_state(
+        ARCHIVE_STATE_NAME,
+        {
+            **archive_state,
+            "active": active and not archive_completed,
+            "status_message": (
+                _archive_status_message({**archive_state, "active": active and not archive_completed})
+                if active
+                else "Historical archive paused."
+            ),
+        },
+    )
+    updated_raw = set_sync_state(
+        "entrata_historical_backfill",
+        {
+            **raw_state,
+            "active": active and not bool(raw_state.get("completed")),
+            "status_message": "Historical raw archive resumed." if active else "Historical raw archive paused.",
+        },
+    ) if raw_state else {}
+
+    attribution_should_run = bool(attribution_state.get("archive_year")) and not bool(attribution_state.get("completed"))
+    updated_attribution = set_sync_state(
+        "entrata_historical_lease_attribution",
+        {
+            **attribution_state,
+            "active": active and attribution_should_run,
+            "status_message": "Historical attribution resumed." if active and attribution_should_run else "Historical attribution waiting or paused.",
+        },
+    ) if attribution_state else {}
+
+    return {
+        "archive": updated_archive,
+        "raw_backfill": updated_raw,
+        "lease_attribution": updated_attribution,
+    }
+
+
+def maybe_start_next_archive_attribution(state: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    archive_state = get_sync_state(ARCHIVE_STATE_NAME)
+    if not archive_state or not archive_state.get("active", True):
+        return None
+    current_attribution_state = state or get_sync_state("entrata_historical_lease_attribution")
+    if current_attribution_state and current_attribution_state.get("active", True) and not current_attribution_state.get("completed"):
+        return None
+
+    pending_years = _archive_pending_attribution_years(archive_state)
+    if not pending_years:
+        patch = {**archive_state, "pending_attribution_years": [], "status_message": _archive_status_message(archive_state)}
+        set_sync_state(ARCHIVE_STATE_NAME, patch)
+        return None
+
+    year = pending_years[0]
+    target_date = legacy.parse_iso_date(archive_state.get("target_start_date")) or ARCHIVE_DEFAULT_TARGET_DATE
+    raw_start_date = legacy.parse_iso_date(archive_state.get("raw_start_date")) or datetime.date(year, 12, 31)
+    start_date, end_date = _year_window(year, target_date, raw_start_date)
+    property_ids = _coerce_property_ids(archive_state.get("property_ids"))
+    attribution_state = configure_historical_lease_attribution(
+        start_date=start_date,
+        end_date=end_date,
+        property_ids=property_ids,
+        batch_size=int(archive_state.get("attribution_batch_size") or ARCHIVE_DEFAULT_ATTRIBUTION_BATCH_SIZE),
+        delay_seconds=_coerce_delay_seconds(archive_state.get("attribution_delay_seconds"), ARCHIVE_DEFAULT_ATTRIBUTION_DELAY_SECONDS),
+        lead_lookback_days=int(archive_state.get("lead_lookback_days") or ARCHIVE_DEFAULT_LEAD_LOOKBACK_DAYS),
+        active=True,
+    )
+    attribution_state = set_sync_state(
+        "entrata_historical_lease_attribution",
+        {
+            **attribution_state,
+            "archive_mode": True,
+            "archive_state_id": ARCHIVE_STATE_NAME,
+            "archive_year": year,
+            "current_year": year,
+            "completed_years": _coerce_years(archive_state.get("attribution_completed_years")),
+            "status_message": f"Historical attribution active for {year}.",
+        },
+    )
+    archive_patch = {
+        **archive_state,
+        "attribution_current_year": year,
+        "pending_attribution_years": pending_years,
+        "status_message": f"Historical attribution running for {year}; raw archive continues independently.",
+    }
+    set_sync_state(ARCHIVE_STATE_NAME, archive_patch)
+    return attribution_state
+
+
 def build_retry_doc_id(job_type: str, property_id: int, date_id: str) -> str:
     return legacy.build_retry_doc_id(job_type, property_id, date_id)
 
@@ -1530,34 +1880,67 @@ def process_historical_backfill_batch() -> str:
         time.sleep(delay_seconds)
 
     completed = current_date < end_date
+    current_date_for_state = current_date if not completed else None
+    completed_years = _completed_raw_archive_years(
+        start_date=legacy.parse_iso_date(state.get("archive_start_date")) or start_date,
+        target_date=legacy.parse_iso_date(state.get("archive_target_date")) or end_date,
+        current_date=current_date_for_state,
+        completed=completed,
+    ) if state.get("archive_mode") else _coerce_years(state.get("completed_years"))
+    status_message = (
+        "Historical raw archive complete."
+        if completed
+        else f"Historical raw archive active for {current_date.year}."
+    ) if state.get("archive_mode") else state.get("status_message")
     set_sync_state(
         "entrata_historical_backfill",
         {
             **state,
-            "current_date": legacy.serialize_date(current_date) if not completed else None,
+            "current_date": legacy.serialize_date(current_date_for_state),
             "end_date": legacy.serialize_date(end_date),
             "next_property_index": property_index,
             "completed": completed,
             "active": not completed,
+            "current_year": current_date_for_state.year if current_date_for_state else None,
+            "completed_years": completed_years,
             "last_processed_at": _iso_now(),
             "last_processed_count": processed,
             "last_error_count": errors,
+            "status_message": status_message,
             "last_summary": (
                 f"processed={processed}, errors={errors}, "
-                f"current_date={legacy.serialize_date(current_date) if not completed else None}, "
+                f"current_date={legacy.serialize_date(current_date_for_state)}, "
                 f"next_property_index={property_index}"
             ),
         },
     )
+    if state.get("archive_mode"):
+        update_historical_archive_from_raw(
+            raw_state={
+                **state,
+                "batch_size": batch_size,
+                "delay_seconds": delay_seconds,
+                "archive_start_date": state.get("archive_start_date") or legacy.serialize_date(start_date),
+                "archive_target_date": state.get("archive_target_date") or legacy.serialize_date(end_date),
+            },
+            current_date=current_date_for_state,
+            completed=completed,
+            processed=processed,
+            errors=errors,
+        )
     return (
         f"Historical backfill processed={processed}, errors={errors}, "
-        f"current_date={legacy.serialize_date(current_date) if not completed else None}, "
+        f"current_date={legacy.serialize_date(current_date_for_state)}, "
         f"next_property_index={property_index}, completed={completed}"
     )
 
 
 def process_historical_lease_attribution_batch() -> str:
     state = get_sync_state("entrata_historical_lease_attribution")
+    if state and (not state.get("active", True) or state.get("completed")):
+        maybe_start_next_archive_attribution(state)
+        state = get_sync_state("entrata_historical_lease_attribution")
+
     start_date = legacy.parse_iso_date(state.get("start_date") if state else None)
     if start_date is None:
         start_date = legacy.parse_iso_date(legacy.HISTORICAL_BACKFILL_END_DATE)
@@ -1622,6 +2005,20 @@ def process_historical_lease_attribution_batch() -> str:
         time.sleep(delay_seconds)
 
     completed = property_index >= len(property_ids)
+    archive_year = None
+    try:
+        archive_year = int(state.get("archive_year")) if state.get("archive_year") is not None else None
+    except (TypeError, ValueError):
+        archive_year = None
+    completed_years = _coerce_years(state.get("completed_years"))
+    if completed and state.get("archive_mode") and archive_year and errors == 0 and archive_year not in completed_years:
+        completed_years.append(archive_year)
+        completed_years = sorted(completed_years, reverse=True)
+    status_message = (
+        f"Historical attribution complete for {archive_year}."
+        if completed and state.get("archive_mode") and archive_year
+        else (f"Historical attribution active for {archive_year}." if state.get("archive_mode") and archive_year else state.get("status_message"))
+    )
     set_sync_state(
         "entrata_historical_lease_attribution",
         {
@@ -1629,16 +2026,21 @@ def process_historical_lease_attribution_batch() -> str:
             "next_property_index": 0 if completed else property_index,
             "completed": completed,
             "active": not completed,
+            "current_year": None if completed else archive_year,
+            "completed_years": completed_years,
             "last_processed_at": _iso_now(),
             "last_processed_count": processed,
             "last_error_count": errors,
             "last_results": results,
+            "status_message": status_message,
             "last_summary": (
                 f"processed={processed}, errors={errors}, "
                 f"next_property_index={0 if completed else property_index}, completed={completed}"
             ),
         },
     )
+    if completed and state.get("archive_mode") and archive_year:
+        _complete_archive_attribution_year(archive_year, state, errors, processed)
     return (
         f"Historical lease attribution processed={processed}, errors={errors}, "
         f"next_property_index={0 if completed else property_index}, completed={completed}"

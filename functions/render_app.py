@@ -29,6 +29,8 @@ from render_runtime import (
     process_historical_backfill_batch,
     process_historical_lease_attribution_batch,
     run_named_cron_job,
+    set_historical_archive_active,
+    start_historical_archive_backfill,
     trigger_entrata_backfill,
 )
 from render_supabase_admin_content import (
@@ -1312,6 +1314,80 @@ def create_app() -> Flask:
                     "job": "entrata_historical_lease_attribution",
                     "state": state,
                     "result": result,
+                    "staging_only": True,
+                }
+            )
+        except Exception as error:
+            return build_cors_json_response(
+                {"status": "error", "error": str(error), "staging_only": True},
+                status_code=500,
+            )
+
+    @app.route("/api/entrata/archive-backfill-to-2020", methods=["GET", "POST", "OPTIONS"])
+    def staged_historical_archive_backfill():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        if request.method == "GET":
+            return build_cors_json_response(
+                {
+                    "status": "ok",
+                    "job": "entrata_historical_archive",
+                    "state": get_sync_state("entrata_historical_archive"),
+                    "raw_backfill": get_sync_state("entrata_historical_backfill"),
+                    "lease_attribution": get_sync_state("entrata_historical_lease_attribution"),
+                    "staging_only": True,
+                }
+            )
+
+        req_json = get_request_json_payload()
+        try:
+            action = (request.args.get("action") or req_json.get("action") or "start").lower()
+            if action in {"pause", "resume"}:
+                state = set_historical_archive_active(action == "resume")
+                return build_cors_json_response(
+                    {
+                        "status": "ok",
+                        "job": "entrata_historical_archive",
+                        "action": action,
+                        "state": state,
+                        "staging_only": True,
+                    }
+                )
+
+            target_start_date = request.args.get("target_start_date") or req_json.get("target_start_date") or "2020-01-01"
+            raw_start_date = request.args.get("raw_start_date") or req_json.get("raw_start_date") or "2025-12-31"
+            raw_batch_size = request.args.get("raw_batch_size") or req_json.get("raw_batch_size")
+            raw_delay_seconds = request.args.get("raw_delay_seconds") or req_json.get("raw_delay_seconds")
+            attribution_batch_size = request.args.get("attribution_batch_size") or req_json.get("attribution_batch_size")
+            attribution_delay_seconds = request.args.get("attribution_delay_seconds") or req_json.get("attribution_delay_seconds")
+            lead_lookback_days = request.args.get("lead_lookback_days") or req_json.get("lead_lookback_days")
+            active = request.args.get("active") or req_json.get("active")
+            property_ids = parse_property_ids_from_value(request.args.get("property_ids") or req_json.get("property_ids"))
+
+            state = start_historical_archive_backfill(
+                target_start_date=datetime.date.fromisoformat(target_start_date),
+                raw_start_date=datetime.date.fromisoformat(raw_start_date),
+                property_ids=property_ids,
+                raw_batch_size=int(raw_batch_size) if raw_batch_size not in (None, "") else None,
+                raw_delay_seconds=float(raw_delay_seconds) if raw_delay_seconds not in (None, "") else None,
+                attribution_batch_size=int(attribution_batch_size) if attribution_batch_size not in (None, "") else None,
+                attribution_delay_seconds=float(attribution_delay_seconds) if attribution_delay_seconds not in (None, "") else None,
+                lead_lookback_days=int(lead_lookback_days) if lead_lookback_days not in (None, "") else None,
+                active=str(active).lower() not in {"false", "0", "no"} if active is not None else True,
+            )
+            return build_cors_json_response(
+                {
+                    "status": "ok",
+                    "job": "entrata_historical_archive",
+                    "state": state,
                     "staging_only": True,
                 }
             )
