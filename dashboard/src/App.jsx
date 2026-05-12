@@ -1394,6 +1394,7 @@ const DashboardApp = ({
   const [expandedWebsiteManagerGroups, setExpandedWebsiteManagerGroups] = useState(() => new Set());
   const [copiedWebsiteManagerToken, setCopiedWebsiteManagerToken] = useState('');
   const [websiteManagerTokenSearch, setWebsiteManagerTokenSearch] = useState('');
+  const [activeWebsiteManagerFieldKey, setActiveWebsiteManagerFieldKey] = useState('');
   const [heatmapSiteLoading, setHeatmapSiteLoading] = useState(true);
   const [heatmapSiteSaving, setHeatmapSiteSaving] = useState(false);
   const [heatmapSiteError, setHeatmapSiteError] = useState(null);
@@ -7443,48 +7444,6 @@ const DashboardApp = ({
 
   const renderWebsiteManager = () => (
     <div className="website-manager-view">
-      <div className="website-manager-hero">
-        <div>
-          <div className="website-manager-kicker">WordPress Content Control Layer</div>
-          <div className="website-manager-headline">Website Editor</div>
-          <div className="website-manager-subhead">
-            Property-scoped content drafts, preview tokens, and WordPress sync controls.
-          </div>
-        </div>
-        <div className="website-manager-pill-row">
-          <div className="website-manager-pill">{selectedPropertyLabel}</div>
-          <div className={`website-manager-pill website-manager-pill--${websiteManagerEditable ? 'editable' : 'blocked'}`}>
-            {websitePlatformMeta.label}
-          </div>
-          <div className="website-manager-pill">
-            {websiteManagerLoading ? 'Loading saved content…' : websiteManagerDirty ? 'Unsaved changes' : 'All changes saved'}
-          </div>
-        </div>
-      </div>
-
-      <div className="website-manager-status-strip">
-        <div className="website-manager-status-item">
-          <span>Platform</span>
-          <strong>{websitePlatformMeta.label}</strong>
-        </div>
-        <div className="website-manager-status-item">
-          <span>Editable</span>
-          <strong>{websiteManagerEditable ? 'Yes' : 'No'}</strong>
-        </div>
-        <div className="website-manager-status-item">
-          <span>Filled fields</span>
-          <strong>{Object.values(websiteManagerDraft.content).filter((value) => String(value || '').trim()).length}</strong>
-        </div>
-        <div className="website-manager-status-item">
-          <span>Entrata sync</span>
-          <strong>{getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}</strong>
-        </div>
-        <div className="website-manager-status-item">
-          <span>WordPress key</span>
-          <strong>{websiteManagerDraft.wordpressSiteKey || 'Not set'}</strong>
-        </div>
-      </div>
-
       {(websiteManagerError || websiteManagerNotice) && (
         <div className={`website-manager-banner ${websiteManagerError ? 'website-manager-banner--error' : 'website-manager-banner--success'}`}>
           {websiteManagerError || websiteManagerNotice}
@@ -7504,11 +7463,31 @@ const DashboardApp = ({
 
       <div className="website-manager-command-bar">
         <div className="website-manager-command-bar__meta">
-          <div className="website-manager-command-bar__property">{selectedPropertyLabel}</div>
-          <div className="website-manager-command-bar__status">
-            <span>{websiteManagerLoading ? 'Loading saved content…' : websiteManagerDirty ? 'Unsaved changes' : 'All changes saved'}</span>
-            <span>{websitePlatformMeta.label}</span>
-            <span>Entrata sync: {getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}</span>
+          <div className="website-manager-command-bar__title">
+            <span>Website Editor</span>
+            <strong>{selectedPropertyLabel}</strong>
+          </div>
+          <div className="website-manager-status-strip">
+            <div className="website-manager-status-item">
+              <span>Status</span>
+              <strong>{websiteManagerLoading ? 'Loading' : websiteManagerDirty ? 'Unsaved' : 'Saved'}</strong>
+            </div>
+            <div className="website-manager-status-item">
+              <span>Platform</span>
+              <strong>{websitePlatformMeta.label}</strong>
+            </div>
+            <div className="website-manager-status-item">
+              <span>Filled</span>
+              <strong>{Object.values(websiteManagerDraft.content).filter((value) => String(value || '').trim()).length}</strong>
+            </div>
+            <div className="website-manager-status-item">
+              <span>Sync</span>
+              <strong>{getSnapshotTimestampLabel(websiteManagerDraft.wordpressSync.latestEntrataSyncAt)}</strong>
+            </div>
+            <div className="website-manager-status-item">
+              <span>WP key</span>
+              <strong>{websiteManagerDraft.wordpressSiteKey || 'Not set'}</strong>
+            </div>
           </div>
         </div>
         <div className="website-manager-command-bar__actions">
@@ -7964,6 +7943,15 @@ const DashboardApp = ({
                             <span className="website-manager-field__header">
                               <span className="website-manager-field__label">{field.label}</span>
                               <span className="website-manager-field__badges">
+                                <button
+                                  type="button"
+                                  className="website-manager-token-icon"
+                                  onClick={() => copyWebsiteManagerToken(status.tokenText)}
+                                  aria-label={`Copy ${field.label} token`}
+                                  title={copiedWebsiteManagerToken === status.tokenText ? 'Copied' : status.tokenText}
+                                >
+                                  {copiedWebsiteManagerToken === status.tokenText ? <Check size={14} /> : <Copy size={14} />}
+                                </button>
                                 {status.isEmpty && <span className="website-manager-state-badge is-empty">Empty</span>}
                                 {status.isChanged && <span className="website-manager-state-badge is-changed">Changed</span>}
                                 {!status.isChanged && !status.isEmpty && <span className="website-manager-state-badge is-published">Published</span>}
@@ -7972,7 +7960,7 @@ const DashboardApp = ({
                             </span>
                             {field.type === 'richtext' ? (
                               <>
-                                <div className="website-manager-format-row" aria-label={`${field.label} formatting helpers`}>
+                                <div className={`website-manager-format-row ${activeWebsiteManagerFieldKey === field.key ? 'is-active' : ''}`} aria-label={`${field.label} formatting helpers`}>
                                   <span>HTML</span>
                                   <button
                                     type="button"
@@ -8000,6 +7988,7 @@ const DashboardApp = ({
                                   id={`website-manager-field-${field.key}`}
                                   value={websiteManagerDraft.content[field.key]}
                                   onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
+                                  onFocus={() => setActiveWebsiteManagerFieldKey(field.key)}
                                   className={`website-manager-field__input website-manager-field__input--textarea website-manager-field__input--editor ${status.draftValue.length > 140 ? 'has-long-content' : ''}`}
                                   placeholder={field.placeholder || ''}
                                   disabled={!websiteManagerEditable || !canEditWebsiteManager}
@@ -8012,19 +8001,12 @@ const DashboardApp = ({
                                 type="text"
                                 value={websiteManagerDraft.content[field.key]}
                                 onChange={(event) => updateWebsiteManagerContentField(field.key, event.target.value)}
+                                onFocus={() => setActiveWebsiteManagerFieldKey(field.key)}
                                 className="website-manager-field__input"
                                 placeholder={field.placeholder || ''}
                                 disabled={!websiteManagerEditable || !canEditWebsiteManager}
                               />
                             )}
-                            <button
-                              type="button"
-                              className="website-manager-token-copy"
-                              onClick={() => copyWebsiteManagerToken(status.tokenText)}
-                            >
-                              {copiedWebsiteManagerToken === status.tokenText ? <Check size={14} /> : <Copy size={14} />}
-                              <span>{copiedWebsiteManagerToken === status.tokenText ? 'Copied' : status.tokenText}</span>
-                            </button>
                           </label>
                         );
                       })}

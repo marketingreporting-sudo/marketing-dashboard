@@ -3710,95 +3710,31 @@ td {
   gap: 1.5rem;
 }
 
-.website-manager-hero {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 1rem;
-  padding: 1rem 1.15rem;
-  border-radius: 18px;
-  color: var(--white);
-  background:
-    radial-gradient(circle at top right, rgba(108, 178, 139, 0.18), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(197, 107, 83, 0.18), transparent 32%),
-    linear-gradient(135deg, #102126 0%, #17333a 52%, #21464f 100%);
-  box-shadow: 0 18px 36px rgba(16, 33, 38, 0.12);
-}
-
-.website-manager-kicker {
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  opacity: 0.72;
-  margin-bottom: 0.35rem;
-}
-
-.website-manager-headline {
-  font-size: 1.65rem;
-  line-height: 1;
-  font-weight: 200;
-  margin-bottom: 0.35rem;
-}
-
-.website-manager-subhead {
-  max-width: 70ch;
-  font-size: 0.86rem;
-  line-height: 1.35;
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.website-manager-pill-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-}
-
-.website-manager-pill {
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
-  padding: 0.55rem 0.9rem;
-  font-size: 0.8rem;
-}
-
-.website-manager-pill--editable {
-  background: rgba(108, 178, 139, 0.16);
-}
-
-.website-manager-pill--blocked {
-  background: rgba(197, 107, 83, 0.16);
-}
-
 .website-manager-status-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
-  padding: 0.75rem;
-  border-radius: 18px;
-  background: #ffffff;
-  border: 1px solid rgba(16, 33, 38, 0.08);
-  box-shadow: 0 12px 24px rgba(16, 33, 38, 0.05);
+  gap: 0.45rem;
 }
 
 .website-manager-status-item {
   display: grid;
-  gap: 0.2rem;
-  min-width: 150px;
-  flex: 1;
-  padding: 0.6rem 0.75rem;
-  border-radius: 12px;
-  background: rgba(16, 33, 38, 0.035);
+  gap: 0.12rem;
+  min-width: 92px;
+  padding: 0.38rem 0.55rem;
+  border-radius: 10px;
+  background: rgba(16, 33, 38, 0.04);
+  border: 1px solid rgba(16, 33, 38, 0.06);
 }
 
 .website-manager-status-item span {
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(16, 33, 38, 0.58);
 }
 
 .website-manager-status-item strong {
-  font-size: 0.92rem;
+  font-size: 0.8rem;
   color: var(--analytics-ink);
   line-height: 1.2;
 }
@@ -3865,9 +3801,9 @@ td {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  align-items: center;
-  padding: 0.85rem 1rem;
-  border-radius: 18px;
+  align-items: flex-start;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.94);
   border: 1px solid rgba(16, 33, 38, 0.08);
   box-shadow: 0 14px 28px rgba(16, 33, 38, 0.08);
@@ -3876,13 +3812,26 @@ td {
 
 .website-manager-command-bar__meta {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
-.website-manager-command-bar__property {
+.website-manager-command-bar__title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: baseline;
+}
+
+.website-manager-command-bar__title span {
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(16, 33, 38, 0.58);
+}
+
+.website-manager-command-bar__title strong {
   font-size: 1rem;
-  font-weight: 600;
   color: var(--analytics-ink);
 }
 
@@ -4034,8 +3983,7 @@ td {
 }
 
 .website-manager-filter-chip,
-.website-manager-rail-toggle,
-.website-manager-token-copy {
+.website-manager-rail-toggle {
   border: 1px solid rgba(16, 33, 38, 0.1);
   border-radius: 999px;
   background: rgba(16, 33, 38, 0.05);
@@ -4147,7 +4095,7 @@ td {
 
 .website-manager-section-head--sticky {
   position: sticky;
-  top: 5.75rem;
+  top: 4.8rem;
   z-index: 3;
   padding-bottom: 0.75rem;
   background: inherit;
@@ -4156,7 +4104,7 @@ td {
 .website-manager-edit-status,
 .website-manager-field__header,
 .website-manager-field__badges,
-.website-manager-token-copy,
+.website-manager-token-icon,
 .website-manager-token--button {
   display: flex;
   gap: 0.45rem;
@@ -4171,6 +4119,31 @@ td {
 
 .website-manager-field__header {
   justify-content: space-between;
+}
+
+.website-manager-panel--editor {
+  gap: 0.75rem;
+}
+
+.website-manager-group--active {
+  background: transparent;
+  border-color: rgba(16, 33, 38, 0.08);
+  padding: 0.4rem 0 0;
+}
+
+.website-manager-group--active .website-manager-form-grid {
+  gap: 1rem;
+}
+
+.website-manager-group--active .website-manager-field {
+  gap: 0.45rem;
+  padding: 0 0 1rem;
+  border-bottom: 1px solid rgba(16, 33, 38, 0.08);
+}
+
+.website-manager-group--active .website-manager-field:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .website-manager-state-badge {
@@ -4201,10 +4174,6 @@ td {
   color: #204c37;
 }
 
-.website-manager-group--active {
-  background: rgba(16, 33, 38, 0.025);
-}
-
 .website-manager-field__input--editor {
   min-height: 96px;
   transition: min-height 0.18s ease, border-color 0.18s ease;
@@ -4216,10 +4185,14 @@ td {
 }
 
 .website-manager-format-row {
-  display: flex;
+  display: none;
   flex-wrap: wrap;
   gap: 0.4rem;
   align-items: center;
+}
+
+.website-manager-format-row.is-active {
+  display: flex;
 }
 
 .website-manager-format-row span,
@@ -4244,10 +4217,16 @@ td {
   opacity: 0.55;
 }
 
-.website-manager-token-copy {
-  justify-self: start;
-  padding: 0.4rem 0.55rem;
-  font-size: 0.72rem;
+.website-manager-token-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(16, 33, 38, 0.1);
+  border-radius: 8px;
+  background: rgba(16, 33, 38, 0.04);
+  color: var(--analytics-ink);
+  cursor: pointer;
 }
 
 .website-manager-reference-drawer {
@@ -4881,11 +4860,6 @@ td {
   .website-manager-command-bar {
     position: static;
     align-items: stretch;
-    flex-direction: column;
-  }
-
-  .website-manager-hero {
-    align-items: flex-start;
     flex-direction: column;
   }
 
@@ -5891,7 +5865,7 @@ td {
 .website-manager-field__input,
 .website-manager-filter-chip,
 .website-manager-rail-toggle,
-.website-manager-token-copy,
+.website-manager-token-icon,
 .property-selector,
 .global-date-controls__picker,
 .global-date-controls__select,
@@ -6272,7 +6246,7 @@ body,
 .website-manager-filter-chip,
 .website-manager-rail-toggle,
 .website-manager-state-badge,
-.website-manager-token-copy,
+.website-manager-token-icon,
 .website-manager-section-nav,
 .website-manager-section-nav__item,
 .website-manager-token,
@@ -6362,7 +6336,7 @@ body,
 .website-manager-filter-chip,
 .website-manager-rail-toggle,
 .website-manager-state-badge,
-.website-manager-token-copy,
+.website-manager-token-icon,
 .website-manager-section-nav,
 .website-manager-section-nav__item,
 .website-manager-token,
@@ -6372,6 +6346,7 @@ body,
 .website-manager-group,
 .website-manager-field__input,
 .website-manager-format-row button,
+.website-manager-token-icon,
 .website-schema-group,
 .website-schema-field-card,
 .website-schema-icon-button,
@@ -6402,6 +6377,7 @@ body,
 .reports-admin-actions button,
 .website-manager-button,
 .website-manager-format-row button,
+.website-manager-token-icon,
 .website-manager-content-rail__item.is-active,
 .website-manager-filter-chip.is-active,
 .website-manager-section-nav__item.is-active,
