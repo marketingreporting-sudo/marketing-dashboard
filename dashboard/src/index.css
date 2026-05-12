@@ -7671,6 +7671,56 @@ th {
   border-color: var(--panel-border) !important;
 }
 
+.dashboard-container--reports .call-prep-period__header small {
+  color: var(--text-soft) !important;
+}
+
+.dashboard-container--reports .call-prep-table-wrap,
+.dashboard-container--reports .call-prep-mini-panel {
+  background: var(--panel-deep) !important;
+  border-color: var(--surface-line-strong) !important;
+}
+
+.dashboard-container--reports .call-prep-table th,
+.dashboard-container--reports .call-prep-table td {
+  border-bottom-color: var(--surface-line) !important;
+}
+
+.dashboard-container--reports .call-prep-table th {
+  color: var(--primary-tan) !important;
+  background: rgba(215, 210, 207, 0.06) !important;
+}
+
+.dashboard-container--reports .call-prep-table td {
+  color: var(--text-main) !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+
+.dashboard-container--reports .call-prep-table tbody tr:nth-child(even) td {
+  background: rgba(215, 210, 207, 0.045) !important;
+}
+
+.dashboard-container--reports .call-prep-table td:first-child,
+.dashboard-container--reports .call-prep-stat-grid span {
+  color: var(--primary-tan) !important;
+}
+
+.dashboard-container--reports .call-prep-stat-grid strong {
+  color: var(--text-main) !important;
+}
+
+.dashboard-container--reports .call-prep-stat-grid small,
+.dashboard-container--reports .call-prep-spend-panel .reports-list__row > div:last-child small {
+  color: var(--text-soft) !important;
+}
+
+.dashboard-container--reports .call-prep-mini-panel .reports-empty,
+.dashboard-container--reports .call-prep-source-list .reports-empty,
+.dashboard-container--reports .call-prep-bottom-grid .reports-empty {
+  background: var(--panel-deep) !important;
+  color: var(--text-soft) !important;
+}
+
 .dashboard-container--reports .reports-layout-message--error {
   background: rgba(121, 41, 36, 0.22) !important;
   color: #ffe2dc !important;
