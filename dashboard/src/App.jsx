@@ -3459,14 +3459,6 @@ const DashboardApp = ({
       setWebsiteManagerError(error.message || 'Unable to copy token.');
     }
   }, []);
-  const insertWebsiteManagerSnippet = useCallback((fieldKey, snippet) => {
-    const currentValue = String(websiteManagerDraft.content[fieldKey] || '');
-    const spacer = currentValue && !currentValue.endsWith(' ') && !currentValue.endsWith('\n') ? ' ' : '';
-    updateWebsiteManagerContentField(fieldKey, `${currentValue}${spacer}${snippet}`);
-    window.setTimeout(() => {
-      document.getElementById(`website-manager-field-${fieldKey}`)?.focus();
-    }, 0);
-  }, [updateWebsiteManagerContentField, websiteManagerDraft.content]);
   const focusWebsiteManagerField = useCallback((fieldKey) => {
     window.setTimeout(() => {
       document.getElementById(`website-manager-field-${fieldKey}`)?.focus();
@@ -3553,6 +3545,15 @@ const DashboardApp = ({
       }
     }));
   };
+
+  const insertWebsiteManagerSnippet = useCallback((fieldKey, snippet) => {
+    const currentValue = String(websiteManagerDraft.content[fieldKey] || '');
+    const spacer = currentValue && !currentValue.endsWith(' ') && !currentValue.endsWith('\n') ? ' ' : '';
+    updateWebsiteManagerContentField(fieldKey, `${currentValue}${spacer}${snippet}`);
+    window.setTimeout(() => {
+      document.getElementById(`website-manager-field-${fieldKey}`)?.focus();
+    }, 0);
+  }, [updateWebsiteManagerContentField, websiteManagerDraft.content]);
 
   const updateHeatmapSiteField = (field, value) => {
     setHeatmapSiteNotice(null);
