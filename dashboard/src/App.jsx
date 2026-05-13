@@ -260,6 +260,13 @@ const NAV_ITEMS = [
   { id: 'tasks', label: 'Tasks', icon: ClipboardList, permission: TAB_PERMISSIONS.tasks },
   { id: 'admin', label: 'Admin', icon: Users, permission: TAB_PERMISSIONS.admin }
 ];
+const ADMIN_SECTIONS = [
+  { id: 'users', label: 'Users' },
+  { id: 'ticket-routing', label: 'Ticket Routing' },
+  { id: 'website-schema', label: 'Website Schema' },
+  { id: 'red-list', label: 'Red List' },
+  { id: 'audit-log', label: 'Audit Log' },
+];
 const MONTH_INDEX_BY_NAME = {
   jan: 0,
   feb: 1,
@@ -746,6 +753,12 @@ const getMinimumTicketDueDateTimeValue = () => {
   const minimum = new Date(Date.now() + (24 * 60 * 60 * 1000) + (5 * 60 * 1000));
   minimum.setSeconds(0, 0);
   return formatDateTimeLocalInputValue(minimum);
+};
+
+const matchesSearch = (values, search) => {
+  const query = String(search || '').trim().toLowerCase();
+  if (!query) return true;
+  return values.some((value) => String(value || '').toLowerCase().includes(query));
 };
 
 const normalizeTaskRecord = (row) => {
@@ -2090,6 +2103,13 @@ const DashboardApp = ({
   const [adminPasswordResetLink, setAdminPasswordResetLink] = useState('');
   const [adminCopiedLinkType, setAdminCopiedLinkType] = useState('');
   const [copiedClientReportLink, setCopiedClientReportLink] = useState(false);
+  const [adminActiveSection, setAdminActiveSection] = useState('users');
+  const [adminUserSearch, setAdminUserSearch] = useState('');
+  const [adminInvitePropertySearch, setAdminInvitePropertySearch] = useState('');
+  const [adminUserPropertySearch, setAdminUserPropertySearch] = useState('');
+  const [adminRoutingSearch, setAdminRoutingSearch] = useState('');
+  const [adminRoutingFilter, setAdminRoutingFilter] = useState('all');
+  const [adminAuditSearch, setAdminAuditSearch] = useState('');
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminRoles, setAdminRoles] = useState([]);
   const [adminProperties, setAdminProperties] = useState([]);
@@ -2222,6 +2242,65 @@ const DashboardApp = ({
   const adminTicketAssignmentCount = useMemo(
     () => Object.values(adminTicketAssignmentDrafts).filter(Boolean).length,
     [adminTicketAssignmentDrafts]
+  );
+  const filteredAdminUsers = useMemo(
+    () => adminUsers.filter((user) => matchesSearch([
+      user.fullName,
+      user.email,
+      user.globalRole,
+      user.memberships?.[0]?.role,
+    ], adminUserSearch)),
+    [adminUserSearch, adminUsers]
+  );
+  const filteredAdminInviteProperties = useMemo(
+    () => adminProperties.filter((property) => matchesSearch([
+      property.name,
+      property.city,
+      property.state,
+      property.id,
+    ], adminInvitePropertySearch)),
+    [adminInvitePropertySearch, adminProperties]
+  );
+  const filteredAdminUserProperties = useMemo(
+    () => adminProperties.filter((property) => matchesSearch([
+      property.name,
+      property.city,
+      property.state,
+      property.id,
+    ], adminUserPropertySearch)),
+    [adminProperties, adminUserPropertySearch]
+  );
+  const filteredAdminRoutingProperties = useMemo(
+    () => adminProperties.filter((property) => {
+      const assigneeId = adminTicketAssignmentDrafts[property.id] || '';
+      const assignee = adminUserById.get(assigneeId);
+      const assignmentMatchesFilter = adminRoutingFilter === 'assigned'
+        ? Boolean(assigneeId)
+        : adminRoutingFilter === 'unassigned'
+          ? !assigneeId
+          : true;
+      return assignmentMatchesFilter && matchesSearch([
+        property.name,
+        property.city,
+        property.state,
+        property.id,
+        assignee?.fullName,
+        assignee?.email,
+      ], adminRoutingSearch);
+    }),
+    [adminProperties, adminRoutingFilter, adminRoutingSearch, adminTicketAssignmentDrafts, adminUserById]
+  );
+  const filteredAdminAuditLogs = useMemo(
+    () => adminAuditLogs.filter((log) => matchesSearch([
+      log.action,
+      log.actor_email,
+      log.target_email,
+      log.details?.requestedPropertyRole,
+      log.details?.requestedGlobalRole,
+      log.details?.propertyRole,
+      log.details?.globalRole,
+    ], adminAuditSearch)),
+    [adminAuditLogs, adminAuditSearch]
   );
   const tasksByStatus = useMemo(() => {
     const grouped = Object.fromEntries(TASK_STATUSES.map((status) => [status.id, []]));
@@ -11614,6 +11693,31 @@ const DashboardApp = ({
     });
   };
 
+  const setAdminInviteVisibleProperties = (selected) => {
+    const visibleIds = new Set(filteredAdminInviteProperties.map((property) => property.id));
+    setAdminInviteDraft((current) => {
+      const next = new Set(current.propertyIds);
+      visibleIds.forEach((propertyId) => {
+        if (selected) next.add(propertyId);
+        else next.delete(propertyId);
+      });
+      return { ...current, propertyIds: Array.from(next) };
+    });
+  };
+
+  const setAdminUserVisibleProperties = (selected) => {
+    const visibleIds = new Set(filteredAdminUserProperties.map((property) => property.id));
+    setAdminUserDraft((current) => {
+      if (!current) return current;
+      const next = new Set(current.propertyIds);
+      visibleIds.forEach((propertyId) => {
+        if (selected) next.add(propertyId);
+        else next.delete(propertyId);
+      });
+      return { ...current, propertyIds: Array.from(next) };
+    });
+  };
+
   const getAdminAssignableUsersForProperty = (propertyId) => (
     adminUsers.filter((user) => (
       user.isActive !== false
@@ -12151,7 +12255,26 @@ const DashboardApp = ({
             <span>Properties</span>
             <strong>{adminProperties.length}</strong>
           </div>
+          <div className="admin-access-stat">
+            <span>Ticket Routes</span>
+            <strong>{adminTicketAssignmentCount}</strong>
+          </div>
         </div>
+      </div>
+
+      <div className="admin-section-tabs" role="tablist" aria-label="Admin sections">
+        {ADMIN_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            className={adminActiveSection === section.id ? 'is-active' : ''}
+            onClick={() => setAdminActiveSection(section.id)}
+            role="tab"
+            aria-selected={adminActiveSection === section.id}
+          >
+            {section.label}
+          </button>
+        ))}
       </div>
 
       {(adminAccessError || adminAccessNotice) && (
@@ -12194,6 +12317,7 @@ const DashboardApp = ({
         </div>
       )}
 
+      {adminActiveSection === 'ticket-routing' && (
       <div className="admin-access-panel admin-ticket-routing-panel">
         <div className="admin-access-section-head">
           <div>
@@ -12202,8 +12326,35 @@ const DashboardApp = ({
           </div>
           <span>{adminAccessLoading ? 'Loading…' : `${formatNumber(adminTicketAssignmentCount)} mapped`}</span>
         </div>
+        <div className="admin-toolbar">
+          <label className="admin-search-field">
+            <span>Search routing</span>
+            <input
+              type="search"
+              value={adminRoutingSearch}
+              onChange={(event) => setAdminRoutingSearch(event.target.value)}
+              placeholder="Property or assignee"
+            />
+          </label>
+          <div className="admin-segmented-control" aria-label="Ticket routing filter">
+            {[
+              ['all', 'All'],
+              ['unassigned', 'Unassigned'],
+              ['assigned', 'Assigned'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={adminRoutingFilter === id ? 'is-active' : ''}
+                onClick={() => setAdminRoutingFilter(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="admin-ticket-routing-list">
-          {adminProperties.map((property) => {
+          {filteredAdminRoutingProperties.map((property) => {
             const assignableUsers = getAdminAssignableUsersForProperty(property.id);
             const selectedAssigneeId = adminTicketAssignmentDrafts[property.id] || '';
             const selectedAssignee = adminUserById.get(selectedAssigneeId);
@@ -12231,6 +12382,9 @@ const DashboardApp = ({
               </div>
             );
           })}
+          {filteredAdminRoutingProperties.length === 0 && (
+            <div className="admin-access-empty">No properties match the current routing filters.</div>
+          )}
         </div>
         <div className="admin-access-actions">
           <button type="button" onClick={saveAdminTicketAssignments} disabled={adminAccessLoading}>
@@ -12238,14 +12392,16 @@ const DashboardApp = ({
           </button>
         </div>
       </div>
+      )}
 
-      {(websiteSchemaError || websiteSchemaNotice) && (
+      {adminActiveSection === 'website-schema' && (websiteSchemaError || websiteSchemaNotice) && (
         <div className={`admin-access-banner ${websiteSchemaError ? 'admin-access-banner--error' : 'admin-access-banner--success'}`}>
           {websiteSchemaError || websiteSchemaNotice}
         </div>
       )}
 
-      <div className="admin-access-panel" style={{ marginBottom: '1rem' }}>
+      {adminActiveSection === 'red-list' && (
+      <div className="admin-access-panel">
         <div className="admin-access-section-head">
           <div>
             <div className="admin-access-panel__eyebrow">Red List</div>
@@ -12275,7 +12431,9 @@ const DashboardApp = ({
           </div>
         )}
       </div>
+      )}
 
+      {adminActiveSection === 'users' && (
       <div className="admin-access-layout">
         <div className="admin-access-panel">
           <div className="admin-access-section-head">
@@ -12328,8 +12486,24 @@ const DashboardApp = ({
             </label>
           </div>
 
+          <div className="admin-panel-toolbar">
+            <div className="admin-selected-count">{formatNumber(adminInviteDraft.propertyIds.length)} selected</div>
+            <label className="admin-search-field">
+              <span>Property search</span>
+              <input
+                type="search"
+                value={adminInvitePropertySearch}
+                onChange={(event) => setAdminInvitePropertySearch(event.target.value)}
+                placeholder="Filter properties"
+              />
+            </label>
+            <div className="admin-mini-actions">
+              <button type="button" onClick={() => setAdminInviteVisibleProperties(true)}>Select visible</button>
+              <button type="button" onClick={() => setAdminInviteVisibleProperties(false)}>Clear visible</button>
+            </div>
+          </div>
           <div className="admin-access-property-picker">
-            {adminProperties.map((property) => (
+            {filteredAdminInviteProperties.map((property) => (
               <label key={property.id} className="admin-access-property-pill">
                 <input
                   type="checkbox"
@@ -12339,6 +12513,9 @@ const DashboardApp = ({
                 <span>{property.name}</span>
               </label>
             ))}
+            {filteredAdminInviteProperties.length === 0 && (
+              <div className="admin-access-empty">No properties match that search.</div>
+            )}
           </div>
 
           <div className="admin-access-actions">
@@ -12354,8 +12531,17 @@ const DashboardApp = ({
             <h3 className="admin-access-panel__title">Existing accounts</h3>
           </div>
 
+          <label className="admin-search-field">
+            <span>Search users</span>
+            <input
+              type="search"
+              value={adminUserSearch}
+              onChange={(event) => setAdminUserSearch(event.target.value)}
+              placeholder="Name, email, or role"
+            />
+          </label>
           <div className="admin-access-user-list">
-            {adminUsers.map((user) => (
+            {filteredAdminUsers.map((user) => (
               <button
                 key={user.id}
                 type="button"
@@ -12367,6 +12553,9 @@ const DashboardApp = ({
                 <small>{user.globalRole || user.memberships?.[0]?.role || 'No role assigned'}</small>
               </button>
             ))}
+            {filteredAdminUsers.length === 0 && (
+              <div className="admin-access-empty">No users match that search.</div>
+            )}
           </div>
         </div>
 
@@ -12417,8 +12606,24 @@ const DashboardApp = ({
                 </label>
               </div>
 
+              <div className="admin-panel-toolbar">
+                <div className="admin-selected-count">{formatNumber(adminUserDraft.propertyIds.length)} selected</div>
+                <label className="admin-search-field">
+                  <span>Property search</span>
+                  <input
+                    type="search"
+                    value={adminUserPropertySearch}
+                    onChange={(event) => setAdminUserPropertySearch(event.target.value)}
+                    placeholder="Filter properties"
+                  />
+                </label>
+                <div className="admin-mini-actions">
+                  <button type="button" onClick={() => setAdminUserVisibleProperties(true)}>Select visible</button>
+                  <button type="button" onClick={() => setAdminUserVisibleProperties(false)}>Clear visible</button>
+                </div>
+              </div>
               <div className="admin-access-property-picker">
-                {adminProperties.map((property) => (
+                {filteredAdminUserProperties.map((property) => (
                   <label key={property.id} className="admin-access-property-pill">
                     <input
                       type="checkbox"
@@ -12428,6 +12633,9 @@ const DashboardApp = ({
                     <span>{property.name}</span>
                   </label>
                 ))}
+                {filteredAdminUserProperties.length === 0 && (
+                  <div className="admin-access-empty">No properties match that search.</div>
+                )}
               </div>
 
               <div className="admin-access-actions">
@@ -12444,7 +12652,9 @@ const DashboardApp = ({
           )}
         </div>
       </div>
+      )}
 
+      {adminActiveSection === 'website-schema' && (
       <div className="admin-access-panel">
         <div className="admin-access-section-head">
           <div>
@@ -12614,16 +12824,30 @@ const DashboardApp = ({
           </>
         )}
       </div>
+      )}
 
+      {adminActiveSection === 'audit-log' && (
       <div className="admin-access-panel">
         <div className="admin-access-section-head">
-          <div className="admin-access-panel__eyebrow">Audit</div>
-          <h3 className="admin-access-panel__title">Recent access activity</h3>
+          <div>
+            <div className="admin-access-panel__eyebrow">Audit</div>
+            <h3 className="admin-access-panel__title">Recent access activity</h3>
+          </div>
+          <span>{formatNumber(filteredAdminAuditLogs.length)} shown</span>
         </div>
+        <label className="admin-search-field admin-search-field--wide">
+          <span>Search audit log</span>
+          <input
+            type="search"
+            value={adminAuditSearch}
+            onChange={(event) => setAdminAuditSearch(event.target.value)}
+            placeholder="Actor, target, action, or role"
+          />
+        </label>
 
-        {adminAuditLogs.length ? (
+        {filteredAdminAuditLogs.length ? (
           <div className="admin-access-audit-list">
-            {adminAuditLogs.map((log) => {
+            {filteredAdminAuditLogs.slice(0, 25).map((log) => {
               const createdAt = log.created_at ? new Date(log.created_at) : null;
               const actionLabel = log.action === 'invite_user' ? 'Invite created' : 'Access updated';
               const requestedRole = log.details?.requestedPropertyRole || log.details?.propertyRole || log.details?.requestedGlobalRole || log.details?.globalRole;
@@ -12662,11 +12886,15 @@ const DashboardApp = ({
                 </div>
               );
             })}
+            {filteredAdminAuditLogs.length > 25 && (
+              <div className="admin-access-empty">Showing latest 25 matching audit records.</div>
+            )}
           </div>
         ) : (
-          <div className="admin-access-empty">No access changes have been logged yet.</div>
+          <div className="admin-access-empty">No access activity matches the current search.</div>
         )}
       </div>
+      )}
     </div>
   );
 
