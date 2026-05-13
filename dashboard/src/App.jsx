@@ -862,6 +862,10 @@ const getInvoiceBreakdownLabel = (invoice) => {
 
 const getMarketingSpendExclusionKey = (label) => String(label || 'Unlabeled marketing cost').trim().toLowerCase();
 
+const isMarketingSpendLineExcluded = (label, excludedKeySet) => (
+  excludedKeySet instanceof Set && excludedKeySet.has(getMarketingSpendExclusionKey(label))
+);
+
 const getInvoiceEffectiveDate = (invoice) => {
   return (
     parseEntrataDate(invoice.postDate) ||
@@ -1334,7 +1338,7 @@ const getCallPrepMetricValue = (metrics, key) => {
   return metrics[key];
 };
 
-const buildCallPrepMetrics = (payload, range, propertyId = null) => {
+const buildCallPrepMetrics = (payload, range, propertyId = null, excludedMarketingSpendKeySet = null) => {
   const leadItemsForWindow = (payload?.lead_items || []).filter((lead) => (
     itemMatchesProperty(lead, propertyId) &&
     isInDateRange(getCallPrepDate(lead._date || lead.activity_date || lead.date), range.start, range.end)
@@ -1384,10 +1388,12 @@ const buildCallPrepMetrics = (payload, range, propertyId = null) => {
   });
   const invoices = Array.from(uniqueInvoices.values());
   const marketingInvoices = invoices.filter((invoice) => (
-    hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS)
+    hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS) &&
+    !isMarketingSpendLineExcluded(getInvoiceBreakdownLabel(invoice), excludedMarketingSpendKeySet)
   ));
   const performanceInvoices = invoices.filter((invoice) => (
-    hasInvoiceClassification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS)
+    hasInvoiceClassification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS) &&
+    !isMarketingSpendLineExcluded(getInvoiceBreakdownLabel(invoice), excludedMarketingSpendKeySet)
   ));
   const totalMarketingSpend = marketingInvoices.reduce((total, invoice) => (
     total + getAllocatedInvoiceAmountInRange(invoice, range.start, range.end)
@@ -1427,12 +1433,12 @@ const buildCallPrepMetrics = (payload, range, propertyId = null) => {
   };
 };
 
-const buildCallPrepPortfolioAverage = (payload, range, selectedPropertyId, propertyIds) => {
+const buildCallPrepPortfolioAverage = (payload, range, selectedPropertyId, propertyIds, excludedMarketingSpendKeySet = null) => {
   const comparisonIds = propertyIds
     .map((propertyId) => String(propertyId))
     .filter((propertyId) => propertyId && propertyId !== String(selectedPropertyId));
   if (comparisonIds.length === 0) return null;
-  const metricsByProperty = comparisonIds.map((propertyId) => buildCallPrepMetrics(payload, range, propertyId));
+  const metricsByProperty = comparisonIds.map((propertyId) => buildCallPrepMetrics(payload, range, propertyId, excludedMarketingSpendKeySet));
   const averageMetric = (key) => averageNumbers(metricsByProperty.map((metrics) => getCallPrepMetricValue(metrics, key)));
   return {
     propertyCount: comparisonIds.length,
@@ -1449,7 +1455,7 @@ const buildCallPrepPortfolioAverage = (payload, range, selectedPropertyId, prope
   };
 };
 
-const buildCallPrepSpendRows = (payload, range, propertyId) => {
+const buildCallPrepSpendRows = (payload, range, propertyId, excludedMarketingSpendKeySet = null) => {
   const grouped = new Map();
   const invoices = payload?.invoice_items || [];
   invoices.forEach((invoice) => {
@@ -1458,6 +1464,7 @@ const buildCallPrepSpendRows = (payload, range, propertyId) => {
     const allocation = getInvoiceAllocationMonth(invoice);
     if (!allocation || allocation.monthEnd < range.start || allocation.monthStart > range.end) return;
     const label = getInvoiceBreakdownLabel(invoice);
+    if (isMarketingSpendLineExcluded(label, excludedMarketingSpendKeySet)) return;
     const key = `${formatDateInputValue(allocation.monthStart)}:${label}`;
     const current = grouped.get(key) || {
       key,
@@ -1950,6 +1957,7 @@ const DashboardApp = ({
   const [marketingBudgetSaving, setMarketingBudgetSaving] = useState(false);
   const [marketingBudgetError, setMarketingBudgetError] = useState(null);
   const [marketingBudgetNotice, setMarketingBudgetNotice] = useState(null);
+  const [propertyBudgetItemsExpanded, setPropertyBudgetItemsExpanded] = useState(true);
   const [actualMarketingSpendItems, setActualMarketingSpendItems] = useState([]);
   const [actualMarketingSpendLoading, setActualMarketingSpendLoading] = useState(false);
   const [actualMarketingSpendError, setActualMarketingSpendError] = useState(null);
@@ -2080,13 +2088,8 @@ const DashboardApp = ({
   );
   const currentMarketingBudgetDate = useMemo(() => formatDateInputValue(new Date()), []);
   const activeMarketingBudgetItems = useMemo(() => (
-    marketingBudgetItems.filter((item) => (
-      item.status === 'active' &&
-      item.startDate &&
-      item.startDate <= currentMarketingBudgetDate &&
-      (!item.endDate || item.endDate >= currentMarketingBudgetDate)
-    ))
-  ), [currentMarketingBudgetDate, marketingBudgetItems]);
+    marketingBudgetItems.filter((item) => item.status === 'active')
+  ), [marketingBudgetItems]);
   const activeApprovedMarketingBudget = useMemo(() => (
     activeMarketingBudgetItems.reduce((total, item) => total + parseCurrency(item.monthlyAmount), 0)
   ), [activeMarketingBudgetItems]);
@@ -2883,6 +2886,57 @@ const DashboardApp = ({
       setMarketingBudgetError(error.message || 'Unable to open the contract file.');
     }
   };
+
+  const removeMarketingBudgetContract = async (item) => {
+    if (!item?.id || !propertyScopedSelectionId || !supabase) return;
+    if (!item.contractStoragePath && !item.contractFileName) return;
+    if (!window.confirm(`Remove the uploaded contract from "${item.itemName || 'this budget item'}"?`)) return;
+
+    setMarketingBudgetSaving(true);
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+
+    try {
+      if (item.contractStoragePath) {
+        const removeResponse = await supabase.storage
+          .from(MARKETING_BUDGET_CONTRACT_BUCKET)
+          .remove([item.contractStoragePath]);
+
+        if (removeResponse.error) {
+          throw removeResponse.error;
+        }
+      }
+
+      const response = await supabase
+        .from('property_marketing_budget_items')
+        .update({
+          contract_file_name: null,
+          contract_storage_path: null,
+          contract_mime_type: null,
+          updated_by: currentUser?.id || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', item.id)
+        .eq('property_id', propertyScopedSelectionId)
+        .select(MARKETING_BUDGET_SELECT_COLUMNS)
+        .single();
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      const savedItem = normalizeMarketingBudgetRecord(response.data);
+      setMarketingBudgetItems((current) => current.map((candidate) => (
+        candidate.id === savedItem.id ? savedItem : candidate
+      )));
+      setMarketingBudgetNotice('Contract file removed.');
+    } catch (error) {
+      setMarketingBudgetError(error.message || 'Unable to remove the contract file.');
+    } finally {
+      setMarketingBudgetSaving(false);
+    }
+  };
+
   // Derived Date Range
   const rangeDates = useMemo(() => {
     const end = new Date();
@@ -4023,14 +4077,14 @@ const DashboardApp = ({
   const includedMarketingInvoices = useMemo(() => (
     allMarketingInvoices.filter((invoice) => {
       const label = getInvoiceBreakdownLabel(invoice);
-      return !excludedMarketingSpendKeySet.has(getMarketingSpendExclusionKey(label));
+      return !isMarketingSpendLineExcluded(label, excludedMarketingSpendKeySet);
     })
   ), [allMarketingInvoices, excludedMarketingSpendKeySet]);
 
   const includedPerformanceMarketingInvoices = useMemo(() => (
     performanceMarketingInvoices.filter((invoice) => {
       const label = getInvoiceBreakdownLabel(invoice);
-      return !excludedMarketingSpendKeySet.has(getMarketingSpendExclusionKey(label));
+      return !isMarketingSpendLineExcluded(label, excludedMarketingSpendKeySet);
     })
   ), [performanceMarketingInvoices, excludedMarketingSpendKeySet]);
 
@@ -4097,7 +4151,7 @@ const DashboardApp = ({
       .map(([label, amount]) => ({
         label,
         amount,
-        excluded: excludedMarketingSpendKeySet.has(getMarketingSpendExclusionKey(label)),
+        excluded: isMarketingSpendLineExcluded(label, excludedMarketingSpendKeySet),
       }))
       .sort((a, b) => b.amount - a.amount);
   }, [allMarketingInvoices, excludedMarketingSpendKeySet, rangeDates]);
@@ -4271,12 +4325,13 @@ const DashboardApp = ({
     });
 
     return Array.from(grouped.values())
+      .filter((item) => !isMarketingSpendLineExcluded(item.sourceLabel, excludedMarketingSpendKeySet))
       .map((item) => ({
         ...item,
         roas: item.marketingSpend > 0 ? (item.netEffectiveRevenue / item.marketingSpend) : null
       }))
       .sort((a, b) => b.netEffectiveRevenue - a.netEffectiveRevenue);
-  }, [roiDailyItems]);
+  }, [excludedMarketingSpendKeySet, roiDailyItems]);
 
   // Daily chart data
   const dailyChartData = useMemo(() => {
@@ -4329,9 +4384,10 @@ const DashboardApp = ({
   const costPerLease = totalLeases > 0 && totalPerformanceMarketingCost > 0 ? (totalPerformanceMarketingCost / totalLeases).toFixed(2) : '—';
   const attributionMatchRate = totalTrackedLeaseCount > 0 ? ((attributedLeaseCount / totalTrackedLeaseCount) * 100).toFixed(1) : '0.0';
   const applicationToLeaseConversion = totalApplications > 0 ? ((totalLeases / totalApplications) * 100).toFixed(1) : '0.0';
-  const blendedRoi = roiTotals.marketingSpend > 0 ? ((roiTotals.netEffectiveRevenue - roiTotals.marketingSpend) / roiTotals.marketingSpend) : null;
-  const blendedRoas = roiTotals.marketingSpend > 0 ? (roiTotals.netEffectiveRevenue / roiTotals.marketingSpend) : null;
-  const roiCostPerLease = totalLeases > 0 && roiTotals.marketingSpend > 0 ? (roiTotals.marketingSpend / totalLeases).toFixed(2) : '—';
+  const adjustedMarketingSpend = totalBlendedMarketingSpend;
+  const blendedRoi = adjustedMarketingSpend > 0 ? ((roiTotals.netEffectiveRevenue - adjustedMarketingSpend) / adjustedMarketingSpend) : null;
+  const blendedRoas = adjustedMarketingSpend > 0 ? (roiTotals.netEffectiveRevenue / adjustedMarketingSpend) : null;
+  const roiCostPerLease = totalLeases > 0 && adjustedMarketingSpend > 0 ? (adjustedMarketingSpend / totalLeases).toFixed(2) : '—';
   const studentLeadDeficitMetrics = useMemo(() => {
     const cycle = {
       ...getStudentPreleaseCycle(rangeDates.end),
@@ -5719,13 +5775,14 @@ const DashboardApp = ({
     CALL_PREP_PERIODS.map((period) => {
       const currentRange = getCallPrepWindowRange(period.days);
       const priorRange = getPriorWindowRange(currentRange, period.days);
-      const current = buildCallPrepMetrics(callPrepOverview, currentRange, propertyScopedSelectionId);
-      const prior = buildCallPrepMetrics(callPrepOverview, priorRange, propertyScopedSelectionId);
+      const current = buildCallPrepMetrics(callPrepOverview, currentRange, propertyScopedSelectionId, excludedMarketingSpendKeySet);
+      const prior = buildCallPrepMetrics(callPrepOverview, priorRange, propertyScopedSelectionId, excludedMarketingSpendKeySet);
       const portfolioAverage = buildCallPrepPortfolioAverage(
         callPrepPortfolioOverview,
         currentRange,
         propertyScopedSelectionId,
-        availableProperties.map((property) => property.propertyId)
+        availableProperties.map((property) => property.propertyId),
+        excludedMarketingSpendKeySet
       );
       return {
         ...period,
@@ -5737,7 +5794,7 @@ const DashboardApp = ({
         analytics: callPrepAnalyticsByPeriod[period.days] || {},
       };
     })
-  ), [availableProperties, callPrepAnalyticsByPeriod, callPrepOverview, callPrepPortfolioOverview, propertyScopedSelectionId]);
+  ), [availableProperties, callPrepAnalyticsByPeriod, callPrepOverview, callPrepPortfolioOverview, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
   const callPrepSixtyDayRange = useMemo(() => getCallPrepWindowRange(60), []);
   const callPrepRecentTasks = useMemo(() => (
     tasks
@@ -5747,8 +5804,8 @@ const DashboardApp = ({
       .slice(0, 8)
   ), [callPrepSixtyDayRange, propertyScopedSelectionId, tasks]);
   const callPrepSpendRows = useMemo(() => (
-    buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId)
-  ), [callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId]);
+    buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId, excludedMarketingSpendKeySet)
+  ), [callPrepOverview, callPrepSixtyDayRange, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
   const heatmapTotals = heatmapSummaryData?.totals || {};
   const trackerHealth = heatmapTrackerHealthData?.health || {};
   const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
@@ -6207,11 +6264,11 @@ const DashboardApp = ({
           <div className="property-info-card__value">{loading ? '…' : `${formatNumber(totalLeads)} / ${formatNumber(totalApplications)} / ${formatNumber(totalLeases)}`}</div>
           <div className="property-info-card__meta">Leads / apps / leases in selected range</div>
         </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Budgeted Spend</div>
-          <div className="property-info-card__value">{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</div>
-          <div className="property-info-card__meta">{formatNumber(activeMarketingBudgetItems.length)} active monthly item{activeMarketingBudgetItems.length === 1 ? '' : 's'} as of today</div>
-        </div>
+          <div className="property-info-card">
+            <div className="property-info-card__label">Budgeted Spend</div>
+            <div className="property-info-card__value">{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</div>
+          <div className="property-info-card__meta">{formatNumber(activeMarketingBudgetItems.length)} active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</div>
+          </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Actual GL Spend</div>
           <div className="property-info-card__value">{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</div>
@@ -6255,7 +6312,7 @@ const DashboardApp = ({
             <div className="property-budget-summary-card">
               <span>Budget less actual</span>
               <strong>{actualMarketingSpendLoading || marketingBudgetLoading ? '…' : formatCurrency(marketingBudgetVarianceLast30)}</strong>
-              <small>Budget uses currently active approvals; actuals use posted invoice allocation.</small>
+              <small>Budget uses Active status rows; actuals use posted invoice allocation.</small>
             </div>
           </div>
 
@@ -6348,137 +6405,165 @@ const DashboardApp = ({
             </button>
           </div>
 
-          {marketingBudgetLoading ? (
-            <div className="property-info-empty">Loading approved budget items…</div>
-          ) : marketingBudgetItems.length === 0 ? (
-            <div className="property-info-empty">No approved marketing budget items are stored for this property yet.</div>
-          ) : (
-            <div className="property-budget-table-wrap">
-              <table className="property-budget-table">
-                <thead>
-                  <tr>
-                    <th>Status</th>
-                    <th>Item</th>
-                    <th>Start</th>
-                    <th>End</th>
-                    <th>Monthly</th>
-                    <th>Contract</th>
-                    <th>Listing</th>
-                    <th>Notes</th>
-                    <th>Modified On</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {marketingBudgetItems.map((item) => {
-                    const listingUrl = normalizeExternalUrl(item.listingUrl);
-                    return (
-                      <tr key={item.id} className={`property-budget-row property-budget-row--${item.status}`}>
-                        <td>
-                          <select
-                            value={item.status}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'status', event.target.value)}
-                          >
-                            {MARKETING_BUDGET_STATUSES.map((status) => (
-                              <option key={status.id} value={status.id}>{status.label}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <input
-                            type="text"
-                            value={item.itemName}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'itemName', event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="date"
-                            value={item.startDate}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'startDate', event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="date"
-                            value={item.endDate}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'endDate', event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            value={item.monthlyAmount}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'monthlyAmount', event.target.value)}
-                          />
-                        </td>
-                        <td>
-                          <div className="property-budget-file-actions">
-                            {item.contractStoragePath ? (
-                              <button type="button" onClick={() => openMarketingBudgetContract(item)}>
-                                <FileCheck size={14} />
-                                Open
-                              </button>
-                            ) : (
-                              <span>No file</span>
-                            )}
-                            <label>
-                              <input
-                                type="file"
-                                onChange={async (event) => {
-                                  const file = event.target.files?.[0] || null;
-                                  event.target.value = '';
-                                  if (file) await saveMarketingBudgetItem(item, file);
-                                }}
-                              />
-                              <Upload size={14} />
-                              Upload
-                            </label>
-                          </div>
-                          {item.contractFileName && <small>{item.contractFileName}</small>}
-                        </td>
-                        <td>
-                          <input
-                            type="url"
-                            value={item.listingUrl}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'listingUrl', event.target.value)}
-                            placeholder="https://"
-                          />
-                          {listingUrl && (
-                            <a className="property-budget-link" href={listingUrl} target="_blank" rel="noreferrer">
-                              <ExternalLink size={13} />
-                              View
-                            </a>
-                          )}
-                        </td>
-                        <td>
-                          <textarea
-                            value={item.notes}
-                            onChange={(event) => updateMarketingBudgetField(item.id, 'notes', event.target.value)}
-                            rows={3}
-                          />
-                        </td>
-                        <td>
-                          <div className="property-budget-modified">{formatReadableDate(item.updatedAt)}</div>
-                          <div className="property-budget-row-actions">
-                            <button type="button" onClick={() => saveMarketingBudgetItem(item)} disabled={marketingBudgetSaving}>
-                              <Save size={14} />
-                              Save
-                            </button>
-                            <button type="button" className="property-budget-delete" onClick={() => deleteMarketingBudgetItem(item.id)} disabled={marketingBudgetSaving}>
-                              <Trash2 size={14} />
-                              Delete
-                            </button>
-                          </div>
-                        </td>
+          <div className="property-budget-items">
+            <button
+              type="button"
+              className={`property-budget-items-toggle ${propertyBudgetItemsExpanded ? 'is-expanded' : ''}`}
+              onClick={() => setPropertyBudgetItemsExpanded((current) => !current)}
+              aria-expanded={propertyBudgetItemsExpanded}
+            >
+              <span>
+                <strong>Budget item table</strong>
+                <small>{formatNumber(marketingBudgetItems.length)} total row{marketingBudgetItems.length === 1 ? '' : 's'} | {formatNumber(activeMarketingBudgetItems.length)} active</small>
+              </span>
+              <ChevronDown size={18} />
+            </button>
+
+            {propertyBudgetItemsExpanded && (
+              marketingBudgetLoading ? (
+                <div className="property-info-empty">Loading approved budget items…</div>
+              ) : marketingBudgetItems.length === 0 ? (
+                <div className="property-info-empty">No approved marketing budget items are stored for this property yet.</div>
+              ) : (
+                <div className="property-budget-table-wrap">
+                  <table className="property-budget-table">
+                    <thead>
+                      <tr>
+                        <th>Status</th>
+                        <th>Item</th>
+                        <th>Start</th>
+                        <th>End</th>
+                        <th>Monthly</th>
+                        <th>Contract</th>
+                        <th>Listing</th>
+                        <th>Notes</th>
+                        <th>Modified On</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                    </thead>
+                    <tbody>
+                      {marketingBudgetItems.map((item) => {
+                        const listingUrl = normalizeExternalUrl(item.listingUrl);
+                        return (
+                          <tr key={item.id} className={`property-budget-row property-budget-row--${item.status}`}>
+                            <td>
+                              <select
+                                value={item.status}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'status', event.target.value)}
+                              >
+                                {MARKETING_BUDGET_STATUSES.map((status) => (
+                                  <option key={status.id} value={status.id}>{status.label}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td>
+                              <input
+                                type="text"
+                                value={item.itemName}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'itemName', event.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="date"
+                                value={item.startDate}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'startDate', event.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="date"
+                                value={item.endDate}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'endDate', event.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={item.monthlyAmount}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'monthlyAmount', event.target.value)}
+                              />
+                            </td>
+                            <td>
+                              <div className="property-budget-file-actions">
+                                {item.contractStoragePath ? (
+                                  <>
+                                    <button type="button" onClick={() => openMarketingBudgetContract(item)}>
+                                      <FileCheck size={14} />
+                                      Open
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="property-budget-remove-file"
+                                      onClick={() => removeMarketingBudgetContract(item)}
+                                      disabled={marketingBudgetSaving}
+                                    >
+                                      <Trash2 size={14} />
+                                      Remove
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span>No file</span>
+                                )}
+                                <label>
+                                  <input
+                                    type="file"
+                                    onChange={async (event) => {
+                                      const file = event.target.files?.[0] || null;
+                                      event.target.value = '';
+                                      if (file) await saveMarketingBudgetItem(item, file);
+                                    }}
+                                  />
+                                  <Upload size={14} />
+                                  Upload
+                                </label>
+                              </div>
+                              {item.contractFileName && <small>{item.contractFileName}</small>}
+                            </td>
+                            <td>
+                              <input
+                                type="url"
+                                value={item.listingUrl}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'listingUrl', event.target.value)}
+                                placeholder="https://"
+                              />
+                              {listingUrl && (
+                                <a className="property-budget-link" href={listingUrl} target="_blank" rel="noreferrer">
+                                  <ExternalLink size={13} />
+                                  View
+                                </a>
+                              )}
+                            </td>
+                            <td>
+                              <textarea
+                                value={item.notes}
+                                onChange={(event) => updateMarketingBudgetField(item.id, 'notes', event.target.value)}
+                                rows={3}
+                              />
+                            </td>
+                            <td>
+                              <div className="property-budget-modified">{formatReadableDate(item.updatedAt)}</div>
+                              <div className="property-budget-row-actions">
+                                <button type="button" onClick={() => saveMarketingBudgetItem(item)} disabled={marketingBudgetSaving}>
+                                  <Save size={14} />
+                                  Save
+                                </button>
+                                <button type="button" className="property-budget-delete" onClick={() => deleteMarketingBudgetItem(item.id)} disabled={marketingBudgetSaving}>
+                                  <Trash2 size={14} />
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+          </div>
         </div>
 
         <div className="property-info-panel property-info-panel--specials">
@@ -7787,7 +7872,7 @@ const DashboardApp = ({
               <div className="reports-stat">
                 <span>Budgeted spend now</span>
                 <strong>{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</strong>
-                <small>{formatNumber(activeMarketingBudgetItems.length)} active monthly item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</small>
+                <small>{formatNumber(activeMarketingBudgetItems.length)} Active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</small>
               </div>
               <div className="reports-stat">
                 <span>Actual GL spend</span>
@@ -7821,7 +7906,7 @@ const DashboardApp = ({
                 ))}
                 {activeMarketingBudgetItems.length === 0 && (
                   <div className="reports-empty">
-                    {marketingBudgetLoading ? 'Loading active approved budget items...' : 'No active approved marketing budget items were found for this property.'}
+                    {marketingBudgetLoading ? 'Loading active budget items...' : 'No Active status marketing budget items were found for this property.'}
                   </div>
                 )}
               </div>
@@ -7950,7 +8035,7 @@ const DashboardApp = ({
           {roiLoading ? '…' : blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Net revenue: {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend: {roiTotals.marketingSpend > 0 ? formatCurrency(roiTotals.marketingSpend) : '—'}
+          Net revenue: {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}
         </div>
       </div>
 
@@ -7973,7 +8058,7 @@ const DashboardApp = ({
             <p>• <strong>Total Marketing Spend</strong>: ${totalBlendedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} allocated across the selected days from tracked monthly marketing invoices.</p>
           )}
           {blendedRoi != null && (
-            <p>• <strong>Blended ROI</strong>: {(blendedRoi * 100).toFixed(0)}% from ${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} net effective revenue on ${roiTotals.marketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} spend.</p>
+            <p>• <strong>Blended ROI</strong>: {(blendedRoi * 100).toFixed(0)}% from ${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} net effective revenue on ${adjustedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} adjusted spend.</p>
           )}
           {attributedLeaseCount > 0 && (
             <p>• <strong>Attribution Match Rate</strong>: {attributionMatchRate}% of tracked leases are tied back to a lead record for this range.</p>
@@ -8848,7 +8933,7 @@ const DashboardApp = ({
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">ROAS</div>
             <div className="reports-kpi-card__value">{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}</div>
-            <div className="reports-kpi-card__meta">Net revenue {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend {roiTotals.marketingSpend > 0 ? formatCurrency(roiTotals.marketingSpend) : '—'}</div>
+            <div className="reports-kpi-card__meta">Net revenue {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}</div>
           </div>
         </div>
 
@@ -8920,7 +9005,7 @@ const DashboardApp = ({
                 <div className="reports-panel__title">ROAS Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
                   <div className="reports-stat"><span>Net Effective Revenue</span><strong>{formatCurrency(roiTotals.netEffectiveRevenue)}</strong><small>{formatCurrency(roiTotals.grossLeaseValue)} gross lease value</small></div>
-                  <div className="reports-stat"><span>Blended ROAS</span><strong>{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'}</strong><small>{formatCurrency(roiTotals.marketingSpend)} spend</small></div>
+                  <div className="reports-stat"><span>Blended ROAS</span><strong>{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'}</strong><small>{formatCurrency(adjustedMarketingSpend)} adjusted spend</small></div>
                   <div className="reports-stat"><span>Cost Per Lease</span><strong>{roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease) : '—'}</strong><small>{formatCurrency(roiTotals.concessionTotal)} concessions</small></div>
                 </div>
                 <div className="reports-list">
