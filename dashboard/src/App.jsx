@@ -2060,6 +2060,10 @@ const DashboardApp = ({
     () => new Map(availableProperties.map((property) => [property.propertyId, property])),
     [availableProperties]
   );
+  const availablePropertyIdsKey = useMemo(
+    () => availableProperties.map((property) => property.propertyId).join(','),
+    [availableProperties]
+  );
   const canEditReportingLayout = !isClientReportMode && currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
   const canViewAuditCommandCenter = currentPropertyPermissionSet.has(TAB_PERMISSIONS.audit);
@@ -2441,7 +2445,7 @@ const DashboardApp = ({
       const priorSixtyDayRange = getPriorWindowRange(sixtyDayRange, 60);
       const overviewStart = formatDateInputValue(priorSixtyDayRange.start);
       const overviewEnd = formatDateInputValue(sixtyDayRange.end);
-      const propertyIds = availableProperties.map((property) => property.propertyId);
+      const propertyIds = availablePropertyIdsKey.split(',').filter(Boolean);
       const callPrepGa4Url = resolveRenderApiRoute('/api/analytics/ga4', GA4_DASHBOARD_URL);
       const callPrepGoogleAdsUrl = resolveRenderApiRoute('/api/analytics/google-ads', GOOGLE_ADS_DASHBOARD_URL);
 
@@ -2555,7 +2559,7 @@ const DashboardApp = ({
     };
   }, [
     activeTab,
-    availableProperties,
+    availablePropertyIdsKey,
     isAllPropertiesSelected,
     propertyScopedSelectionId,
     selectedProperty?.googleAdsId,
