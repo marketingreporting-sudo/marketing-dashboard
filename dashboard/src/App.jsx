@@ -215,8 +215,9 @@ const CALL_PREP_METRIC_ROWS = [
   { key: 'leadToAppRate', label: 'Lead to App', format: 'percent' },
   { key: 'leadToLeaseRate', label: 'Lead to Lease', format: 'percent' },
   { key: 'appToLeaseRate', label: 'App to Lease', format: 'percent' },
-  { key: 'performanceMarketingSpend', label: 'Paid Media Spend', format: 'currency' },
+  { key: 'totalMarketingSpend', label: 'Marketing Spend', format: 'currency' },
   { key: 'costPerLead', label: 'Cost per Lead', format: 'currency' },
+  { key: 'costPerLease', label: 'Cost per Lease', format: 'currency' },
 ];
 const WEBSITE_SCHEMA_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const WEBSITE_SCHEMA_FIELD_TYPES = [
@@ -1420,8 +1421,8 @@ const buildCallPrepMetrics = (payload, range, propertyId = null, excludedMarketi
     appToLeaseRate: safeRate(leaseCount, applicationCount),
     totalMarketingSpend,
     performanceMarketingSpend,
-    costPerLead: leadCount > 0 && performanceMarketingSpend > 0 ? performanceMarketingSpend / leadCount : null,
-    costPerLease: leaseCount > 0 && performanceMarketingSpend > 0 ? performanceMarketingSpend / leaseCount : null,
+    costPerLead: leadCount > 0 && totalMarketingSpend > 0 ? totalMarketingSpend / leadCount : null,
+    costPerLease: leaseCount > 0 && totalMarketingSpend > 0 ? totalMarketingSpend / leaseCount : null,
     sourceBreakdown: Array.from(sourceMap.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
@@ -4380,14 +4381,13 @@ const DashboardApp = ({
   const totalTrackedLeaseCount = attributedLeaseCount + unattributedLeaseCount;
   const leaseConversion = totalLeads > 0 ? ((totalLeases / totalLeads) * 100).toFixed(1) : '0.0';
   const applicationConversion = totalLeads > 0 ? ((totalApplications / totalLeads) * 100).toFixed(1) : '0.0';
-  const costPerLead = totalLeads > 0 && totalPerformanceMarketingCost > 0 ? (totalPerformanceMarketingCost / totalLeads).toFixed(2) : '—';
-  const costPerLease = totalLeases > 0 && totalPerformanceMarketingCost > 0 ? (totalPerformanceMarketingCost / totalLeases).toFixed(2) : '—';
+  const adjustedMarketingSpend = totalBlendedMarketingSpend;
+  const costPerLead = totalLeads > 0 && adjustedMarketingSpend > 0 ? (adjustedMarketingSpend / totalLeads).toFixed(2) : '—';
+  const costPerLease = totalLeases > 0 && adjustedMarketingSpend > 0 ? (adjustedMarketingSpend / totalLeases).toFixed(2) : '—';
   const attributionMatchRate = totalTrackedLeaseCount > 0 ? ((attributedLeaseCount / totalTrackedLeaseCount) * 100).toFixed(1) : '0.0';
   const applicationToLeaseConversion = totalApplications > 0 ? ((totalLeases / totalApplications) * 100).toFixed(1) : '0.0';
-  const adjustedMarketingSpend = totalBlendedMarketingSpend;
   const blendedRoi = adjustedMarketingSpend > 0 ? ((roiTotals.netEffectiveRevenue - adjustedMarketingSpend) / adjustedMarketingSpend) : null;
   const blendedRoas = adjustedMarketingSpend > 0 ? (roiTotals.netEffectiveRevenue / adjustedMarketingSpend) : null;
-  const roiCostPerLease = totalLeases > 0 && adjustedMarketingSpend > 0 ? (adjustedMarketingSpend / totalLeases).toFixed(2) : '—';
   const studentLeadDeficitMetrics = useMemo(() => {
     const cycle = {
       ...getStudentPreleaseCycle(rangeDates.end),
@@ -4441,7 +4441,7 @@ const DashboardApp = ({
       ((leadDeficitAtThirtyClose || 0) > 0 && (leadDeficitPercentAtThirtyClose || 0) > 0.8) ||
       (leadFulfillmentRate != null && leadFulfillmentRate < 0.5)
     );
-    const numericCostPerLead = totalLeads > 0 && totalPerformanceMarketingCost > 0 ? totalPerformanceMarketingCost / totalLeads : null;
+    const numericCostPerLead = totalLeads > 0 && adjustedMarketingSpend > 0 ? adjustedMarketingSpend / totalLeads : null;
 
     return {
       cycle,
@@ -4483,7 +4483,7 @@ const DashboardApp = ({
     totalApplications,
     totalLeads,
     totalLeases,
-    totalPerformanceMarketingCost
+    adjustedMarketingSpend
   ]);
   const conventionalLeadDeficitMetrics = useMemo(() => {
     const forecastDate = parseEntrataDate(conventionalOccupancyWindow?.forecast_date) || new Date(rangeDates.end.getFullYear(), rangeDates.end.getMonth(), rangeDates.end.getDate() + 60);
@@ -7996,7 +7996,7 @@ const DashboardApp = ({
           {loading ? '…' : totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Paid media: {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'} | CPL: {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}
+          Marketing spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'} | CPL: {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}
         </div>
       </div>
 
@@ -8009,7 +8009,7 @@ const DashboardApp = ({
           {loading ? '…' : costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Leads: {formatNumber(totalLeads)} | Paid media: {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'}
+          Leads: {formatNumber(totalLeads)} | Marketing spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}
         </div>
       </div>
 
@@ -8019,7 +8019,7 @@ const DashboardApp = ({
           <div className="card-title">Cost Per Lease</div>
         </div>
         <div className="card-value">
-          {roiLoading ? '…' : roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease, 2) : 'No spend'}
+          {roiLoading ? '…' : costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend'}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {formatNumber(totalLeases)}
@@ -8051,8 +8051,8 @@ const DashboardApp = ({
           {totalLeads > 0 && (
             <p>• <strong>Top Source</strong>: {leadSourceBreakdown[0]?.name || 'N/A'} drives {leadSourceBreakdown[0]?.value || 0} leads ({totalLeads > 0 ? ((leadSourceBreakdown[0]?.value / totalLeads) * 100).toFixed(0) : 0}%).</p>
           )}
-          {totalPerformanceMarketingCost > 0 && (
-            <p>• <strong>Cost per Lease</strong>: {costPerLease !== '—' ? `$${costPerLease}` : '—'} based on prorated paid media spend for this range.</p>
+          {adjustedMarketingSpend > 0 && (
+            <p>• <strong>Cost per Lease</strong>: {costPerLease !== '—' ? `$${costPerLease}` : '—'} based on adjusted all-marketing spend for this range.</p>
           )}
           {totalBlendedMarketingSpend > 0 && (
             <p>• <strong>Total Marketing Spend</strong>: ${totalBlendedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} allocated across the selected days from tracked monthly marketing invoices.</p>
@@ -8913,7 +8913,7 @@ const DashboardApp = ({
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Marketing Cost</div>
             <div className="reports-kpi-card__value">{totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data'}</div>
-            <div className="reports-kpi-card__meta">Paid media {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'} | CPL {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}</div>
+            <div className="reports-kpi-card__meta">Marketing spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'} | CPL {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Lead-to-Lease Conversion</div>
@@ -8923,11 +8923,11 @@ const DashboardApp = ({
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Cost Per Lead</div>
             <div className="reports-kpi-card__value">{costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend'}</div>
-            <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Paid media {totalPerformanceMarketingCost > 0 ? formatCurrency(totalPerformanceMarketingCost) : '—'}</div>
+            <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Marketing spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Cost Per Lease</div>
-            <div className="reports-kpi-card__value">{roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease, 2) : 'No spend'}</div>
+            <div className="reports-kpi-card__value">{costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend'}</div>
             <div className="reports-kpi-card__meta">ROI {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases {formatNumber(totalLeases)}</div>
           </div>
           <div className="reports-kpi-card">
@@ -9006,7 +9006,7 @@ const DashboardApp = ({
                 <div className="reports-panel__grid reports-panel__grid--three">
                   <div className="reports-stat"><span>Net Effective Revenue</span><strong>{formatCurrency(roiTotals.netEffectiveRevenue)}</strong><small>{formatCurrency(roiTotals.grossLeaseValue)} gross lease value</small></div>
                   <div className="reports-stat"><span>Blended ROAS</span><strong>{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'}</strong><small>{formatCurrency(adjustedMarketingSpend)} adjusted spend</small></div>
-                  <div className="reports-stat"><span>Cost Per Lease</span><strong>{roiCostPerLease !== '—' ? formatCurrency(roiCostPerLease) : '—'}</strong><small>{formatCurrency(roiTotals.concessionTotal)} concessions</small></div>
+                  <div className="reports-stat"><span>Cost Per Lease</span><strong>{costPerLease !== '—' ? formatCurrency(costPerLease) : '—'}</strong><small>{formatCurrency(adjustedMarketingSpend)} adjusted spend</small></div>
                 </div>
                 <div className="reports-list">
                   {roiSourceBreakdown.slice(0, 5).map((item) => (
