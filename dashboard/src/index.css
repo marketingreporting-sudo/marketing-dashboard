@@ -110,6 +110,35 @@ h1, h2, h3 {
   text-align: center;
 }
 
+.mini-metric-loader {
+  display: inline-flex;
+  width: 1.25em;
+  height: 1.25em;
+  min-width: 24px;
+  min-height: 24px;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.mini-metric-loader img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  animation: mini-loader-pulse 1.05s ease-in-out infinite;
+}
+
+@keyframes mini-loader-pulse {
+  0%, 100% {
+    opacity: 0.42;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .sidebar {
   width: 240px;
   background-color: var(--primary);

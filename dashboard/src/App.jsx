@@ -1609,6 +1609,16 @@ const formatDurationMs = (value) => {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
+const MiniMetricLoader = () => (
+  <span className="mini-metric-loader" role="status" aria-label="Loading data">
+    <img src={loaderMark} alt="" aria-hidden="true" />
+  </span>
+);
+
+const renderMetricValue = (isLoading, value) => (
+  isLoading ? <MiniMetricLoader /> : value
+);
+
 const getDeltaTone = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'neutral';
   if (Number(value) > 0) return 'positive';
@@ -6355,14 +6365,14 @@ const DashboardApp = ({
       <div className="property-info-grid">
         <div className="property-info-card">
           <div className="property-info-card__label">Current Specials</div>
-          <div className="property-info-card__value">{propertyInfoLoading ? '…' : formatNumber(specialItems.length)}</div>
+          <div className="property-info-card__value">{renderMetricValue(propertyInfoLoading, formatNumber(specialItems.length))}</div>
           <div className="property-info-card__meta">
             Last synced {getSnapshotTimestampLabel(specialsSnapshot?.last_synced_at)}
           </div>
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Available Units</div>
-          <div className="property-info-card__value">{propertyInfoLoading ? '…' : formatNumber(availabilitySummary.availableCount)}</div>
+          <div className="property-info-card__value">{renderMetricValue(propertyInfoLoading, formatNumber(availabilitySummary.availableCount))}</div>
           <div className="property-info-card__meta">
             {formatNumber(availabilitySummary.unitCount)} units across {formatNumber(availabilitySummary.floorplanCount)} floorplans
           </div>
@@ -6370,7 +6380,7 @@ const DashboardApp = ({
         <div className="property-info-card">
           <div className="property-info-card__label">Price Range</div>
           <div className="property-info-card__value">
-            {propertyInfoLoading ? '…' : availabilitySummary.minPrice != null ? `${formatCurrency(availabilitySummary.minPrice)} - ${formatCurrency(availabilitySummary.maxPrice)}` : 'No pricing'}
+            {renderMetricValue(propertyInfoLoading, availabilitySummary.minPrice != null ? `${formatCurrency(availabilitySummary.minPrice)} - ${formatCurrency(availabilitySummary.maxPrice)}` : 'No pricing')}
           </div>
           <div className="property-info-card__meta">
             Next available {availabilitySummary.nextAvailableDate ? formatReadableDate(availabilitySummary.nextAvailableDate) : '—'}
@@ -6378,17 +6388,17 @@ const DashboardApp = ({
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Funnel Snapshot</div>
-          <div className="property-info-card__value">{loading ? '…' : `${formatNumber(totalLeads)} / ${formatNumber(totalApplications)} / ${formatNumber(totalLeases)}`}</div>
+          <div className="property-info-card__value">{renderMetricValue(loading, `${formatNumber(totalLeads)} / ${formatNumber(totalApplications)} / ${formatNumber(totalLeases)}`)}</div>
           <div className="property-info-card__meta">Leads / apps / leases in selected range</div>
         </div>
           <div className="property-info-card">
             <div className="property-info-card__label">Budgeted Spend</div>
-            <div className="property-info-card__value">{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</div>
+            <div className="property-info-card__value">{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</div>
           <div className="property-info-card__meta">{formatNumber(activeMarketingBudgetItems.length)} active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</div>
           </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Actual GL Spend</div>
-          <div className="property-info-card__value">{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</div>
+          <div className="property-info-card__value">{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</div>
           <div className="property-info-card__meta">Last 30 days from posted marketing invoices</div>
         </div>
       </div>
@@ -6415,7 +6425,7 @@ const DashboardApp = ({
           <div className="property-budget-summary-grid">
             <div className="property-budget-summary-card">
               <span>Budgeted spend now</span>
-              <strong>{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</strong>
+              <strong>{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</strong>
               <small>
                 {formatNumber(activeMarketingBudgetItems.length)} active item{activeMarketingBudgetItems.length === 1 ? '' : 's'}
                 {futureMarketingBudgetItems.length > 0 ? ` | ${formatNumber(futureMarketingBudgetItems.length)} future/new` : ''}
@@ -6423,12 +6433,12 @@ const DashboardApp = ({
             </div>
             <div className="property-budget-summary-card">
               <span>Actual GL spend, last 30 days</span>
-              <strong>{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</strong>
+              <strong>{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</strong>
               <small>{formatCurrency(actualPerformanceMarketingSpendLast30)} performance marketing | {formatNumber(actualMarketingSpendBreakdown.length)} GL line{actualMarketingSpendBreakdown.length === 1 ? '' : 's'}</small>
             </div>
             <div className="property-budget-summary-card">
               <span>Budget less actual</span>
-              <strong>{actualMarketingSpendLoading || marketingBudgetLoading ? '…' : formatCurrency(marketingBudgetVarianceLast30)}</strong>
+              <strong>{renderMetricValue(actualMarketingSpendLoading || marketingBudgetLoading, formatCurrency(marketingBudgetVarianceLast30))}</strong>
               <small>Budget uses Active status rows; actuals use posted invoice allocation.</small>
             </div>
           </div>
@@ -6874,22 +6884,22 @@ const DashboardApp = ({
         <div className="analytics-kpis">
           <div className="analytics-kpi">
             <div className="analytics-kpi__label">Sessions</div>
-            <div className="analytics-kpi__value">{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4Sessions)}</div>
+            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4Sessions))}</div>
             <div className="analytics-kpi__meta">{ga4Blocked ? 'GA4 access required for this property' : 'Current period traffic volume'}</div>
           </div>
           <div className="analytics-kpi">
             <div className="analytics-kpi__label">New Users</div>
-            <div className="analytics-kpi__value">{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4NewUsers)}</div>
+            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4NewUsers))}</div>
             <div className="analytics-kpi__meta">{ga4Blocked ? 'Pending GA4 property access' : 'Fresh demand entering the funnel'}</div>
           </div>
           <div className="analytics-kpi">
             <div className="analytics-kpi__label">Tracked Events</div>
-            <div className="analytics-kpi__value">{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal)}</div>
+            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal))}</div>
             <div className="analytics-kpi__meta">{ga4Blocked ? 'Pending GA4 property access' : 'High-intent actions across the site'}</div>
           </div>
           <div className="analytics-kpi">
             <div className="analytics-kpi__label">Apply Drop-off</div>
-            <div className="analytics-kpi__value">{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatPercent(ga4ApplyPage?.abandonmentRate, 0)}</div>
+            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatPercent(ga4ApplyPage?.abandonmentRate, 0))}</div>
             <div className="analytics-kpi__meta">{ga4Blocked ? 'Pending GA4 property access' : 'Proxy for friction on the apply flow'}</div>
           </div>
         </div>
@@ -7812,13 +7822,17 @@ const DashboardApp = ({
             return (
               <tr key={`${section.days}-${row.key}`}>
                 <td>{row.label}</td>
-                <td>{formatCallPrepValue(currentValue, row.format)}</td>
+                <td>{renderMetricValue(callPrepLoading, formatCallPrepValue(currentValue, row.format))}</td>
                 <td>
-                  <span className={`analytics-pill analytics-pill--${getDeltaTone(delta)}`}>
-                    {delta == null ? 'New' : formatSignedPercent(delta, 1)}
-                  </span>
+                  {callPrepLoading ? (
+                    <MiniMetricLoader />
+                  ) : (
+                    <span className={`analytics-pill analytics-pill--${getDeltaTone(delta)}`}>
+                      {delta == null ? 'New' : formatSignedPercent(delta, 1)}
+                    </span>
+                  )}
                 </td>
-                <td>{section.portfolioAverage ? formatCallPrepValue(portfolioValue, row.format) : '—'}</td>
+                <td>{renderMetricValue(callPrepLoading, section.portfolioAverage ? formatCallPrepValue(portfolioValue, row.format) : '—')}</td>
               </tr>
             );
           })}
@@ -7843,9 +7857,9 @@ const DashboardApp = ({
         <div className="call-prep-mini-panel">
           <div className="reports-panel__eyebrow">Google Ads</div>
           <div className="call-prep-stat-grid">
-            <div><span>Clicks</span><strong>{formatNumber(googleAdsOverviewCurrent.clicks)}</strong><small>{formatSignedPercent(googleAdsOverviewDelta.clicks, 1)} vs prior</small></div>
-            <div><span>Conversions</span><strong>{formatNumber(googleAdsOverviewCurrent.conversions, 1)}</strong><small>{formatSignedPercent(googleAdsOverviewDelta.conversions, 1)} vs prior</small></div>
-            <div><span>Spend</span><strong>{formatCurrency(googleAdsOverviewCurrent.cost)}</strong><small>CTR {formatPercent(googleAdsOverviewCurrent.ctr, 1)}</small></div>
+            <div><span>Clicks</span><strong>{renderMetricValue(callPrepLoading, formatNumber(googleAdsOverviewCurrent.clicks))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.clicks, 1)} vs prior`}</small></div>
+            <div><span>Conversions</span><strong>{renderMetricValue(callPrepLoading, formatNumber(googleAdsOverviewCurrent.conversions, 1))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.conversions, 1)} vs prior`}</small></div>
+            <div><span>Spend</span><strong>{renderMetricValue(callPrepLoading, formatCurrency(googleAdsOverviewCurrent.cost))}</strong><small>{callPrepLoading ? 'Loading...' : `CTR ${formatPercent(googleAdsOverviewCurrent.ctr, 1)}`}</small></div>
           </div>
           <div className="reports-list">
             {(googleAds?.ConversionActions?.items || []).slice(0, 3).map((item) => (
@@ -7861,9 +7875,9 @@ const DashboardApp = ({
         <div className="call-prep-mini-panel">
           <div className="reports-panel__eyebrow">GA4</div>
           <div className="call-prep-stat-grid">
-            <div><span>Sessions</span><strong>{formatNumber(ga4Current.sessions)}</strong><small>{formatSignedPercent(percentChange(ga4Current.sessions, ga4Previous.sessions), 1)} vs prior</small></div>
-            <div><span>Engagement</span><strong>{formatPercent(ga4Current.engagementRate, 1)}</strong><small>{formatNumber(ga4Current.engagedSessions)} engaged sessions</small></div>
-            <div><span>Key Events</span><strong>{formatNumber(ga4EventCurrent)}</strong><small>{formatSignedPercent(percentChange(ga4EventCurrent, ga4EventPrevious), 1)} vs prior</small></div>
+            <div><span>Sessions</span><strong>{renderMetricValue(callPrepLoading, formatNumber(ga4Current.sessions))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(percentChange(ga4Current.sessions, ga4Previous.sessions), 1)} vs prior`}</small></div>
+            <div><span>Engagement</span><strong>{renderMetricValue(callPrepLoading, formatPercent(ga4Current.engagementRate, 1))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatNumber(ga4Current.engagedSessions)} engaged sessions`}</small></div>
+            <div><span>Key Events</span><strong>{renderMetricValue(callPrepLoading, formatNumber(ga4EventCurrent))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(percentChange(ga4EventCurrent, ga4EventPrevious), 1)} vs prior`}</small></div>
           </div>
           <div className="reports-list">
             {topGa4Event && (
@@ -7988,17 +8002,17 @@ const DashboardApp = ({
             <div className="reports-panel__grid reports-panel__grid--three call-prep-budget-summary">
               <div className="reports-stat">
                 <span>Budgeted spend now</span>
-                <strong>{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</strong>
+                <strong>{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</strong>
                 <small>{formatNumber(activeMarketingBudgetItems.length)} Active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</small>
               </div>
               <div className="reports-stat">
                 <span>Actual GL spend</span>
-                <strong>{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</strong>
+                <strong>{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</strong>
                 <small>Last 30 days from posted marketing invoices</small>
               </div>
               <div className="reports-stat">
                 <span>Budget less actual</span>
-                <strong>{actualMarketingSpendLoading || marketingBudgetLoading ? '…' : formatCurrency(marketingBudgetVarianceLast30)}</strong>
+                <strong>{renderMetricValue(actualMarketingSpendLoading || marketingBudgetLoading, formatCurrency(marketingBudgetVarianceLast30))}</strong>
                 <small>{marketingBudgetVarianceLast30 >= 0 ? 'Under approved monthly budget' : 'Over approved monthly budget'}</small>
               </div>
             </div>
@@ -8063,7 +8077,7 @@ const DashboardApp = ({
           <Users size={16} style={{ opacity: 0.6 }} />
         <div className="card-title">Total Leads</div>
         </div>
-        <div className="card-value">{loading ? '…' : formatNumber(totalLeads)}</div>
+        <div className="card-value">{renderMetricValue(loading, formatNumber(totalLeads))}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Apps: {formatNumber(totalApplications)} | Leases: {formatNumber(totalLeases)}
         </div>
@@ -8074,7 +8088,7 @@ const DashboardApp = ({
           <FileCheck size={16} style={{ opacity: 0.6 }} />
           <div className="card-title">Applications Completed</div>
         </div>
-        <div className="card-value">{loading ? '…' : formatNumber(totalApplications)}</div>
+        <div className="card-value">{renderMetricValue(loading, formatNumber(totalApplications))}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Lead-to-completed-app: {applicationConversion}% | {funnelMetricSource}
         </div>
@@ -8085,7 +8099,7 @@ const DashboardApp = ({
           <Home size={16} style={{ opacity: 0.6 }} />
           <div className="card-title">Leases Approved</div>
         </div>
-        <div className="card-value">{loading ? '…' : formatNumber(totalLeases)}</div>
+        <div className="card-value">{renderMetricValue(loading, formatNumber(totalLeases))}</div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           App-to-approved-lease: {applicationToLeaseConversion}% | Lead-to-lease: {leaseConversion}%
         </div>
@@ -8097,7 +8111,7 @@ const DashboardApp = ({
           <div className="card-title">Lead-to-Lease Conversion</div>
         </div>
         <div className="card-value">
-          {loading ? '…' : `${leaseConversion}%`}
+          {renderMetricValue(loading, `${leaseConversion}%`)}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Leads: {formatNumber(totalLeads)} | Leases: {formatNumber(totalLeases)}
@@ -8110,7 +8124,7 @@ const DashboardApp = ({
           <div className="card-title">Marketing Cost</div>
         </div>
         <div className="card-value">
-          {loading ? '…' : totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data'}
+          {renderMetricValue(loading || invoiceLoading, totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data')}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Marketing spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'} | CPL: {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}
@@ -8123,7 +8137,7 @@ const DashboardApp = ({
           <div className="card-title">Cost Per Lead</div>
         </div>
         <div className="card-value">
-          {loading ? '…' : costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend'}
+          {renderMetricValue(loading || invoiceLoading, costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend')}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Leads: {formatNumber(totalLeads)} | Marketing spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}
@@ -8136,7 +8150,7 @@ const DashboardApp = ({
           <div className="card-title">Cost Per Lease</div>
         </div>
         <div className="card-value">
-          {roiLoading ? '…' : costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend'}
+          {renderMetricValue(roiLoading || invoiceLoading, costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend')}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {formatNumber(totalLeases)}
@@ -8149,7 +8163,7 @@ const DashboardApp = ({
           <div className="card-title">ROAS</div>
         </div>
         <div className="card-value">
-          {roiLoading ? '…' : blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}
+          {renderMetricValue(roiLoading || invoiceLoading, blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend')}
         </div>
         <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
           Net revenue: {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}
@@ -8594,13 +8608,13 @@ const DashboardApp = ({
           </div>
           <div className="heatmap-audit-rail-score">
             <span>Combined score</span>
-            <strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}</strong>
+            <strong>{renderMetricValue(siteAuditLoading, auditPageResult?.score ?? latestAudit?.performance_score ?? '—')}</strong>
             <small>{latestAudit ? auditModeLabel : 'Run audit to score this page'}</small>
           </div>
           {renderAuditActionCard({
             title: 'Audit score',
             status: getAuditStatus({ score: auditPageResult?.score ?? latestAudit?.performance_score, issueCount: (auditIssues || []).length }),
-            count: siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—',
+            count: siteAuditLoading ? <MiniMetricLoader /> : auditPageResult?.score ?? latestAudit?.performance_score ?? '—',
             finding: latestAudit
               ? isAiAudit
                 ? `AI reviewed ${formatNumber(aiAuditMeta?.pagesScored || 0)} screenshot page${Number(aiAuditMeta?.pagesScored || 0) === 1 ? '' : 's'} against the website audit rubric.`
@@ -8910,7 +8924,7 @@ const DashboardApp = ({
             </div>
 
             <div className="reports-panel__grid reports-panel__grid--three">
-              <div className="reports-stat"><span>Audit Score</span><strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—'}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'} · {auditModeLabel}</small></div>
+              <div className="reports-stat"><span>Audit Score</span><strong>{renderMetricValue(siteAuditLoading, auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—')}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'} · {auditModeLabel}</small></div>
               <div className="reports-stat"><span>Urgency / CTA</span><strong>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</strong><small>{auditPageResult?.ctaCount ?? selectedPortfolioAudit?.ctaMissingPageCount ?? 0} CTA gaps surfaced</small></div>
               <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
             </div>
@@ -9014,42 +9028,42 @@ const DashboardApp = ({
         <div className="reports-kpi-grid">
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Total Leads</div>
-            <div className="reports-kpi-card__value">{formatNumber(totalLeads)}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(loading, formatNumber(totalLeads))}</div>
             <div className="reports-kpi-card__meta">Apps {formatNumber(totalApplications)} | Leases {formatNumber(totalLeases)}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Applications Completed</div>
-            <div className="reports-kpi-card__value">{formatNumber(totalApplications)}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(loading, formatNumber(totalApplications))}</div>
             <div className="reports-kpi-card__meta">Lead-to-completed-app {applicationConversion}% | {funnelMetricSource}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Leases Approved</div>
-            <div className="reports-kpi-card__value">{formatNumber(totalLeases)}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(loading, formatNumber(totalLeases))}</div>
             <div className="reports-kpi-card__meta">App-to-approved-lease {applicationToLeaseConversion}% | Lead-to-lease {leaseConversion}%</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Marketing Cost</div>
-            <div className="reports-kpi-card__value">{totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data'}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(loading || invoiceLoading, totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data')}</div>
             <div className="reports-kpi-card__meta">Marketing spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'} | CPL {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Lead-to-Lease Conversion</div>
-            <div className="reports-kpi-card__value">{leaseConversion}%</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(loading, `${leaseConversion}%`)}</div>
             <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Leases {formatNumber(totalLeases)}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Cost Per Lead</div>
-            <div className="reports-kpi-card__value">{costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend'}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(loading || invoiceLoading, costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend')}</div>
             <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Marketing spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">Cost Per Lease</div>
-            <div className="reports-kpi-card__value">{costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend'}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(roiLoading || invoiceLoading, costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend')}</div>
             <div className="reports-kpi-card__meta">ROI {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases {formatNumber(totalLeases)}</div>
           </div>
           <div className="reports-kpi-card">
             <div className="reports-kpi-card__label">ROAS</div>
-            <div className="reports-kpi-card__value">{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend'}</div>
+            <div className="reports-kpi-card__value">{renderMetricValue(roiLoading || invoiceLoading, blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend')}</div>
             <div className="reports-kpi-card__meta">Net revenue {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}</div>
           </div>
         </div>
@@ -9266,9 +9280,9 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Paid Search</div>
                 <div className="reports-panel__title">Google Ads Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Clicks</span><strong>{googleAdsLoading ? '…' : formatNumber(googleAdsOverview?.clicks)}</strong><small>{googleAdsLoading ? 'Loading…' : formatNumber(googleAdsOverview?.impressions)} impressions</small></div>
-                  <div className="reports-stat"><span>Spend</span><strong>{googleAdsLoading ? '…' : formatCurrency(googleAdsOverview?.cost)}</strong><small>{googleAdsLoading ? 'Loading…' : formatNumber(googleAdsOverview?.conversions, 1)} conversions</small></div>
-                  <div className="reports-stat"><span>CTR</span><strong>{googleAdsLoading ? '…' : formatPercent(googleAdsOverview?.ctr, 1)}</strong><small>{googleAdsStatusMessage || 'Live paid search view'}</small></div>
+                  <div className="reports-stat"><span>Clicks</span><strong>{renderMetricValue(googleAdsLoading, formatNumber(googleAdsOverview?.clicks))}</strong><small>{googleAdsLoading ? 'Loading...' : formatNumber(googleAdsOverview?.impressions)} impressions</small></div>
+                  <div className="reports-stat"><span>Spend</span><strong>{renderMetricValue(googleAdsLoading, formatCurrency(googleAdsOverview?.cost))}</strong><small>{googleAdsLoading ? 'Loading...' : formatNumber(googleAdsOverview?.conversions, 1)} conversions</small></div>
+                  <div className="reports-stat"><span>CTR</span><strong>{renderMetricValue(googleAdsLoading, formatPercent(googleAdsOverview?.ctr, 1))}</strong><small>{googleAdsStatusMessage || 'Live paid search view'}</small></div>
                 </div>
                 <div className="reports-list">
                   {googleAdsCampaigns.slice(0, 5).map((item) => (
@@ -9290,8 +9304,8 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Behavior + Demand</div>
                 <div className="reports-panel__title">Google Analytics Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Sessions</span><strong>{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4Sessions)}</strong><small>{ga4Loading ? 'Loading…' : ga4Blocked ? ga4StatusMessage : `${formatNumber(ga4NewUsers)} new users`}</small></div>
-                  <div className="reports-stat"><span>Tracked Events</span><strong>{ga4Loading ? '…' : ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal)}</strong><small>{ga4Loading ? 'Loading…' : ga4Blocked ? 'Access required' : formatPercent(ga4ApplyPage?.abandonmentRate, 1)} apply drop-off</small></div>
+                  <div className="reports-stat"><span>Sessions</span><strong>{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4Sessions))}</strong><small>{ga4Loading ? 'Loading...' : ga4Blocked ? ga4StatusMessage : `${formatNumber(ga4NewUsers)} new users`}</small></div>
+                  <div className="reports-stat"><span>Tracked Events</span><strong>{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal))}</strong><small>{ga4Loading ? 'Loading...' : ga4Blocked ? 'Access required' : formatPercent(ga4ApplyPage?.abandonmentRate, 1)} apply drop-off</small></div>
                   <div className="reports-stat"><span>Top Channel</span><strong>{ga4AcquisitionChannels[0]?.channel || '—'}</strong><small>{ga4StatusMessage || 'Top GA4 acquisition channel in range'}</small></div>
                 </div>
                 <div className="reports-list">
@@ -9314,9 +9328,9 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Resident Sentiment</div>
                 <div className="reports-panel__title">Opiniion Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Average Rating</span><strong>{reputationLoading ? '…' : formatNumber(reputationAverageRating, 2)}</strong><small>{reputationLoading ? 'Loading…' : formatNumber(reputationReviewCount)} reviews</small></div>
-                  <div className="reports-stat"><span>Response Rate</span><strong>{reputationLoading ? '…' : formatPercent(reputationResponseRate, 1)}</strong><small>{reputationStatusMessage || 'Latest Opiniion response coverage'}</small></div>
-                  <div className="reports-stat"><span>Sentiment Score</span><strong>{reputationLoading ? '…' : formatNumber(reputationSentimentScore, 1)}</strong><small>{reputationWindow?.start_date || 'Current window'} to {reputationWindow?.end_date || 'today'}</small></div>
+                  <div className="reports-stat"><span>Average Rating</span><strong>{renderMetricValue(reputationLoading, formatNumber(reputationAverageRating, 2))}</strong><small>{reputationLoading ? 'Loading...' : formatNumber(reputationReviewCount)} reviews</small></div>
+                  <div className="reports-stat"><span>Response Rate</span><strong>{renderMetricValue(reputationLoading, formatPercent(reputationResponseRate, 1))}</strong><small>{reputationStatusMessage || 'Latest Opiniion response coverage'}</small></div>
+                  <div className="reports-stat"><span>Sentiment Score</span><strong>{renderMetricValue(reputationLoading, formatNumber(reputationSentimentScore, 1))}</strong><small>{reputationWindow?.start_date || 'Current window'} to {reputationWindow?.end_date || 'today'}</small></div>
                 </div>
                 <div className="reports-list">
                   {reputationSummary.slice(0, 5).map((item, index) => (
@@ -9338,14 +9352,14 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Local SEO</div>
                 <div className="reports-panel__title">Local Falcon Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Share of Local Voice</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgSolv, 2)}</strong><small>{localFalconLoading ? 'Loading…' : `${formatNumber(localFalconOverview?.scanCount)} scans in range`}</small></div>
-                  <div className="reports-stat"><span>Average Rank</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgArp, 2)}</strong><small>{localFalconLoading ? 'Loading…' : `${formatNumber(localFalconOverview?.keywordCount)} tracked keywords`}</small></div>
-                  <div className="reports-stat"><span>Top Rank Position</span><strong>{localFalconLoading ? '…' : formatNumber(localFalconOverview?.avgAtrp, 2)}</strong><small>{localFalconStatusMessage || localFalconOverview?.lastRunDate || localFalconData?.Status?.message || 'Latest Local Falcon scan set'}</small></div>
+                  <div className="reports-stat"><span>Share of Local Voice</span><strong>{renderMetricValue(localFalconLoading, formatNumber(localFalconOverview?.avgSolv, 2))}</strong><small>{localFalconLoading ? 'Loading...' : `${formatNumber(localFalconOverview?.scanCount)} scans in range`}</small></div>
+                  <div className="reports-stat"><span>Average Rank</span><strong>{renderMetricValue(localFalconLoading, formatNumber(localFalconOverview?.avgArp, 2))}</strong><small>{localFalconLoading ? 'Loading...' : `${formatNumber(localFalconOverview?.keywordCount)} tracked keywords`}</small></div>
+                  <div className="reports-stat"><span>Top Rank Position</span><strong>{renderMetricValue(localFalconLoading, formatNumber(localFalconOverview?.avgAtrp, 2))}</strong><small>{localFalconStatusMessage || localFalconOverview?.lastRunDate || localFalconData?.Status?.message || 'Latest Local Falcon scan set'}</small></div>
                 </div>
                 <div className="reports-panel__grid reports-panel__grid--three" style={{ marginTop: '0.9rem' }}>
-                  <div className="reports-stat"><span>Found In</span><strong>{localFalconLoading ? '…' : `${formatNumber(localFalconOverview?.foundInPercent, 1)}%`}</strong><small>{formatNumber(localFalconOverview?.foundIn)} of {formatNumber(localFalconOverview?.points)} grid points</small></div>
-                  <div className="reports-stat"><span>Latest Keyword</span><strong>{localFalconLoading ? '…' : shortenLabel(localFalconLatestScan?.keyword || localFalconLatestReport?.keyword || '—', 28)}</strong><small>{localFalconLatestScan?.date || localFalconOverview?.lastRunDate || 'Latest scan date pending'}</small></div>
-                  <div className="reports-stat"><span>Grid</span><strong>{localFalconLoading ? '…' : `${formatNumber(localFalconGridSize)}x${formatNumber(localFalconGridSize)}`}</strong><small>{localFalconLatestScan?.radius ? `${localFalconLatestScan.radius}${localFalconLatestScan.measurement || ''} radius` : 'Grid radius pending'}</small></div>
+                  <div className="reports-stat"><span>Found In</span><strong>{renderMetricValue(localFalconLoading, `${formatNumber(localFalconOverview?.foundInPercent, 1)}%`)}</strong><small>{formatNumber(localFalconOverview?.foundIn)} of {formatNumber(localFalconOverview?.points)} grid points</small></div>
+                  <div className="reports-stat"><span>Latest Keyword</span><strong>{renderMetricValue(localFalconLoading, shortenLabel(localFalconLatestScan?.keyword || localFalconLatestReport?.keyword || '—', 28))}</strong><small>{localFalconLatestScan?.date || localFalconOverview?.lastRunDate || 'Latest scan date pending'}</small></div>
+                  <div className="reports-stat"><span>Grid</span><strong>{renderMetricValue(localFalconLoading, `${formatNumber(localFalconGridSize)}x${formatNumber(localFalconGridSize)}`)}</strong><small>{localFalconLatestScan?.radius ? `${localFalconLatestScan.radius}${localFalconLatestScan.measurement || ''} radius` : 'Grid radius pending'}</small></div>
                 </div>
 
                 {(localFalconReportUrl || localFalconPdfUrl) && (
@@ -9481,9 +9495,9 @@ const DashboardApp = ({
                 <div className="reports-panel__eyebrow">Paid Social</div>
                 <div className="reports-panel__title">Meta Ads Metrics</div>
                 <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Clicks</span><strong>{metaAdsLoading ? '…' : formatNumber(metaAdsOverview?.clicks)}</strong><small>{metaAdsLoading ? 'Loading…' : formatCurrency(metaAdsOverview?.spend)} spend</small></div>
-                  <div className="reports-stat"><span>CTR</span><strong>{metaAdsLoading ? '…' : formatPercent(metaAdsOverview?.ctr, 1)}</strong><small>{metaAdsLoading ? 'Loading…' : formatNumber(metaAdsOverview?.frequency, 2)} frequency</small></div>
-                  <div className="reports-stat"><span>Results</span><strong>{metaAdsLoading ? '…' : formatNumber(metaAdsOverview?.results, 1)}</strong><small>{metaAdsStatusMessage || `${metaAdsOverview?.resultLabel || 'Results'} in range`}</small></div>
+                  <div className="reports-stat"><span>Clicks</span><strong>{renderMetricValue(metaAdsLoading, formatNumber(metaAdsOverview?.clicks))}</strong><small>{metaAdsLoading ? 'Loading...' : formatCurrency(metaAdsOverview?.spend)} spend</small></div>
+                  <div className="reports-stat"><span>CTR</span><strong>{renderMetricValue(metaAdsLoading, formatPercent(metaAdsOverview?.ctr, 1))}</strong><small>{metaAdsLoading ? 'Loading...' : formatNumber(metaAdsOverview?.frequency, 2)} frequency</small></div>
+                  <div className="reports-stat"><span>Results</span><strong>{renderMetricValue(metaAdsLoading, formatNumber(metaAdsOverview?.results, 1))}</strong><small>{metaAdsStatusMessage || `${metaAdsOverview?.resultLabel || 'Results'} in range`}</small></div>
                 </div>
                 <div className="reports-list">
                   {metaAdsCampaigns.slice(0, 5).map((item) => (
@@ -9536,22 +9550,22 @@ const DashboardApp = ({
       <div className="property-info-grid">
         <div className="property-info-card">
           <div className="property-info-card__label">Average Rating</div>
-          <div className="property-info-card__value">{reputationLoading ? '…' : formatNumber(reputationAverageRating, 2)}</div>
+          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatNumber(reputationAverageRating, 2))}</div>
           <div className="property-info-card__meta">Normalized from the Opiniion payload when a rating-like field is present.</div>
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Review Count</div>
-          <div className="property-info-card__value">{reputationLoading ? '…' : formatNumber(reputationReviewCount)}</div>
+          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatNumber(reputationReviewCount))}</div>
           <div className="property-info-card__meta">Public review volume recognized in the latest response.</div>
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Response Rate</div>
-          <div className="property-info-card__value">{reputationLoading ? '…' : formatPercent(reputationResponseRate, 1)}</div>
+          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatPercent(reputationResponseRate, 1))}</div>
           <div className="property-info-card__meta">Management reply coverage if the API exposes a response-rate field.</div>
         </div>
         <div className="property-info-card">
           <div className="property-info-card__label">Sentiment Score</div>
-          <div className="property-info-card__value">{reputationLoading ? '…' : formatPercent(reputationSentimentScore, 1)}</div>
+          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatPercent(reputationSentimentScore, 1))}</div>
           <div className="property-info-card__meta">Positive-share / satisfaction-style metric when available.</div>
         </div>
       </div>
