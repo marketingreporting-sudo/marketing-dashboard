@@ -867,6 +867,11 @@ const isMarketingSpendLineExcluded = (label, excludedKeySet) => (
   excludedKeySet instanceof Set && excludedKeySet.has(getMarketingSpendExclusionKey(label))
 );
 
+const resolveRenderApiRoute = (path, fallbackUrl = '') => {
+  if (RENDER_API_BASE_URL) return `${RENDER_API_BASE_URL}${path}`;
+  return fallbackUrl;
+};
+
 const getInvoiceEffectiveDate = (invoice) => {
   return (
     parseEntrataDate(invoice.postDate) ||
@@ -2437,10 +2442,20 @@ const DashboardApp = ({
       const overviewStart = formatDateInputValue(priorSixtyDayRange.start);
       const overviewEnd = formatDateInputValue(sixtyDayRange.end);
       const propertyIds = availableProperties.map((property) => property.propertyId);
+      const callPrepGa4Url = resolveRenderApiRoute('/api/analytics/ga4', GA4_DASHBOARD_URL);
+      const callPrepGoogleAdsUrl = resolveRenderApiRoute('/api/analytics/google-ads', GOOGLE_ADS_DASHBOARD_URL);
 
       const fetchJson = async (url, label) => {
-        const response = await authFetch(url);
-        const payload = await response.json();
+        if (!url) {
+          throw new Error(`${label} endpoint is not configured.`);
+        }
+        let response;
+        try {
+          response = await authFetch(url);
+        } catch {
+          throw new Error(`${label} could not be reached.`);
+        }
+        const payload = await response.json().catch(() => ({}));
         if (!response.ok || payload?.status === 'error') {
           throw new Error(payload?.error || payload?.message || `${label} failed: ${response.status}`);
         }
@@ -2485,7 +2500,7 @@ const DashboardApp = ({
             ga4Error: selectedProperty?.googleAnalyticsId ? null : 'No GA4 property ID is configured.',
           };
 
-          if (selectedProperty?.googleAdsId && GOOGLE_ADS_DASHBOARD_URL) {
+          if (selectedProperty?.googleAdsId && callPrepGoogleAdsUrl) {
             const params = new URLSearchParams({
               property_id: propertyScopedSelectionId,
               google_ads_customer_id: selectedProperty.googleAdsId,
@@ -2494,14 +2509,14 @@ const DashboardApp = ({
               end_date: endDate,
             });
             try {
-              entry.googleAds = await fetchJson(`${GOOGLE_ADS_DASHBOARD_URL}?${params.toString()}`, 'Call prep Google Ads');
+              entry.googleAds = await fetchJson(`${callPrepGoogleAdsUrl}?${params.toString()}`, 'Call prep Google Ads');
               entry.googleAdsError = null;
             } catch (error) {
               entry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
             }
           }
 
-          if (selectedProperty?.googleAnalyticsId && GA4_DASHBOARD_URL) {
+          if (selectedProperty?.googleAnalyticsId && callPrepGa4Url) {
             const params = new URLSearchParams({
               property_id: propertyScopedSelectionId,
               ga4_property_id: selectedProperty.googleAnalyticsId,
@@ -2509,7 +2524,7 @@ const DashboardApp = ({
               end_date: endDate,
             });
             try {
-              entry.ga4 = await fetchJson(`${GA4_DASHBOARD_URL}?${params.toString()}`, 'Call prep GA4');
+              entry.ga4 = await fetchJson(`${callPrepGa4Url}?${params.toString()}`, 'Call prep GA4');
               entry.ga4Error = null;
             } catch (error) {
               entry.ga4Error = error.message || 'Unable to load GA4 metrics.';

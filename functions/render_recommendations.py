@@ -177,6 +177,14 @@ def _compact_audit_context(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _safe_optional_context(loader, label: str) -> dict[str, Any]:
+    try:
+        payload = loader()
+        return payload if isinstance(payload, dict) else {"status": "unavailable", "error": f"{label} returned no payload."}
+    except Exception as error:
+        return {"status": "unavailable", "error": f"{label} failed to load: {error}"}
+
+
 def _build_recommendation_context(
     *,
     property_id: str,
@@ -192,18 +200,24 @@ def _build_recommendation_context(
         end_date_value=end_date_value,
         access_token=access_token,
     )
-    ga4 = get_cached_analytics_summary(property_id, "ga4")
-    google_ads = get_cached_analytics_summary(property_id, "google_ads")
-    meta_ads = get_cached_analytics_summary(property_id, "meta_ads")
-    reputation = get_cached_analytics_summary(property_id, "reputation")
-    heatmap = get_heatmap_summary(
-        property_id,
-        start_date_value=start_date_value,
-        end_date_value=end_date_value,
-        site_key=site_key,
-        access_token=access_token,
+    ga4 = _safe_optional_context(lambda: get_cached_analytics_summary(property_id, "ga4"), "GA4 context")
+    google_ads = _safe_optional_context(lambda: get_cached_analytics_summary(property_id, "google_ads"), "Google Ads context")
+    meta_ads = _safe_optional_context(lambda: get_cached_analytics_summary(property_id, "meta_ads"), "Meta Ads context")
+    reputation = _safe_optional_context(lambda: get_cached_analytics_summary(property_id, "reputation"), "Reputation context")
+    heatmap = _safe_optional_context(
+        lambda: get_heatmap_summary(
+            property_id,
+            start_date_value=start_date_value,
+            end_date_value=end_date_value,
+            site_key=site_key,
+            access_token=access_token,
+        ),
+        "Heatmap context",
     )
-    audit = get_site_audit_summary(property_id, site_key=site_key, access_token=access_token)
+    audit = _safe_optional_context(
+        lambda: get_site_audit_summary(property_id, site_key=site_key, access_token=access_token),
+        "Site audit context",
+    )
 
     return {
         "property": {
@@ -434,6 +448,28 @@ def _fetch_learning_context(property_id: str) -> dict[str, Any]:
             if title
         ],
     }
+
+
+def _empty_learning_context(error: str | None = None) -> dict[str, Any]:
+    return {
+        "promptVersion": RECOMMENDATIONS_PROMPT_VERSION,
+        "positiveExampleCount": 0,
+        "negativeExampleCount": 0,
+        "propertySpecificExampleCount": 0,
+        "positiveExamples": [],
+        "suppressedExamples": [],
+        "recentRecommendationTitles": [],
+        "suppressedTitleSignatures": [],
+        "recentTitleSignatures": [],
+        "error": error,
+    }
+
+
+def _safe_learning_context(property_id: str) -> dict[str, Any]:
+    try:
+        return _fetch_learning_context(property_id)
+    except Exception as error:
+        return _empty_learning_context(str(error))
 
 
 def _apply_learning_suppression(
@@ -942,7 +978,7 @@ def generate_recommendations_summary(
         site_key=site_key,
         access_token=access_token,
     )
-    learning_context = _fetch_learning_context(property_id)
+    learning_context = _safe_learning_context(property_id)
 
     system_prompt = (
         "You are a senior multifamily marketing and leasing analyst. "
