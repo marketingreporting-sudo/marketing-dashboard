@@ -1930,7 +1930,8 @@ const DashboardApp = ({
   const [latestAvailabilityDate, setLatestAvailabilityDate] = useState(null);
   const [parentDocs, setParentDocs] = useState([]);
   const [roiDailyItems, setRoiDailyItems] = useState([]);
-  const reportingUsesStagedOverview = Boolean(PROPERTY_REPORTING_OVERVIEW_URL);
+  const reportingOverviewUrl = resolveRenderApiRoute('/api/reporting/property-overview', PROPERTY_REPORTING_OVERVIEW_URL);
+  const reportingUsesStagedOverview = Boolean(reportingOverviewUrl);
   const [reportingDataSource, setReportingDataSource] = useState(() => (
     reportingUsesStagedOverview ? 'loading' : 'error'
   ));
@@ -2345,7 +2346,7 @@ const DashboardApp = ({
       setActualMarketingSpendLoading(false);
       return;
     }
-    if (!PROPERTY_REPORTING_OVERVIEW_URL) {
+    if (!reportingOverviewUrl) {
       setActualMarketingSpendItems([]);
       setActualMarketingSpendError('Reporting overview endpoint is not configured.');
       setActualMarketingSpendLoading(false);
@@ -2361,7 +2362,7 @@ const DashboardApp = ({
         start_date: formatDateInputValue(actualMarketingSpendWindow.start),
         end_date: formatDateInputValue(actualMarketingSpendWindow.end),
       });
-      const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+      const response = await authFetch(`${reportingOverviewUrl}?${params.toString()}`);
       const payload = await response.json();
       if (!response.ok || payload?.status === 'error') {
         throw new Error(payload?.message || payload?.error || `Actual marketing spend fetch failed: ${response.status}`);
@@ -2373,7 +2374,7 @@ const DashboardApp = ({
     } finally {
       setActualMarketingSpendLoading(false);
     }
-  }, [actualMarketingSpendWindow, propertyScopedSelectionId]);
+  }, [actualMarketingSpendWindow, propertyScopedSelectionId, reportingOverviewUrl]);
 
   useEffect(() => {
     if (activeTab !== 'property info' && activeTab !== 'call prep') return;
@@ -2429,7 +2430,7 @@ const DashboardApp = ({
         setCallPrepLoading(false);
         return;
       }
-      if (!PROPERTY_REPORTING_OVERVIEW_URL) {
+      if (!reportingOverviewUrl) {
         setCallPrepOverview(null);
         setCallPrepPortfolioOverview(null);
         setCallPrepAnalyticsByPeriod({});
@@ -2480,8 +2481,8 @@ const DashboardApp = ({
         });
 
         const [propertyResult, portfolioResult] = await Promise.allSettled([
-          fetchJson(`${PROPERTY_REPORTING_OVERVIEW_URL}?${propertyParams.toString()}`, 'Call prep property overview'),
-          fetchJson(`${PROPERTY_REPORTING_OVERVIEW_URL}?${portfolioParams.toString()}`, 'Call prep portfolio overview'),
+          fetchJson(`${reportingOverviewUrl}?${propertyParams.toString()}`, 'Call prep property overview'),
+          fetchJson(`${reportingOverviewUrl}?${portfolioParams.toString()}`, 'Call prep portfolio overview'),
         ]);
 
         if (cancelled) return;
@@ -2562,6 +2563,7 @@ const DashboardApp = ({
     availablePropertyIdsKey,
     isAllPropertiesSelected,
     propertyScopedSelectionId,
+    reportingOverviewUrl,
     selectedProperty?.googleAdsId,
     selectedProperty?.googleAnalyticsId,
     selectedProperty?.name,
@@ -3066,7 +3068,7 @@ const DashboardApp = ({
         if (isAllPropertiesSelected) {
           params.set('property_ids', JSON.stringify(availableProperties.map((property) => property.propertyId)));
         }
-        const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+        const response = await authFetch(`${reportingOverviewUrl}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
           throw new Error(payload?.message || `Property overview fetch failed: ${response.status}`);
@@ -3134,13 +3136,13 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [availableProperties, isAllPropertiesSelected, rangeDates, selectedPropertyId, reportingUsesStagedOverview]);
+  }, [availableProperties, isAllPropertiesSelected, rangeDates, reportingOverviewUrl, selectedPropertyId, reportingUsesStagedOverview]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadRedListPortfolio = async () => {
-      if (!canManageUsers || activeTab !== 'admin' || !PROPERTY_REPORTING_OVERVIEW_URL || availableProperties.length === 0) {
+      if (!canManageUsers || activeTab !== 'admin' || !reportingOverviewUrl || availableProperties.length === 0) {
         if (!cancelled && activeTab !== 'admin') {
           setRedListPortfolioError(null);
         }
@@ -3159,7 +3161,7 @@ const DashboardApp = ({
           end_date: formatDateInputValue(redListEndDate),
           red_list_only: '1',
         });
-        const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+        const response = await authFetch(`${reportingOverviewUrl}?${params.toString()}`);
         const payload = await response.json();
         if (!response.ok || payload?.status === 'error') {
           throw new Error(payload?.message || `Red list fetch failed: ${response.status}`);
@@ -3180,7 +3182,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, availableProperties, canManageUsers]);
+  }, [activeTab, availableProperties, canManageUsers, reportingOverviewUrl]);
 
   useEffect(() => {
     let cancelled = false;
