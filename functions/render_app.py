@@ -50,6 +50,7 @@ from render_supabase_admin_access import (
     update_user_access_summary,
 )
 from render_supabase_reporting import (
+    get_multi_property_call_prep_summary,
     get_multi_property_reporting_overview_summary,
     get_property_reporting_overview_summary,
 )
@@ -525,6 +526,7 @@ def create_app() -> Flask:
         start_date_value = request.args.get("start_date") or req_json.get("start_date")
         end_date_value = request.args.get("end_date") or req_json.get("end_date")
         default_days = request.args.get("days") or req_json.get("days") or 90
+        cache_only = str(request.args.get("cache_only") or req_json.get("cache_only") or "").lower() in {"1", "true", "yes"}
         if not property_id:
             return build_cors_json_response(
                 {
@@ -542,14 +544,18 @@ def create_app() -> Flask:
 
         try:
             require_property_permission(str(property_id), "analytics.view")
-            payload = fetch_and_store_ga4_dashboard(
-                property_id=str(property_id),
-                ga4_property_id=str(ga4_property_id),
-                start_date_value=start_date_value,
-                end_date_value=end_date_value,
-                default_days=int(default_days),
-            )
-            status_code = 200
+            if cache_only:
+                payload = get_cached_analytics_summary(str(property_id), "ga4")
+                status_code = 200 if payload.get("status") != "error" else 404
+            else:
+                payload = fetch_and_store_ga4_dashboard(
+                    property_id=str(property_id),
+                    ga4_property_id=str(ga4_property_id),
+                    start_date_value=start_date_value,
+                    end_date_value=end_date_value,
+                    default_days=int(default_days),
+                )
+                status_code = 200
         except ValueError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 400
@@ -586,6 +592,7 @@ def create_app() -> Flask:
         start_date_value = request.args.get("start_date") or req_json.get("start_date")
         end_date_value = request.args.get("end_date") or req_json.get("end_date")
         default_days = request.args.get("days") or req_json.get("days") or 90
+        cache_only = str(request.args.get("cache_only") or req_json.get("cache_only") or "").lower() in {"1", "true", "yes"}
         if not property_id:
             return build_cors_json_response(
                 {
@@ -603,15 +610,19 @@ def create_app() -> Flask:
 
         try:
             require_property_permission(str(property_id), "analytics.view")
-            payload = fetch_and_store_google_ads_dashboard(
-                property_id=str(property_id),
-                google_ads_customer_id=str(google_ads_customer_id),
-                property_name=property_name,
-                start_date_value=start_date_value,
-                end_date_value=end_date_value,
-                default_days=int(default_days),
-            )
-            status_code = 200
+            if cache_only:
+                payload = get_cached_analytics_summary(str(property_id), "google_ads")
+                status_code = 200 if payload.get("status") != "error" else 404
+            else:
+                payload = fetch_and_store_google_ads_dashboard(
+                    property_id=str(property_id),
+                    google_ads_customer_id=str(google_ads_customer_id),
+                    property_name=property_name,
+                    start_date_value=start_date_value,
+                    end_date_value=end_date_value,
+                    default_days=int(default_days),
+                )
+                status_code = 200
         except ValueError as error:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 400
@@ -1454,6 +1465,7 @@ def create_app() -> Flask:
         start_date = request.args.get("start_date") or req_json.get("start_date")
         end_date = request.args.get("end_date") or req_json.get("end_date")
         red_list_only = str(request.args.get("red_list_only") or req_json.get("red_list_only") or "").lower() in {"1", "true", "yes"}
+        call_prep_only = str(request.args.get("call_prep_only") or req_json.get("call_prep_only") or "").lower() in {"1", "true", "yes"}
         if not property_id:
             return build_cors_json_response(
                 {
@@ -1498,7 +1510,10 @@ def create_app() -> Flask:
                     status_code=403,
                 )
 
-            payload = get_multi_property_reporting_overview_summary(allowed_property_ids, start_date, end_date, access_token, red_list_only=red_list_only)
+            if call_prep_only:
+                payload = get_multi_property_call_prep_summary(allowed_property_ids, start_date, end_date, access_token)
+            else:
+                payload = get_multi_property_reporting_overview_summary(allowed_property_ids, start_date, end_date, access_token, red_list_only=red_list_only)
         else:
             payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
         status_code = 200 if payload.get("status") != "error" else 503

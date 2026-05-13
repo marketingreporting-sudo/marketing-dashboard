@@ -278,6 +278,65 @@ def _shape_child_payload(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _compact_lead_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else {}
+    compact = {
+        "_date": row.get("activity_date"),
+        "_parentId": row.get("property_snapshot_id"),
+        "_propertyId": row.get("property_id"),
+        "id": row.get("id"),
+    }
+    for key in (
+        "leadEventId", "eventId", "eventID", "leadId", "leadID", "prospectId",
+        "prospectID", "customerId", "customerID", "applicationId", "leadSource",
+        "internetListingService",
+    ):
+        if payload.get(key) not in (None, ""):
+            compact[key] = payload.get(key)
+    return compact
+
+
+def _compact_event_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else {}
+    compact = {
+        "_date": row.get("activity_date"),
+        "_parentId": row.get("property_snapshot_id"),
+        "_propertyId": row.get("property_id"),
+        "id": row.get("id"),
+    }
+    for key in (
+        "typeId", "type_id", "eventTypeId", "event_type_id", "eventReason",
+        "type", "name", "eventDate", "event_date", "eventDateTime",
+        "eventDatetime", "date", "timestamp", "createdAt", "created_at",
+        "application_id", "applicationId", "applicationID", "lease_interval_id",
+        "leaseIntervalId", "lease_id", "leaseId", "leaseID", "applicantId",
+        "applicantID", "prospectId", "prospectID", "eventId", "eventID",
+    ):
+        if payload.get(key) not in (None, ""):
+            compact[key] = payload.get(key)
+    return compact
+
+
+def _compact_invoice_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else {}
+    compact = {
+        "_date": row.get("activity_date"),
+        "_parentId": row.get("property_snapshot_id"),
+        "_propertyId": row.get("property_id"),
+        "id": row.get("id"),
+    }
+    for key in (
+        "@attributes", "apDetailId", "reference", "memo", "debit", "credit",
+        "totalAmount", "amount", "invoiceAmount", "total", "amountDue",
+        "total_due", "currentAmount", "postDate", "transactionDate",
+        "invoiceDate", "postMonth", "glAccount", "vendorName", "contract",
+        "vendorCode", "description", "accountName", "accountNumber",
+    ):
+        if payload.get(key) not in (None, ""):
+            compact[key] = payload.get(key)
+    return compact
+
+
 def _shape_property_lease(row: dict[str, Any]) -> dict[str, Any]:
     payload = dict(row.get("raw_data") or {})
     payload.update(
@@ -742,6 +801,117 @@ def get_property_reporting_overview_summary(
 
     payload["status"] = "ok"
     return payload
+
+
+def get_multi_property_call_prep_summary(
+    property_ids: list[str],
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    normalized_property_ids = [str(property_id) for property_id in property_ids if str(property_id).strip()]
+    if not normalized_property_ids:
+        return {
+            "status": "error",
+            "message": "No property IDs were supplied for call prep aggregation.",
+            "staging_only": True,
+        }
+
+    headers = _supabase_anon_headers(access_token)
+    start_date = _parse_iso_date(start_date_value)
+    end_date = _parse_iso_date(end_date_value)
+    if not start_date or not end_date:
+        start_date, end_date = _default_date_window()
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    invoice_start, invoice_end = _month_bounded_window(start_date, end_date)
+
+    lead_items: list[dict[str, Any]] = []
+    event_items: list[dict[str, Any]] = []
+    invoice_items: list[dict[str, Any]] = []
+    property_errors: list[dict[str, str]] = []
+
+    for property_id in normalized_property_ids:
+        try:
+            leads_rows = _fetch_json(
+                "property_leads",
+                [
+                    ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                    ("property_id", f"eq.{property_id}"),
+                    ("activity_date", f"gte.{start_date.isoformat()}"),
+                    ("activity_date", f"lte.{end_date.isoformat()}"),
+                    ("order", "activity_date.asc"),
+                ],
+                headers=headers,
+            )
+            events_rows = _fetch_json(
+                "property_events",
+                [
+                    ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                    ("property_id", f"eq.{property_id}"),
+                    ("activity_date", f"gte.{start_date.isoformat()}"),
+                    ("activity_date", f"lte.{end_date.isoformat()}"),
+                    ("order", "activity_date.asc"),
+                ],
+                headers=headers,
+            )
+            invoices_rows = _fetch_json(
+                "property_invoices",
+                [
+                    ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                    ("property_id", f"eq.{property_id}"),
+                    ("activity_date", f"gte.{invoice_start.isoformat()}"),
+                    ("activity_date", f"lte.{invoice_end.isoformat()}"),
+                    ("order", "activity_date.asc"),
+                ],
+                headers=headers,
+            )
+        except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+            property_errors.append({"property_id": property_id, "error": str(error)})
+            continue
+
+        lead_items.extend(_compact_lead_payload(row) for row in leads_rows)
+        event_items.extend(_compact_event_payload(row) for row in events_rows)
+        invoice_items.extend(_compact_invoice_payload(row) for row in invoices_rows)
+
+    if not lead_items and not event_items and not invoice_items and property_errors:
+        return {
+            "status": "error",
+            "message": "Unable to load any property data for call prep aggregation.",
+            "property_errors": property_errors,
+            "staging_only": True,
+        }
+
+    return {
+        "status": "ok",
+        "property_id": "all",
+        "property_ids": normalized_property_ids,
+        "property_count": len(normalized_property_ids),
+        "properties_loaded": len(normalized_property_ids) - len(property_errors),
+        "properties_failed": len(property_errors),
+        "range": {
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "invoice_start_date": invoice_start.isoformat(),
+            "invoice_end_date": invoice_end.isoformat(),
+        },
+        "lead_items": lead_items,
+        "event_items": event_items,
+        "invoice_items": invoice_items,
+        "counts": {
+            "lead_items": len(lead_items),
+            "event_items": len(event_items),
+            "invoice_items": len(invoice_items),
+            "properties": len(normalized_property_ids),
+            "properties_loaded": len(normalized_property_ids) - len(property_errors),
+            "properties_failed": len(property_errors),
+        },
+        "property_errors": property_errors,
+        "source": "supabase",
+        "aggregated": True,
+        "call_prep_only": True,
+        "staging_only": True,
+    }
 
 
 def get_multi_property_reporting_overview_summary(

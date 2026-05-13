@@ -2017,6 +2017,13 @@ const DashboardApp = ({
     () => [GA4_DASHBOARD_URL, GOOGLE_ADS_DASHBOARD_URL, META_ADS_DASHBOARD_URL, REPUTATION_DASHBOARD_URL].every(isRenderAdapterUrl),
     []
   );
+  const shouldLoadReportingOverview = ['dashboard', 'property info', 'reports', 'recommendations'].includes(activeTab);
+  const shouldLoadWebsiteManagerContent = activeTab === 'website manager';
+  const shouldLoadWebsiteExperienceData = activeTab === 'reports' || activeTab === 'audit';
+  const shouldLoadWebsiteExperienceConfig = shouldLoadWebsiteManagerContent || shouldLoadWebsiteExperienceData;
+  const shouldLoadReportingLayout = activeTab === 'reports';
+  const shouldLoadChannelAnalytics = activeTab === 'reports' || activeTab === 'analytics';
+  const shouldLoadReputationData = activeTab === 'reports' || activeTab === 'reputation';
   const isAllPropertiesSelected = selectedPropertyId === ALL_PROPERTIES_OPTION;
   const allPropertiesSupportedTabs = useMemo(() => new Set(['dashboard']), []);
   const selectedProperty = useMemo(() => {
@@ -2478,6 +2485,7 @@ const DashboardApp = ({
           property_ids: JSON.stringify(propertyIds),
           start_date: overviewStart,
           end_date: overviewEnd,
+          call_prep_only: '1',
         });
 
         const [propertyResult, portfolioResult] = await Promise.allSettled([
@@ -2512,6 +2520,7 @@ const DashboardApp = ({
               property_name: selectedProperty?.name || '',
               start_date: startDate,
               end_date: endDate,
+              cache_only: '1',
             });
             try {
               entry.googleAds = await fetchJson(`${callPrepGoogleAdsUrl}?${params.toString()}`, 'Call prep Google Ads');
@@ -2532,6 +2541,7 @@ const DashboardApp = ({
               ga4_property_id: selectedProperty.googleAnalyticsId,
               start_date: startDate,
               end_date: endDate,
+              cache_only: '1',
             });
             try {
               entry.ga4 = await fetchJson(`${callPrepGa4Url}?${params.toString()}`, 'Call prep GA4');
@@ -3011,6 +3021,14 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadPropertyOverview = async () => {
+      if (!shouldLoadReportingOverview) {
+        setLoading(false);
+        setInvoiceLoading(false);
+        setPropertyInfoLoading(false);
+        setRoiLoading(false);
+        return;
+      }
+
       if (!propertyScopedSelectionId) {
         setParentDocs([]);
         setLeadItems([]);
@@ -3148,7 +3166,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [availableProperties, isAllPropertiesSelected, rangeDates, reportingOverviewUrl, selectedPropertyId, reportingUsesStagedOverview]);
+  }, [availableProperties, isAllPropertiesSelected, propertyScopedSelectionId, rangeDates, reportingOverviewUrl, selectedPropertyId, reportingUsesStagedOverview, shouldLoadReportingOverview]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3200,6 +3218,11 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadWebsiteManager = async () => {
+      if (!shouldLoadWebsiteManagerContent) {
+        setWebsiteManagerLoading(false);
+        return;
+      }
+
       if (!selectedPropertyId) {
         const fallback = normalizeWebsiteManagerRecord(null);
         setWebsiteManagerDoc(fallback);
@@ -3251,12 +3274,17 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [propertyScopedSelectionId, websiteManagerUsesStagedAdapter]);
+  }, [propertyScopedSelectionId, selectedPropertyId, shouldLoadWebsiteManagerContent, websiteManagerUsesStagedAdapter]);
 
   useEffect(() => {
     let cancelled = false;
 
     const loadHeatmapSite = async () => {
+      if (!shouldLoadWebsiteExperienceConfig) {
+        setHeatmapSiteLoading(false);
+        return;
+      }
+
       if (!propertyScopedSelectionId) {
         const fallback = normalizeHeatmapSiteConfig(null);
         setHeatmapSiteDoc(fallback);
@@ -3312,9 +3340,15 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [propertyScopedSelectionId, selectedProperty?.name, websiteManagerDoc.websiteUrl]);
+  }, [propertyScopedSelectionId, selectedProperty?.name, shouldLoadWebsiteExperienceConfig, websiteManagerDoc.websiteUrl]);
 
   useEffect(() => {
+    if (!shouldLoadWebsiteExperienceData) {
+      setHeatmapPagesLoading(false);
+      setSiteAuditLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId || !HEATMAP_PAGES_URL || !SITE_AUDIT_PAGES_URL || !SITE_AUDIT_SUMMARY_URL) {
       setHeatmapPagesData(null);
       setSiteAuditPagesData(null);
@@ -3385,7 +3419,7 @@ const DashboardApp = ({
 
     loadHeatmapPanelData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, heatmapSiteDraft.siteKey]);
+  }, [propertyScopedSelectionId, rangeDates, heatmapSiteDraft.siteKey, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
     const pages = heatmapPagesData?.pages || [];
@@ -3398,6 +3432,11 @@ const DashboardApp = ({
   }, [heatmapPagesData, selectedHeatmapPath]);
 
   useEffect(() => {
+    if (!shouldLoadWebsiteExperienceData) {
+      setHeatmapSummaryLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId || !HEATMAP_SUMMARY_URL || !selectedHeatmapPath) {
       setHeatmapSummaryData(null);
       setHeatmapSummaryLoading(false);
@@ -3435,9 +3474,14 @@ const DashboardApp = ({
 
     loadHeatmapSummary();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
+  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
+    if (!shouldLoadWebsiteExperienceData) {
+      setHeatmapTrackerHealthLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId || !HEATMAP_TRACKER_HEALTH_URL || !selectedHeatmapPath) {
       setHeatmapTrackerHealthData(null);
       setHeatmapTrackerHealthLoading(false);
@@ -3473,9 +3517,14 @@ const DashboardApp = ({
 
     loadTrackerHealth();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
+  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
+    if (!shouldLoadWebsiteExperienceData) {
+      setScreenshotPreviewLoading(false);
+      return;
+    }
+
     if (!selectedScreenshot?.id || !SITE_AUDIT_SCREENSHOT_PREVIEW_URL) {
       setScreenshotPreviewUrl('');
       setScreenshotPreviewError(null);
@@ -3512,7 +3561,7 @@ const DashboardApp = ({
 
     loadScreenshotPreview();
     return () => controller.abort();
-  }, [selectedScreenshot?.id]);
+  }, [selectedScreenshot?.id, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
     setWebsiteSchemaHistory(readWebsiteSchemaHistory(propertyScopedSelectionId));
@@ -3522,6 +3571,11 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadWebsiteSchema = async () => {
+      if (!shouldLoadWebsiteManagerContent) {
+        setWebsiteSchemaLoading(false);
+        return;
+      }
+
       if (!propertyScopedSelectionId || !canManageUsers) {
         const fallback = normalizeWebsiteManagerSchema(null);
         setWebsiteSchemaDoc(fallback);
@@ -3571,7 +3625,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [propertyScopedSelectionId, canManageUsers, websiteManagerSchemaUsesStagedAdapter]);
+  }, [propertyScopedSelectionId, canManageUsers, shouldLoadWebsiteManagerContent, websiteManagerSchemaUsesStagedAdapter]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -3587,6 +3641,11 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadReportingLayout = async () => {
+      if (!shouldLoadReportingLayout) {
+        setReportingLayoutLoading(false);
+        return;
+      }
+
       if (!propertyScopedSelectionId) {
         const fallback = normalizeReportingLayoutRecord(null);
         setReportingLayoutDoc(fallback);
@@ -3638,7 +3697,7 @@ const DashboardApp = ({
     return () => {
       cancelled = true;
     };
-  }, [propertyScopedSelectionId, reportingLayoutUsesStagedAdapter]);
+  }, [propertyScopedSelectionId, reportingLayoutUsesStagedAdapter, shouldLoadReportingLayout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3679,6 +3738,11 @@ const DashboardApp = ({
   }, []);
 
   useEffect(() => {
+    if (!shouldLoadChannelAnalytics) {
+      setGa4Loading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId) {
       setGa4Data(null);
       setGa4Error(null);
@@ -3730,9 +3794,14 @@ const DashboardApp = ({
 
     loadGa4Data();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
 
   useEffect(() => {
+    if (!shouldLoadChannelAnalytics) {
+      setGoogleAdsLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId) {
       setGoogleAdsData(null);
       setGoogleAdsError(null);
@@ -3785,9 +3854,14 @@ const DashboardApp = ({
 
     loadGoogleAdsData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
 
   useEffect(() => {
+    if (!shouldLoadChannelAnalytics) {
+      setMetaAdsLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId) {
       setMetaAdsData(null);
       setMetaAdsError(null);
@@ -3847,9 +3921,14 @@ const DashboardApp = ({
 
     loadMetaAdsData();
     return () => controller.abort();
-  }, [metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, selectedProperty]);
+  }, [metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
 
   useEffect(() => {
+    if (!shouldLoadReputationData) {
+      setReputationLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId) {
       setReputationData(null);
       setReputationError(null);
@@ -3905,9 +3984,14 @@ const DashboardApp = ({
 
     loadReputationData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadReputationData]);
 
   useEffect(() => {
+    if (!shouldLoadChannelAnalytics) {
+      setLocalFalconLoading(false);
+      return;
+    }
+
     if (!propertyScopedSelectionId) {
       setLocalFalconData(null);
       setLocalFalconError(null);
@@ -3967,7 +4051,7 @@ const DashboardApp = ({
 
     loadLocalFalconData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
 
   // ──────────────── COMPUTED METRICS ────────────────
   
