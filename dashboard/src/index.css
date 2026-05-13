@@ -848,6 +848,15 @@ h1, h2, h3 {
   align-items: flex-start;
 }
 
+.call-prep-budget-summary {
+  grid-template-columns: 1fr;
+}
+
+.call-prep-spend-section {
+  display: grid;
+  gap: 0.7rem;
+}
+
 .call-prep-spend-panel .reports-list__row > div:last-child {
   display: grid;
   gap: 0.2rem;

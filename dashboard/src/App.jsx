@@ -2321,7 +2321,7 @@ const DashboardApp = ({
   }, [currentUser, propertyScopedSelectionId]);
 
   useEffect(() => {
-    if (activeTab !== 'property info') return;
+    if (activeTab !== 'property info' && activeTab !== 'call prep') return;
     loadMarketingBudgetItems();
   }, [activeTab, loadMarketingBudgetItems]);
 
@@ -2363,7 +2363,7 @@ const DashboardApp = ({
   }, [actualMarketingSpendWindow, propertyScopedSelectionId]);
 
   useEffect(() => {
-    if (activeTab !== 'property info') return;
+    if (activeTab !== 'property info' && activeTab !== 'call prep') return;
     loadActualMarketingSpendItems();
   }, [activeTab, loadActualMarketingSpendItems]);
 
@@ -7777,21 +7777,73 @@ const DashboardApp = ({
 
           <section className="reports-panel call-prep-spend-panel">
             <div className="reports-panel__eyebrow">Active spend</div>
-            <div className="reports-panel__title">Monthly marketing GL lines</div>
-            <div className="reports-list">
-              {callPrepSpendRows.map((row) => (
-                <div className="reports-list__row" key={row.key}>
-                  <div>
-                    <strong>{row.label}</strong>
-                    <small>{row.glCodes || 'Marketing GL'} | {row.month.toLocaleDateString([], { month: 'long', year: 'numeric' })}</small>
+            <div className="reports-panel__title">Budget vs actual marketing spend</div>
+            {(marketingBudgetError || actualMarketingSpendError) && (
+              <div className="tasks-message tasks-message--error">
+                {marketingBudgetError || actualMarketingSpendError}
+              </div>
+            )}
+            <div className="reports-panel__grid reports-panel__grid--three call-prep-budget-summary">
+              <div className="reports-stat">
+                <span>Budgeted spend now</span>
+                <strong>{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</strong>
+                <small>{formatNumber(activeMarketingBudgetItems.length)} active monthly item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</small>
+              </div>
+              <div className="reports-stat">
+                <span>Actual GL spend</span>
+                <strong>{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</strong>
+                <small>Last 30 days from posted marketing invoices</small>
+              </div>
+              <div className="reports-stat">
+                <span>Budget less actual</span>
+                <strong>{actualMarketingSpendLoading || marketingBudgetLoading ? '…' : formatCurrency(marketingBudgetVarianceLast30)}</strong>
+                <small>{marketingBudgetVarianceLast30 >= 0 ? 'Under approved monthly budget' : 'Over approved monthly budget'}</small>
+              </div>
+            </div>
+
+            <div className="call-prep-spend-section">
+              <div className="reports-panel__eyebrow">Budgeted monthly items</div>
+              <div className="reports-list">
+                {activeMarketingBudgetItems.map((item) => (
+                  <div className="reports-list__row" key={item.id}>
+                    <div>
+                      <strong>{item.itemName || 'Marketing budget item'}</strong>
+                      <small>
+                        Active {formatReadableDate(item.startDate)}
+                        {item.endDate ? ` to ${formatReadableDate(item.endDate)}` : ' onward'}
+                      </small>
+                    </div>
+                    <div>
+                      {formatCurrency(parseCurrency(item.monthlyAmount))}
+                      <small>{item.contractFileName || item.listingUrl ? 'Documentation attached' : 'No document attached'}</small>
+                    </div>
                   </div>
-                  <div>
-                    {formatCurrency(row.amount)}
-                    <small>{formatCurrency(row.allocatedInWindow)} in 60D</small>
+                ))}
+                {activeMarketingBudgetItems.length === 0 && (
+                  <div className="reports-empty">
+                    {marketingBudgetLoading ? 'Loading active approved budget items...' : 'No active approved marketing budget items were found for this property.'}
                   </div>
-                </div>
-              ))}
-              {callPrepSpendRows.length === 0 && <div className="reports-empty">No active marketing GL spend was found for the 60 day call prep window.</div>}
+                )}
+              </div>
+            </div>
+
+            <div className="call-prep-spend-section">
+              <div className="reports-panel__eyebrow">Actual GL lines</div>
+              <div className="reports-list">
+                {callPrepSpendRows.map((row) => (
+                  <div className="reports-list__row" key={row.key}>
+                    <div>
+                      <strong>{row.label}</strong>
+                      <small>{row.glCodes || 'Marketing GL'} | {row.month.toLocaleDateString([], { month: 'long', year: 'numeric' })}</small>
+                    </div>
+                    <div>
+                      {formatCurrency(row.amount)}
+                      <small>{formatCurrency(row.allocatedInWindow)} in 60D</small>
+                    </div>
+                  </div>
+                ))}
+                {callPrepSpendRows.length === 0 && <div className="reports-empty">No active marketing GL spend was found for the 60 day call prep window.</div>}
+              </div>
             </div>
           </section>
         </div>
