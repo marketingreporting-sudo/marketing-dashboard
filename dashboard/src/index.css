@@ -8681,8 +8681,16 @@ th {
 }
 
 .admin-access-section-head {
-  display: grid;
-  gap: 0.35rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 1rem;
+}
+
+.admin-access-section-head > span {
+  flex: 0 0 auto;
+  color: var(--primary-tan);
+  font-size: 0.78rem;
 }
 
 .admin-access-panel__eyebrow {
@@ -8804,6 +8812,50 @@ th {
   background: linear-gradient(135deg, rgba(229, 104, 112, 0.16), rgba(16, 33, 38, 0.9));
 }
 
+.admin-ticket-routing-panel {
+  gap: 1.15rem;
+}
+
+.admin-ticket-routing-list {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 520px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.admin-ticket-routing-row {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.8fr) minmax(16rem, 1fr) minmax(12rem, 0.8fr);
+  align-items: end;
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(215, 210, 207, 0.14);
+  background: rgba(10, 20, 24, 0.46);
+}
+
+.admin-ticket-routing-row__property {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.admin-ticket-routing-row__property strong {
+  color: var(--primary-white);
+  font-size: 0.95rem;
+}
+
+.admin-ticket-routing-row__property span,
+.admin-ticket-routing-row__meta {
+  color: var(--primary-tan);
+  font-size: 0.78rem;
+}
+
+.admin-ticket-routing-row__meta {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .admin-access-audit-list {
   display: grid;
   gap: 0.8rem;
@@ -8866,6 +8918,10 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .admin-ticket-routing-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .admin-access-stats {
     min-width: 0;
   }
@@ -8879,6 +8935,7 @@ th {
 
   .admin-access-stats,
   .admin-access-form-grid,
+  .admin-ticket-routing-row,
   .admin-access-audit-card__body {
     grid-template-columns: 1fr;
   }

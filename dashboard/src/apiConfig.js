@@ -69,6 +69,11 @@ export const TICKET_OPTIONS_URL = resolveApiUrl(
   '/api/tickets/options'
 );
 
+export const ADMIN_TICKET_ASSIGNMENTS_URL = resolveApiUrl(
+  import.meta.env.VITE_ADMIN_TICKET_ASSIGNMENTS_URL || '',
+  '/api/admin/ticket-assignments'
+);
+
 export const GA4_DASHBOARD_URL = resolveApiUrl(
   import.meta.env.VITE_GA4_DASHBOARD_URL || '',
   '/api/analytics/ga4',

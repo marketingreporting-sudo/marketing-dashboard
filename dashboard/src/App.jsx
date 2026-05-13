@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import {
   ADMIN_ACCESS_USERS_URL,
+  ADMIN_TICKET_ASSIGNMENTS_URL,
   CLIENT_REPORT_BASE_DOMAIN,
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
@@ -2093,6 +2094,7 @@ const DashboardApp = ({
   const [adminRoles, setAdminRoles] = useState([]);
   const [adminProperties, setAdminProperties] = useState([]);
   const [adminAuditLogs, setAdminAuditLogs] = useState([]);
+  const [adminTicketAssignmentDrafts, setAdminTicketAssignmentDrafts] = useState({});
   const [adminSelectedUserId, setAdminSelectedUserId] = useState(null);
   const [adminUserDraft, setAdminUserDraft] = useState(null);
   const [adminInviteDraft, setAdminInviteDraft] = useState({
@@ -2212,6 +2214,14 @@ const DashboardApp = ({
   const adminPropertyRoles = useMemo(
     () => adminRoles.filter((role) => role.scope === 'property'),
     [adminRoles]
+  );
+  const adminUserById = useMemo(
+    () => new Map(adminUsers.map((user) => [user.id, user])),
+    [adminUsers]
+  );
+  const adminTicketAssignmentCount = useMemo(
+    () => Object.values(adminTicketAssignmentDrafts).filter(Boolean).length,
+    [adminTicketAssignmentDrafts]
   );
   const tasksByStatus = useMemo(() => {
     const grouped = Object.fromEntries(TASK_STATUSES.map((status) => [status.id, []]));
@@ -2359,16 +2369,29 @@ const DashboardApp = ({
     setAdminAccessNotice(null);
 
     try {
-      const response = await authFetch(ADMIN_ACCESS_USERS_URL);
-      const payload = await response.json();
-      if (!response.ok || payload?.status === 'error') {
-        throw new Error(payload?.error || `Admin access load failed: ${response.status}`);
+      const [accessResponse, assignmentsResponse] = await Promise.all([
+        authFetch(ADMIN_ACCESS_USERS_URL),
+        authFetch(ADMIN_TICKET_ASSIGNMENTS_URL),
+      ]);
+      const [payload, assignmentsPayload] = await Promise.all([
+        accessResponse.json(),
+        assignmentsResponse.json(),
+      ]);
+      if (!accessResponse.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Admin access load failed: ${accessResponse.status}`);
+      }
+      if (!assignmentsResponse.ok || assignmentsPayload?.status === 'error') {
+        throw new Error(assignmentsPayload?.error || `Ticket assignments load failed: ${assignmentsResponse.status}`);
       }
 
       const users = Array.isArray(payload.users) ? payload.users : [];
       const roles = Array.isArray(payload.roles) ? payload.roles : [];
       const properties = Array.isArray(payload.properties) ? payload.properties : [];
       const auditLogs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
+      const assignmentDrafts = Object.fromEntries(
+        (Array.isArray(assignmentsPayload.assignments) ? assignmentsPayload.assignments : [])
+          .map((assignment) => [assignment.propertyId, assignment.defaultAssigneeUserId || ''])
+      );
       const nextSelectedUserId = users.some((user) => user.id === adminSelectedUserId)
         ? adminSelectedUserId
         : users[0]?.id || null;
@@ -2377,6 +2400,7 @@ const DashboardApp = ({
       setAdminRoles(roles);
       setAdminProperties(properties);
       setAdminAuditLogs(auditLogs);
+      setAdminTicketAssignmentDrafts(assignmentDrafts);
       setAdminSelectedUserId(nextSelectedUserId);
       setAdminUserDraft(hydrateAdminDraftFromUser(users.find((user) => user.id === nextSelectedUserId) || null));
     } catch (error) {
@@ -11590,6 +11614,58 @@ const DashboardApp = ({
     });
   };
 
+  const getAdminAssignableUsersForProperty = (propertyId) => (
+    adminUsers.filter((user) => (
+      user.isActive !== false
+      && (
+        user.globalRole === 'admin'
+        || (Array.isArray(user.memberships) && user.memberships.some((membership) => (
+          membership.isActive && membership.propertyId === propertyId
+        )))
+      )
+    ))
+  );
+
+  const updateAdminTicketAssignment = (propertyId, userId) => {
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+    setAdminTicketAssignmentDrafts((current) => ({ ...current, [propertyId]: userId }));
+  };
+
+  const saveAdminTicketAssignments = async () => {
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+
+    try {
+      const response = await authFetch(ADMIN_TICKET_ASSIGNMENTS_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignments: adminProperties.map((property) => ({
+            propertyId: property.id,
+            defaultAssigneeUserId: adminTicketAssignmentDrafts[property.id] || '',
+          })),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Ticket assignment save failed: ${response.status}`);
+      }
+
+      const assignmentDrafts = Object.fromEntries(
+        (Array.isArray(payload.assignments) ? payload.assignments : [])
+          .map((assignment) => [assignment.propertyId, assignment.defaultAssigneeUserId || ''])
+      );
+      setAdminTicketAssignmentDrafts(assignmentDrafts);
+      setAdminAccessNotice('Ticket assignment mapping updated.');
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to save ticket assignment mapping.');
+    } finally {
+      setAdminAccessLoading(false);
+    }
+  };
+
   const saveAdminUserAccess = async () => {
     if (!adminUserDraft?.id) {
       setAdminAccessError('Choose a user before saving access changes.');
@@ -12117,6 +12193,51 @@ const DashboardApp = ({
           </button>
         </div>
       )}
+
+      <div className="admin-access-panel admin-ticket-routing-panel">
+        <div className="admin-access-section-head">
+          <div>
+            <div className="admin-access-panel__eyebrow">Ticket Routing</div>
+            <h3 className="admin-access-panel__title">Default assignees by property</h3>
+          </div>
+          <span>{adminAccessLoading ? 'Loading…' : `${formatNumber(adminTicketAssignmentCount)} mapped`}</span>
+        </div>
+        <div className="admin-ticket-routing-list">
+          {adminProperties.map((property) => {
+            const assignableUsers = getAdminAssignableUsersForProperty(property.id);
+            const selectedAssigneeId = adminTicketAssignmentDrafts[property.id] || '';
+            const selectedAssignee = adminUserById.get(selectedAssigneeId);
+            return (
+              <div className="admin-ticket-routing-row" key={property.id}>
+                <div className="admin-ticket-routing-row__property">
+                  <strong>{property.name}</strong>
+                  <span>{property.city || property.state ? `${property.city || ''}${property.city && property.state ? ', ' : ''}${property.state || ''}` : property.id}</span>
+                </div>
+                <label className="admin-access-field admin-ticket-routing-row__select">
+                  <span>Default assignee</span>
+                  <select
+                    value={selectedAssigneeId}
+                    onChange={(event) => updateAdminTicketAssignment(property.id, event.target.value)}
+                  >
+                    <option value="">No default assignee</option>
+                    {assignableUsers.map((user) => (
+                      <option key={user.id} value={user.id}>{user.fullName || user.email}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="admin-ticket-routing-row__meta">
+                  {selectedAssignee ? selectedAssignee.email : 'Falls back to triage user for inbound email'}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="admin-access-actions">
+          <button type="button" onClick={saveAdminTicketAssignments} disabled={adminAccessLoading}>
+            {adminAccessLoading ? 'Saving…' : 'Save Ticket Routing'}
+          </button>
+        </div>
+      </div>
 
       {(websiteSchemaError || websiteSchemaNotice) && (
         <div className={`admin-access-banner ${websiteSchemaError ? 'admin-access-banner--error' : 'admin-access-banner--success'}`}>

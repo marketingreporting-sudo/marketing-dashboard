@@ -85,9 +85,11 @@ from render_tickets import (
     create_inbound_outlook_ticket_summary,
     create_ticket_summary,
     list_ticket_options_summary,
+    list_ticket_assignment_admin_summary,
     list_tickets_summary,
     OutlookPayloadError,
     OutlookWebhookAuthError,
+    save_ticket_assignment_admin_summary,
     update_ticket_summary,
 )
 from render_supabase_sync_state import get_supabase_sync_health_summary, get_supabase_sync_state_summary
@@ -582,6 +584,27 @@ def create_app() -> Flask:
                 },
             )
             return build_cors_json_response({"success": False, "error": "Unable to create Outlook ticket."}, status_code=500)
+
+    @app.route("/api/admin/ticket-assignments", methods=["GET", "POST", "OPTIONS"])
+    def staged_admin_ticket_assignments():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            require_platform_permission("users.manage")
+            if request.method == "POST":
+                payload = save_ticket_assignment_admin_summary(get_request_json_payload())
+            else:
+                payload = list_ticket_assignment_admin_summary()
+            return build_cors_json_response(payload)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=400)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=500)
 
     @app.route("/api/analytics/reputation", methods=["GET", "POST", "OPTIONS"])
     def staged_reputation_dashboard():

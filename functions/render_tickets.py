@@ -538,6 +538,85 @@ def list_ticket_options_summary(access_token: str) -> dict[str, Any]:
     }
 
 
+def list_ticket_assignment_admin_summary() -> dict[str, Any]:
+    assignments = _fetch_ticket_assignments()
+    return {
+        "status": "ok",
+        "assignments": [
+            {
+                "id": assignment.get("id") or "",
+                "propertyId": str(assignment.get("property_id") or ""),
+                "defaultAssigneeUserId": str(assignment.get("default_assignee_user_id") or assignment.get("assigned_user_id") or ""),
+                "isActive": bool(assignment.get("is_active", True)),
+                "createdAt": assignment.get("created_at") or "",
+                "updatedAt": assignment.get("updated_at") or "",
+            }
+            for assignment in assignments
+        ],
+    }
+
+
+def save_ticket_assignment_admin_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_assignments = payload.get("assignments")
+    if not isinstance(raw_assignments, list):
+        raise ValueError("Assignments must be provided as a list.")
+
+    properties_by_id = {str(row.get("id") or ""): row for row in _fetch_properties()}
+    profiles = _fetch_profiles()
+    profiles_by_id = {str(profile.get("id") or ""): profile for profile in profiles}
+    memberships = _fetch_memberships()
+
+    saved_count = 0
+    cleared_count = 0
+    for item in raw_assignments:
+        if not isinstance(item, dict):
+            continue
+        property_id = str(item.get("propertyId") or item.get("property_id") or "").strip()
+        assignee_user_id = str(
+            item.get("defaultAssigneeUserId")
+            or item.get("default_assignee_user_id")
+            or item.get("assignedUserId")
+            or item.get("assigned_user_id")
+            or ""
+        ).strip()
+        if not property_id:
+            continue
+        if property_id not in properties_by_id:
+            raise ValueError(f"Property {property_id} was not found.")
+
+        if not assignee_user_id:
+            _db_request(
+                "property_ticket_assignments",
+                method="DELETE",
+                query_params=[("property_id", f"eq.{property_id}")],
+                prefer="return=minimal",
+            )
+            cleared_count += 1
+            continue
+
+        if not _profile_can_access_property(profiles_by_id.get(assignee_user_id, {}), property_id, memberships):
+            property_name = properties_by_id.get(property_id, {}).get("name") or property_id
+            raise ValueError(f"Default assignee must be active and have access to {property_name}.")
+
+        _db_request(
+            "property_ticket_assignments",
+            method="POST",
+            query_params=[("on_conflict", "property_id")],
+            payload={
+                "property_id": property_id,
+                "default_assignee_user_id": assignee_user_id,
+                "is_active": True,
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+        saved_count += 1
+
+    refreshed = list_ticket_assignment_admin_summary()
+    refreshed["savedCount"] = saved_count
+    refreshed["clearedCount"] = cleared_count
+    return refreshed
+
+
 def list_tickets_summary(access_token: str, user: dict[str, Any]) -> dict[str, Any]:
     user_id = _user_id(user)
     rows = _as_list(
