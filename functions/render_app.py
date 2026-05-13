@@ -1407,6 +1407,7 @@ def create_app() -> Flask:
         property_ids_value = request.args.get("property_ids") or req_json.get("property_ids")
         start_date = request.args.get("start_date") or req_json.get("start_date")
         end_date = request.args.get("end_date") or req_json.get("end_date")
+        red_list_only = str(request.args.get("red_list_only") or req_json.get("red_list_only") or "").lower() in {"1", "true", "yes"}
         if not property_id:
             return build_cors_json_response(
                 {
@@ -1451,7 +1452,7 @@ def create_app() -> Flask:
                     status_code=403,
                 )
 
-            payload = get_multi_property_reporting_overview_summary(allowed_property_ids, start_date, end_date, access_token)
+            payload = get_multi_property_reporting_overview_summary(allowed_property_ids, start_date, end_date, access_token, red_list_only=red_list_only)
         else:
             payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
         status_code = 200 if payload.get("status") != "error" else 503

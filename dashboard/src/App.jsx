@@ -1162,15 +1162,16 @@ const isApprovedNewLeaseEvent = (event) => {
     !reason.includes('renewal lease');
 };
 
+const TOUR_EVENT_TYPE_IDS = new Set([78, 9, 449, 442, 515]);
+
+const getEventTypeId = (event) => {
+  const value = event?.typeId ?? event?.type_id ?? findNestedValue(event, ['typeId', 'type_id', 'eventTypeId', 'event_type_id']);
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const isTourEvent = (event) => {
-  const reason = String(event.eventReason || event.type || event.name || '').toLowerCase().replace(/\s+:/g, ':');
-  return (
-    reason.includes('tour') ||
-    reason.includes('showing') ||
-    reason.includes('appointment') ||
-    reason.includes('property visit') ||
-    reason.includes('visited property')
-  );
+  return TOUR_EVENT_TYPE_IDS.has(getEventTypeId(event));
 };
 
 const EVENT_OCCURRED_DATE_KEYS = [
