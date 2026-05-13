@@ -828,6 +828,7 @@ def get_multi_property_call_prep_summary(
 
     lead_items: list[dict[str, Any]] = []
     event_items: list[dict[str, Any]] = []
+    lease_items: list[dict[str, Any]] = []
     invoice_items: list[dict[str, Any]] = []
     property_errors: list[dict[str, str]] = []
 
@@ -855,6 +856,22 @@ def get_multi_property_call_prep_summary(
                 ],
                 headers=headers,
             )
+            lease_rows = _fetch_json(
+                "property_leases",
+                [
+                    (
+                        "select",
+                        "id,property_id,reporting_window_start,reporting_window_end,attribution_status,"
+                        "attribution_event_date,lease_start_date,lease_end_date,move_in_date,move_out_date,"
+                        "gross_lease_value,net_effective_rent,net_effective_revenue,concession_total,raw_data,firestore_path",
+                    ),
+                    ("property_id", f"eq.{property_id}"),
+                    ("reporting_window_end", f"gte.{start_date.isoformat()}"),
+                    ("reporting_window_start", f"lte.{end_date.isoformat()}"),
+                    ("order", "attribution_event_date.asc"),
+                ],
+                headers=headers,
+            )
             invoices_rows = _fetch_json(
                 "property_invoices",
                 [
@@ -872,9 +889,10 @@ def get_multi_property_call_prep_summary(
 
         lead_items.extend(_compact_lead_payload(row) for row in leads_rows)
         event_items.extend(_compact_event_payload(row) for row in events_rows)
+        lease_items.extend(_shape_property_lease(row) for row in lease_rows)
         invoice_items.extend(_compact_invoice_payload(row) for row in invoices_rows)
 
-    if not lead_items and not event_items and not invoice_items and property_errors:
+    if not lead_items and not event_items and not lease_items and not invoice_items and property_errors:
         return {
             "status": "error",
             "message": "Unable to load any property data for call prep aggregation.",
@@ -897,10 +915,12 @@ def get_multi_property_call_prep_summary(
         },
         "lead_items": lead_items,
         "event_items": event_items,
+        "lease_items": lease_items,
         "invoice_items": invoice_items,
         "counts": {
             "lead_items": len(lead_items),
             "event_items": len(event_items),
+            "lease_items": len(lease_items),
             "invoice_items": len(invoice_items),
             "properties": len(normalized_property_ids),
             "properties_loaded": len(normalized_property_ids) - len(property_errors),

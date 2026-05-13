@@ -771,7 +771,7 @@ const normalizeTaskRecord = (row) => {
     notes: row?.notes || '',
     dueDate: row?.due_date || '',
     status,
-    propertyId: row?.property_id || '',
+    propertyId: row?.property_id == null ? '' : String(row.property_id),
     ticketId: row?.ticket_id || '',
     source: row?.source || 'manual',
     priority: row?.priority || 'normal',
@@ -1077,6 +1077,12 @@ const getLeadKey = (lead) => {
   return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
 };
 
+const hasApplicationIdentifier = (record) => (
+  record?.application_id != null ||
+  record?.applicationId != null ||
+  record?.applicationID != null
+);
+
 const getAvailabilityStatus = (unit) => {
   const attrs = unit?.['@attributes'] || {};
   const availableFlag = parseBooleanish(
@@ -1261,28 +1267,78 @@ const isRenderAdapterUrl = (value) => {
   return String(value).startsWith(RENDER_API_BASE_URL);
 };
 
+const getEventContainerValue = (event, key) => {
+  const value = event?.[key];
+  if (!value) return null;
+  if (typeof value !== 'object') return value;
+  return (
+    value.typeId ??
+    value.type_id ??
+    value.eventTypeId ??
+    value.event_type_id ??
+    value.id ??
+    value.name ??
+    value.label ??
+    null
+  );
+};
+
+const getEventReasonText = (event) => {
+  const candidates = [
+    event?.eventReason,
+    event?.event_reason,
+    typeof event?.type === 'string' ? event.type : null,
+    typeof event?.eventType === 'string' ? event.eventType : null,
+    typeof event?.event_type === 'string' ? event.event_type : null,
+    findNestedValue(event?.type, ['eventReason', 'event_reason', 'name', 'label', 'description']),
+    findNestedValue(event?.eventType, ['eventReason', 'event_reason', 'name', 'label', 'description']),
+    findNestedValue(event?.event_type, ['eventReason', 'event_reason', 'name', 'label', 'description']),
+    findNestedValue(event, ['eventReason', 'event_reason', 'eventTypeName', 'event_type_name', 'reason', 'name']),
+  ];
+  return String(candidates.find((value) => value != null && value !== '') || '')
+    .toLowerCase()
+    .replace(/\s*:\s*/g, ':')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 const isStartedApplicationEvent = (event) => {
-  const reason = String(findNestedValue(event, ['eventReason', 'type', 'name']) || '').toLowerCase().replace(/\s+:/g, ':');
-  return getEventTypeId(event) === 12 && (
+  const typeId = getEventTypeId(event);
+  const reason = getEventReasonText(event);
+  return (typeId == null || typeId === 12) && (
     reason.includes('application status:completed') ||
+    reason.includes('application status completed') ||
     reason.includes('application status: completed') ||
     reason.includes('application: completed')
   );
 };
 
 const isApprovedNewLeaseEvent = (event) => {
-  const reason = String(findNestedValue(event, ['eventReason', 'type', 'name']) || '').toLowerCase().replace(/\s+:/g, ':');
-  return getEventTypeId(event) === 13 &&
-    reason.includes('lease status: approved') &&
+  const typeId = getEventTypeId(event);
+  const reason = getEventReasonText(event);
+  return (typeId == null || typeId === 13) &&
+    (reason.includes('lease status:approved') || reason.includes('lease status approved')) &&
     !reason.includes('renewal lease');
 };
 
 const TOUR_EVENT_TYPE_IDS = new Set([78, 9, 449, 442, 515]);
 
 const getEventTypeId = (event) => {
-  const value = event?.typeId ?? event?.type_id ?? findNestedValue(event, ['typeId', 'type_id', 'eventTypeId', 'event_type_id']);
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  const candidates = [
+    event?.typeId ??
+      event?.type_id ??
+      event?.eventTypeId ??
+      event?.event_type_id,
+    getEventContainerValue(event, 'eventType'),
+    getEventContainerValue(event, 'event_type'),
+    getEventContainerValue(event, 'type'),
+    findNestedValue(event, ['typeId', 'type_id', 'eventTypeId', 'event_type_id']),
+  ];
+  for (const value of candidates) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
 };
 
 const isTourEvent = (event) => {
@@ -1481,6 +1537,29 @@ const buildCallPrepMetrics = (payload, range, propertyId = null, excludedMarketi
       if (!existing || eventDate < existing.date) leaseRecords.set(key, { date: eventDate, item: event });
     }
   });
+  (payload?.lease_items || []).forEach((lease) => {
+    if (!itemMatchesProperty(lease, propertyId)) return;
+    const approvalDate = getCallPrepDate(getLeaseApprovalDate(lease));
+    if (!isInDateRange(approvalDate, range.start, range.end)) return;
+    const key = getApprovedLeaseRecordKey(lease);
+    const existing = leaseRecords.get(key);
+    if (!existing || approvalDate < existing.date) leaseRecords.set(key, { date: approvalDate, item: lease });
+  });
+  if (applicationRecords.size === 0) {
+    [...leadItemsForWindow, ...(payload?.lease_items || [])].forEach((record) => {
+      if (!hasApplicationIdentifier(record) || !itemMatchesProperty(record, propertyId)) return;
+      const applicationDate = getCallPrepDate(
+        findNestedValue(record, EVENT_OCCURRED_DATE_KEYS) ||
+        record._date ||
+        record.activity_date ||
+        getLeaseApprovalDate(record)
+      );
+      if (!isInDateRange(applicationDate, range.start, range.end)) return;
+      const key = getCompletedApplicationRecordKey(record);
+      const existing = applicationRecords.get(key);
+      if (!existing || applicationDate < existing.date) applicationRecords.set(key, { date: applicationDate, item: record });
+    });
+  }
 
   const uniqueInvoices = new Map();
   (payload?.invoice_items || []).forEach((invoice) => {
@@ -2624,7 +2703,7 @@ const DashboardApp = ({
     loadActualMarketingSpendItems();
   }, [activeTab, loadActualMarketingSpendItems]);
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (scope = 'mine') => {
     if (!currentUser?.id || !supabase) {
       setTasks([]);
       setTasksError('Tasks require a signed-in Supabase account.');
@@ -2636,11 +2715,18 @@ const DashboardApp = ({
     setTasksNotice(null);
 
     try {
-      const response = await supabase
+      let query = supabase
         .from('user_tasks')
         .select('id, owner_user_id, property_id, title, description, notes, due_date, status, created_at, updated_at')
-        .eq('owner_user_id', currentUser.id)
         .order('updated_at', { ascending: false });
+
+      if (scope === 'property' && propertyScopedSelectionId) {
+        query = query.eq('property_id', propertyScopedSelectionId);
+      } else {
+        query = query.eq('owner_user_id', currentUser.id);
+      }
+
+      const response = await query;
 
       if (response.error) {
         throw response.error;
@@ -2652,11 +2738,11 @@ const DashboardApp = ({
     } finally {
       setTasksLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser, propertyScopedSelectionId]);
 
   useEffect(() => {
     if (activeTab !== 'tasks' && activeTab !== 'call prep') return;
-    loadTasks();
+    loadTasks(activeTab === 'call prep' ? 'property' : 'mine');
   }, [activeTab, loadTasks]);
 
   const loadTickets = useCallback(async () => {
@@ -8405,7 +8491,11 @@ const DashboardApp = ({
                   <div>{TASK_STATUSES.find((status) => status.id === task.status)?.label || task.status}</div>
                 </div>
               ))}
-              {callPrepRecentTasks.length === 0 && <div className="reports-empty">No property tasks were created, updated, or due in the last 60 days.</div>}
+              {callPrepRecentTasks.length === 0 && (
+                <div className="reports-empty">
+                  {tasksLoading ? 'Loading property tasks...' : tasksError || 'No property tasks were created, updated, or due in the last 60 days.'}
+                </div>
+              )}
             </div>
           </section>
 
