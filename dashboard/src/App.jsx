@@ -2458,6 +2458,9 @@ const DashboardApp = ({
 
       setCallPrepLoading(true);
       setCallPrepError(null);
+      setCallPrepOverview(null);
+      setCallPrepPortfolioOverview(null);
+      setCallPrepAnalyticsByPeriod({});
 
       const sixtyDayRange = getCallPrepWindowRange(60);
       const priorSixtyDayRange = getPriorWindowRange(sixtyDayRange, 60);
@@ -2498,19 +2501,21 @@ const DashboardApp = ({
           call_prep_only: '1',
         });
 
-        const [propertyResult, portfolioResult] = await Promise.allSettled([
-          fetchJson(`${reportingOverviewUrl}?${propertyParams.toString()}`, 'Call prep property overview'),
-          fetchJson(`${reportingOverviewUrl}?${portfolioParams.toString()}`, 'Call prep portfolio overview'),
-        ]);
+        const portfolioOverviewPromise = fetchJson(
+          `${reportingOverviewUrl}?${portfolioParams.toString()}`,
+          'Call prep portfolio overview'
+        ).catch(() => null);
+        const propertyOverview = await fetchJson(
+          `${reportingOverviewUrl}?${propertyParams.toString()}`,
+          'Call prep property overview'
+        );
 
         if (cancelled) return;
-        if (propertyResult.status === 'fulfilled') {
-          setCallPrepOverview(propertyResult.value);
-        } else {
-          setCallPrepOverview(null);
-          throw propertyResult.reason;
-        }
-        setCallPrepPortfolioOverview(portfolioResult.status === 'fulfilled' ? portfolioResult.value : null);
+        setCallPrepOverview(propertyOverview);
+
+        const portfolioOverview = await portfolioOverviewPromise;
+        if (cancelled) return;
+        setCallPrepPortfolioOverview(portfolioOverview);
 
         const analyticsEntries = await Promise.all(CALL_PREP_PERIODS.map(async (period) => {
           const range = getCallPrepWindowRange(period.days);
@@ -5933,6 +5938,8 @@ const DashboardApp = ({
   const callPrepSpendRows = useMemo(() => (
     buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId, excludedMarketingSpendKeySet)
   ), [callPrepOverview, callPrepSixtyDayRange, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
+  const callPrepMetricsLoading = callPrepLoading && !callPrepOverview;
+  const callPrepPortfolioLoading = callPrepLoading && !callPrepPortfolioOverview;
   const heatmapTotals = heatmapSummaryData?.totals || {};
   const trackerHealth = heatmapTrackerHealthData?.health || {};
   const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
@@ -7822,9 +7829,9 @@ const DashboardApp = ({
             return (
               <tr key={`${section.days}-${row.key}`}>
                 <td>{row.label}</td>
-                <td>{renderMetricValue(callPrepLoading, formatCallPrepValue(currentValue, row.format))}</td>
+                <td>{renderMetricValue(callPrepMetricsLoading, formatCallPrepValue(currentValue, row.format))}</td>
                 <td>
-                  {callPrepLoading ? (
+                  {callPrepMetricsLoading ? (
                     <MiniMetricLoader />
                   ) : (
                     <span className={`analytics-pill analytics-pill--${getDeltaTone(delta)}`}>
@@ -7832,7 +7839,7 @@ const DashboardApp = ({
                     </span>
                   )}
                 </td>
-                <td>{renderMetricValue(callPrepLoading, section.portfolioAverage ? formatCallPrepValue(portfolioValue, row.format) : '—')}</td>
+                <td>{renderMetricValue(callPrepPortfolioLoading, section.portfolioAverage ? formatCallPrepValue(portfolioValue, row.format) : '—')}</td>
               </tr>
             );
           })}
@@ -7843,9 +7850,11 @@ const DashboardApp = ({
 
   const renderCallPrepAnalyticsTable = (section) => {
     const googleAds = section.analytics?.googleAds;
+    const googleAdsLoadingForSection = callPrepLoading && !googleAds && !section.analytics?.googleAdsError;
     const googleAdsOverviewCurrent = googleAds?.Overview?.current || {};
     const googleAdsOverviewDelta = googleAds?.Overview?.delta || {};
     const ga4 = section.analytics?.ga4;
+    const ga4LoadingForSection = callPrepLoading && !ga4 && !section.analytics?.ga4Error;
     const ga4Current = ga4?.Acquisition?.totals?.current || {};
     const ga4Previous = ga4?.Acquisition?.totals?.previous || {};
     const ga4EventCurrent = ga4?.Conversion?.totals?.currentEventCount;
@@ -7857,9 +7866,9 @@ const DashboardApp = ({
         <div className="call-prep-mini-panel">
           <div className="reports-panel__eyebrow">Google Ads</div>
           <div className="call-prep-stat-grid">
-            <div><span>Clicks</span><strong>{renderMetricValue(callPrepLoading, formatNumber(googleAdsOverviewCurrent.clicks))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.clicks, 1)} vs prior`}</small></div>
-            <div><span>Conversions</span><strong>{renderMetricValue(callPrepLoading, formatNumber(googleAdsOverviewCurrent.conversions, 1))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.conversions, 1)} vs prior`}</small></div>
-            <div><span>Spend</span><strong>{renderMetricValue(callPrepLoading, formatCurrency(googleAdsOverviewCurrent.cost))}</strong><small>{callPrepLoading ? 'Loading...' : `CTR ${formatPercent(googleAdsOverviewCurrent.ctr, 1)}`}</small></div>
+            <div><span>Clicks</span><strong>{renderMetricValue(googleAdsLoadingForSection, formatNumber(googleAdsOverviewCurrent.clicks))}</strong><small>{googleAdsLoadingForSection ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.clicks, 1)} vs prior`}</small></div>
+            <div><span>Conversions</span><strong>{renderMetricValue(googleAdsLoadingForSection, formatNumber(googleAdsOverviewCurrent.conversions, 1))}</strong><small>{googleAdsLoadingForSection ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.conversions, 1)} vs prior`}</small></div>
+            <div><span>Spend</span><strong>{renderMetricValue(googleAdsLoadingForSection, formatCurrency(googleAdsOverviewCurrent.cost))}</strong><small>{googleAdsLoadingForSection ? 'Loading...' : `CTR ${formatPercent(googleAdsOverviewCurrent.ctr, 1)}`}</small></div>
           </div>
           <div className="reports-list">
             {(googleAds?.ConversionActions?.items || []).slice(0, 3).map((item) => (
@@ -7875,9 +7884,9 @@ const DashboardApp = ({
         <div className="call-prep-mini-panel">
           <div className="reports-panel__eyebrow">GA4</div>
           <div className="call-prep-stat-grid">
-            <div><span>Sessions</span><strong>{renderMetricValue(callPrepLoading, formatNumber(ga4Current.sessions))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(percentChange(ga4Current.sessions, ga4Previous.sessions), 1)} vs prior`}</small></div>
-            <div><span>Engagement</span><strong>{renderMetricValue(callPrepLoading, formatPercent(ga4Current.engagementRate, 1))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatNumber(ga4Current.engagedSessions)} engaged sessions`}</small></div>
-            <div><span>Key Events</span><strong>{renderMetricValue(callPrepLoading, formatNumber(ga4EventCurrent))}</strong><small>{callPrepLoading ? 'Loading...' : `${formatSignedPercent(percentChange(ga4EventCurrent, ga4EventPrevious), 1)} vs prior`}</small></div>
+            <div><span>Sessions</span><strong>{renderMetricValue(ga4LoadingForSection, formatNumber(ga4Current.sessions))}</strong><small>{ga4LoadingForSection ? 'Loading...' : `${formatSignedPercent(percentChange(ga4Current.sessions, ga4Previous.sessions), 1)} vs prior`}</small></div>
+            <div><span>Engagement</span><strong>{renderMetricValue(ga4LoadingForSection, formatPercent(ga4Current.engagementRate, 1))}</strong><small>{ga4LoadingForSection ? 'Loading...' : `${formatNumber(ga4Current.engagedSessions)} engaged sessions`}</small></div>
+            <div><span>Key Events</span><strong>{renderMetricValue(ga4LoadingForSection, formatNumber(ga4EventCurrent))}</strong><small>{ga4LoadingForSection ? 'Loading...' : `${formatSignedPercent(percentChange(ga4EventCurrent, ga4EventPrevious), 1)} vs prior`}</small></div>
           </div>
           <div className="reports-list">
             {topGa4Event && (
