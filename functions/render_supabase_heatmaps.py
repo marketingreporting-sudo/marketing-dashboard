@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import hashlib
+import os
 import tempfile
 import subprocess
 import sys
@@ -69,6 +70,79 @@ SCREENSHOT_CAPTURE_VIEWPORTS = {
     "desktop": {"width": 1440, "height": 1200},
     "tablet": {"width": 834, "height": 1112},
     "mobile": {"width": 390, "height": 844},
+}
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+SITE_AUDIT_AI_MODEL = os.environ.get("SITE_AUDIT_OPENAI_MODEL", "gpt-4.1-mini")
+SITE_AUDIT_AI_MAX_PAGES = _env_int("SITE_AUDIT_AI_MAX_PAGES", 20, minimum=1, maximum=200)
+SITE_AUDIT_AI_MAX_SCREENSHOTS_PER_PAGE = _env_int("SITE_AUDIT_AI_MAX_SCREENSHOTS_PER_PAGE", 2, minimum=1, maximum=3)
+SITE_AUDIT_AI_TIMEOUT_SECONDS = _env_int("SITE_AUDIT_AI_TIMEOUT_SECONDS", 120, minimum=15, maximum=600)
+SITE_AUDIT_AI_PROMPT_VERSION = "redstone-site-audit-v1"
+SITE_AUDIT_JOB_BATCH_LIMIT = _env_int("SITE_AUDIT_JOB_BATCH_LIMIT", 3, minimum=1, maximum=25)
+
+SITE_AUDIT_RUBRIC = [
+    {"key": "page_load_desktop_mobile", "label": "All pages load correctly on desktop and mobile"},
+    {"key": "application_flow_visible", "label": "Application test: application path is visible and appears usable"},
+    {"key": "floor_plan_availability", "label": "Floor plan availability is visible and appears current"},
+    {"key": "pricing_accuracy", "label": "Pricing is visible, internally consistent, and not stale"},
+    {"key": "homepage_cta", "label": "Homepage includes a clear call to action"},
+    {"key": "homepage_value_add", "label": "Homepage includes a clear value-add"},
+    {"key": "special_offers_current", "label": "Special offers are current when present"},
+    {"key": "leasing_verbiage", "label": "Leasing verbiage is correct and confidence-building"},
+    {"key": "contact_info_hours", "label": "Contact info and hours of operation are visible and correct-looking"},
+]
+
+SITE_AUDIT_AI_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "path": {"type": "string"},
+        "score": {"type": "number"},
+        "summary": {"type": "string"},
+        "checklist": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "key": {"type": "string"},
+                    "label": {"type": "string"},
+                    "status": {"type": "string", "enum": ["pass", "warn", "fail", "not_verifiable"]},
+                    "score": {"type": "number"},
+                    "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "evidence": {"type": "string"},
+                    "recommendation": {"type": "string"},
+                },
+                "required": ["key", "label", "status", "score", "severity", "evidence", "recommendation"],
+            },
+        },
+        "issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "rubric_key": {"type": "string"},
+                    "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "issue": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "recommendation": {"type": "string"},
+                },
+                "required": ["rubric_key", "severity", "issue", "evidence", "recommendation"],
+            },
+        },
+        "recommendations": {"type": "array", "items": {"type": "string"}},
+        "priority_actions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["path", "score", "summary", "checklist", "issues", "recommendations", "priority_actions"],
 }
 
 
@@ -3720,7 +3794,636 @@ def _date_strings_with_possible_expiry(values: list[Any]) -> list[str]:
     return stale
 
 
-def _audit_page(page: dict[str, Any]) -> dict[str, Any]:
+def _truthy(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return _normalize_text(value, 40).lower() not in {"", "0", "false", "no", "off", "disabled"}
+
+
+def _clamp_score(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, min(100.0, number)), 1)
+
+
+def _dedupe_texts(values: list[Any], *, limit: int = 40) -> list[str]:
+    seen: set[str] = set()
+    results: list[str] = []
+    for value in values:
+        text = _normalize_text(value, 500)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        results.append(text)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if value in (None, ""):
+        return []
+    return [value]
+
+
+def _json_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _find_nested_value(source: Any, keys: tuple[str, ...]) -> Any:
+    if not isinstance(source, dict):
+        return None
+    stack = [source]
+    while stack:
+        current = stack.pop()
+        if not isinstance(current, dict):
+            continue
+        for key in keys:
+            if key in current and current[key] not in (None, ""):
+                return current[key]
+        for value in current.values():
+            if isinstance(value, dict):
+                stack.append(value)
+            elif isinstance(value, list):
+                stack.extend(item for item in value if isinstance(item, dict))
+    return None
+
+
+def _get_price_range_from_attrs(source: Any, min_key: str = "Min", max_key: str = "Max") -> tuple[float | None, float | None]:
+    attrs = source.get("@attributes") if isinstance(source, dict) else None
+    if not isinstance(attrs, dict):
+        attrs = source if isinstance(source, dict) else {}
+    return _to_float(attrs.get(min_key)), _to_float(attrs.get(max_key))
+
+
+def _floorplan_price_min(plan: dict[str, Any]) -> float | None:
+    rent = plan.get("MarketRent") or plan.get("marketRent") or plan.get("Rent")
+    if not isinstance(rent, dict):
+        return None
+    min_price, max_price = _get_price_range_from_attrs(rent, "Min", "Max")
+    return min_price if min_price is not None else max_price
+
+
+def _unit_spaces(unit: dict[str, Any]) -> list[dict[str, Any]]:
+    unit_space = unit.get("UnitSpace") if isinstance(unit, dict) else None
+    if isinstance(unit_space, dict):
+        spaces = unit_space.get("Space")
+        return [item for item in _ensure_list(spaces) if isinstance(item, dict)]
+    return [unit] if isinstance(unit, dict) else []
+
+
+def _unit_price(space: dict[str, Any]) -> float | None:
+    rent = space.get("Rent") if isinstance(space, dict) else None
+    if not isinstance(rent, dict):
+        return None
+    min_price, max_price = _get_price_range_from_attrs(rent, "MinRent", "MaxRent")
+    return min_price if min_price is not None else max_price
+
+
+def _is_available_unit(unit: dict[str, Any]) -> bool:
+    status_value = _find_nested_value(
+        unit,
+        ("availabilityStatus", "status", "leaseStatus", "Availability", "Status", "Available", "IsAvailable"),
+    )
+    normalized = _normalize_text(status_value, 80).lower()
+    return "available" in normalized or normalized == "true"
+
+
+def _extract_special_items(snapshot: Any) -> list[dict[str, Any]]:
+    if isinstance(snapshot, dict) and isinstance(snapshot.get("specials"), list):
+        return [item for item in snapshot["specials"] if isinstance(item, dict)]
+    specials_root = snapshot.get("specials") if isinstance(snapshot, dict) else None
+    if isinstance(specials_root, dict):
+        property_specials = specials_root.get("propertySpecials")
+        grouped = property_specials.get("special") if isinstance(property_specials, dict) else None
+        if isinstance(grouped, dict):
+            return [item for item in grouped.values() if isinstance(item, dict)]
+        if isinstance(grouped, list):
+            return [item for item in grouped if isinstance(item, dict)]
+    return []
+
+
+def _get_special_title(special: dict[str, Any]) -> str:
+    return _normalize_text(
+        _find_nested_value(
+            special,
+            ("specialName", "specialTitle", "marketingName", "headline", "title", "name", "label", "incentiveName"),
+        ),
+        160,
+    ) or "Untitled special"
+
+
+def _fetch_singleton_property_row(
+    table_name: str,
+    property_id: str,
+    *,
+    access_token: str | None = None,
+) -> dict[str, Any] | None:
+    rows = _fetch_json(
+        table_name,
+        [
+            ("select", "*"),
+            ("property_id", f"eq.{property_id}"),
+            ("limit", "1"),
+        ],
+        headers=_supabase_anon_headers(access_token) if access_token else None,
+    )
+    return rows[0] if rows else None
+
+
+def _get_entrata_site_audit_context(
+    property_id: str,
+    *,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    try:
+        pricing_row = _fetch_singleton_property_row("property_availability_snapshots", property_id, access_token=access_token)
+    except Exception as error:
+        pricing_row = {"error": str(error)}
+    try:
+        specials_row = _fetch_singleton_property_row("property_specials_current", property_id, access_token=access_token)
+    except Exception as error:
+        specials_row = {"error": str(error)}
+
+    floorplans = [item for item in _ensure_list((pricing_row or {}).get("floorplans")) if isinstance(item, dict)]
+    units = [item for item in _ensure_list((pricing_row or {}).get("units")) if isinstance(item, dict)]
+    unit_spaces = [space for unit in units for space in _unit_spaces(unit)]
+    priced_values = [value for value in (_unit_price(space) for space in unit_spaces) if value is not None]
+    if not priced_values:
+        priced_values = [value for value in (_floorplan_price_min(plan) for plan in floorplans) if value is not None]
+    available_units = [unit for unit in units if _is_available_unit(unit)]
+    special_items = _extract_special_items(specials_row or {})
+    special_titles = [_get_special_title(item) for item in special_items]
+
+    min_price = min(priced_values) if priced_values else None
+    max_price = max(priced_values) if priced_values else None
+    application_signals = [
+        "apply",
+        "application",
+        "online leasing",
+        "lease now",
+    ]
+    return {
+        "pricing": {
+            "hasSnapshot": bool(pricing_row and not pricing_row.get("error")),
+            "lastSyncedAt": (pricing_row or {}).get("last_synced_at"),
+            "floorplanCount": int((pricing_row or {}).get("floorplan_count") or len(floorplans) or 0),
+            "unitCount": int((pricing_row or {}).get("unit_count") or len(units) or 0),
+            "availableUnitCount": len(available_units),
+            "minPrice": min_price,
+            "maxPrice": max_price,
+            "availabilityUrl": (pricing_row or {}).get("availability_url"),
+            "snapshotHash": (pricing_row or {}).get("snapshot_hash"),
+            "error": (pricing_row or {}).get("error"),
+        },
+        "specials": {
+            "hasSnapshot": bool(specials_row and not specials_row.get("error")),
+            "lastSyncedAt": (specials_row or {}).get("last_synced_at"),
+            "specialCount": int((specials_row or {}).get("special_count") or len(special_items) or 0),
+            "titles": special_titles[:8],
+            "specialsHash": (specials_row or {}).get("specials_hash"),
+            "error": (specials_row or {}).get("error"),
+        },
+        "applicationFlow": {
+            "source": "website page snapshot CTA and Entrata funnel proxy",
+            "expectedSignals": application_signals,
+        },
+    }
+
+
+def _site_audit_ai_is_configured() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY")) and _truthy(os.environ.get("SITE_AUDIT_AI_ENABLED"), True)
+
+
+def _site_audit_ai_system_prompt() -> str:
+    rubric_lines = "\n".join(f"- {item['key']}: {item['label']}" for item in SITE_AUDIT_RUBRIC)
+    return (
+        "You are Redstone Residential's website QA auditor for apartment property websites. "
+        "Audit only observable evidence from the supplied page metadata and screenshots. "
+        "Use Entrata truth data as the source of record for pricing, floor plan availability, current specials, "
+        "and application-flow expectations. Use the screenshots to judge whether those facts are visible, clear, "
+        "and consistent to a resident. Do not invent facts that are not visible or present in Entrata truth data. "
+        "If pricing, availability, application function, contact hours, or offer currency cannot be verified from "
+        "the supplied evidence, mark that checklist item not_verifiable and explain exactly what would need to be "
+        "checked manually. Score each checklist item from 0 to 100, and reserve scores below 70 for concrete "
+        "visible or data-backed problems. Produce concise, actionable recommendations.\n\n"
+        f"Audit rubric:\n{rubric_lines}\n\n"
+        "Calibration examples:\n"
+        "- If Entrata has available units and pricing but the floor plans/pricing page screenshot does not show pricing "
+        "or availability, mark floor_plan_availability or pricing_accuracy warn/fail depending on severity.\n"
+        "- If a homepage has a single generic hero line and no resident benefit, mark homepage_value_add fail even if "
+        "the design looks polished.\n"
+        "- If specials exist in Entrata but the screenshot shows no matching offer, mark special_offers_current warn "
+        "and recommend aligning site offer copy with Entrata.\n"
+        "- If the screenshot clearly shows Apply Now, Lease Now, Start Application, or equivalent CTAs, application_flow_visible "
+        "can pass visually, but note that a true transaction test still requires manual or browser-flow QA."
+    )
+
+
+def _site_audit_page_context(
+    page: dict[str, Any],
+    deterministic_result: dict[str, Any],
+    entrata_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "pageId": page.get("id"),
+        "path": page.get("path") or "/",
+        "url": page.get("url") or "",
+        "title": page.get("title") or "",
+        "metaDescription": page.get("metaDescription") or "",
+        "headings": (page.get("headings") if isinstance(page.get("headings"), list) else [])[:20],
+        "ctas": (page.get("ctas") if isinstance(page.get("ctas"), list) else [])[:20],
+        "promoDateStrings": (page.get("promoDateStrings") if isinstance(page.get("promoDateStrings"), list) else [])[:20],
+        "pageStructure": page.get("pageStructure") if isinstance(page.get("pageStructure"), dict) else {},
+        "deterministicAudit": {
+            "score": deterministic_result.get("score"),
+            "issues": deterministic_result.get("issues") or [],
+            "recommendations": deterministic_result.get("recommendations") or [],
+            "categoryScores": deterministic_result.get("categoryScores") or {},
+        },
+        "entrataTruthData": entrata_context or {},
+    }
+
+
+def _site_audit_screenshot_image_inputs(page: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    content: list[dict[str, Any]] = []
+    screenshot_refs: list[dict[str, Any]] = []
+    screenshots = page.get("screenshots") if isinstance(page.get("screenshots"), list) else []
+    for screenshot in screenshots[: max(1, SITE_AUDIT_AI_MAX_SCREENSHOTS_PER_PAGE)]:
+        if not isinstance(screenshot, dict):
+            continue
+        storage_bucket = _normalize_text(screenshot.get("storageBucket") or screenshot.get("storage_bucket"), 160)
+        storage_path = _normalize_text(screenshot.get("storagePath") or screenshot.get("storage_path"), 1024)
+        if not storage_bucket or not storage_path:
+            continue
+        signed = _create_signed_read_url(storage_bucket, storage_path, expires_in=3600)
+        signed_path = signed.get("signedURL") or signed.get("signedUrl") or signed.get("signed_url") or signed.get("url")
+        preview_url = _resolve_storage_signed_url(signed_path)
+        if not preview_url:
+            continue
+        device_type = _normalize_text(screenshot.get("deviceType") or screenshot.get("device_type") or "unknown", 40)
+        content.append(
+            {
+                "type": "input_text",
+                "text": (
+                    f"Screenshot for {device_type} viewport. Captured at "
+                    f"{screenshot.get('capturedAt') or screenshot.get('captured_at') or 'unknown time'}."
+                ),
+            }
+        )
+        content.append({"type": "input_image", "image_url": preview_url})
+        screenshot_refs.append(
+            {
+                "id": screenshot.get("id"),
+                "deviceType": device_type,
+                "capturedAt": screenshot.get("capturedAt") or screenshot.get("captured_at"),
+                "width": screenshot.get("width"),
+                "height": screenshot.get("height"),
+                "contentHash": screenshot.get("contentHash") or screenshot.get("content_hash"),
+            }
+        )
+    return content, screenshot_refs
+
+
+def _site_audit_cache_key(
+    page_context: dict[str, Any],
+    screenshot_refs: list[dict[str, Any]],
+) -> tuple[str, str, str]:
+    screenshot_hash = _json_hash(
+        [
+            {
+                "id": item.get("id"),
+                "deviceType": item.get("deviceType"),
+                "contentHash": item.get("contentHash"),
+                "capturedAt": item.get("capturedAt"),
+            }
+            for item in screenshot_refs
+        ]
+    )
+    context_hash = _json_hash(page_context)
+    cache_key = _json_hash(
+        {
+            "model": SITE_AUDIT_AI_MODEL,
+            "promptVersion": SITE_AUDIT_AI_PROMPT_VERSION,
+            "contextHash": context_hash,
+            "screenshotHash": screenshot_hash,
+        }
+    )
+    return cache_key, context_hash, screenshot_hash
+
+
+def _get_cached_ai_page_audit(cache_key: str) -> dict[str, Any] | None:
+    try:
+        rows = _fetch_json(
+            "property_site_audit_ai_cache",
+            [
+                ("select", "*"),
+                ("cache_key", f"eq.{cache_key}"),
+                ("limit", "1"),
+            ],
+        )
+    except Exception:
+        return None
+    if not rows:
+        return None
+    cached = rows[0].get("ai_result") if isinstance(rows[0], dict) else None
+    return cached if isinstance(cached, dict) else None
+
+
+def _save_cached_ai_page_audit(
+    *,
+    cache_key: str,
+    property_id: str,
+    site_id: str | None,
+    page_id: str | None,
+    path: str,
+    context_hash: str,
+    screenshot_hash: str,
+    ai_result: dict[str, Any],
+) -> None:
+    row = {
+        "cache_key": cache_key,
+        "property_id": property_id,
+        "site_id": site_id,
+        "page_id": page_id,
+        "path": path,
+        "model": SITE_AUDIT_AI_MODEL,
+        "prompt_version": SITE_AUDIT_AI_PROMPT_VERSION,
+        "page_context_hash": context_hash,
+        "screenshot_hash": screenshot_hash,
+        "score": ai_result.get("score"),
+        "ai_result": ai_result,
+        "raw_data": {
+            "rubric": SITE_AUDIT_RUBRIC,
+            "cachedAt": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    try:
+        _json_request(
+            "property_site_audit_ai_cache",
+            [("on_conflict", "cache_key")],
+            method="POST",
+            payload=row,
+            headers={**_supabase_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+    except Exception:
+        return
+
+
+def _extract_openai_output_text(response_payload: dict[str, Any]) -> str:
+    output_text = _normalize_text(response_payload.get("output_text"), 2_000_000)
+    if output_text:
+        return output_text
+    output = response_payload.get("output") if isinstance(response_payload.get("output"), list) else []
+    text_parts: list[str] = []
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content") if isinstance(item.get("content"), list) else []
+        for content_item in content:
+            if not isinstance(content_item, dict):
+                continue
+            if content_item.get("type") in {"output_text", "text"} and content_item.get("text"):
+                text_parts.append(str(content_item.get("text")))
+    return "\n".join(text_parts).strip()
+
+
+def _call_openai_site_audit(content: list[dict[str, Any]]) -> dict[str, Any]:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+    payload = {
+        "model": SITE_AUDIT_AI_MODEL,
+        "input": [
+            {"role": "system", "content": _site_audit_ai_system_prompt()},
+            {"role": "user", "content": content},
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "website_audit_page",
+                "strict": True,
+                "schema": SITE_AUDIT_AI_SCHEMA,
+            }
+        },
+    }
+    request = Request(
+        "https://api.openai.com/v1/responses",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+    )
+    with urlopen(request, timeout=SITE_AUDIT_AI_TIMEOUT_SECONDS) as response:
+        response_body = json.loads(response.read().decode("utf-8"))
+    output_text = _extract_openai_output_text(response_body)
+    if not output_text:
+        raise RuntimeError("OpenAI did not return audit JSON.")
+    try:
+        return json.loads(output_text)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("OpenAI returned invalid audit JSON.") from error
+
+
+def _normalize_ai_page_result(raw_result: dict[str, Any], page: dict[str, Any]) -> dict[str, Any]:
+    checklist = []
+    checklist_recommendations = []
+    for item in raw_result.get("checklist") if isinstance(raw_result.get("checklist"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        normalized_item = {
+            "key": _normalize_text(item.get("key"), 80),
+            "label": _normalize_text(item.get("label"), 180),
+            "status": _normalize_text(item.get("status"), 40) or "not_verifiable",
+            "score": _clamp_score(item.get("score")),
+            "severity": _normalize_text(item.get("severity"), 40) or "low",
+            "evidence": _normalize_text(item.get("evidence"), 500),
+            "recommendation": _normalize_text(item.get("recommendation"), 500),
+        }
+        checklist.append(normalized_item)
+        if normalized_item["recommendation"] and normalized_item["status"] != "pass":
+            checklist_recommendations.append(normalized_item["recommendation"])
+    issues = []
+    for item in raw_result.get("issues") if isinstance(raw_result.get("issues"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        issues.append(
+            {
+                "rubricKey": _normalize_text(item.get("rubric_key") or item.get("rubricKey"), 80),
+                "severity": _normalize_text(item.get("severity"), 40) or "medium",
+                "issue": _normalize_text(item.get("issue"), 500),
+                "evidence": _normalize_text(item.get("evidence"), 500),
+                "recommendation": _normalize_text(item.get("recommendation"), 500),
+            }
+        )
+    return {
+        "path": _normalize_text(raw_result.get("path") or page.get("path") or "/", 500),
+        "score": _clamp_score(raw_result.get("score")),
+        "summary": _normalize_text(raw_result.get("summary"), 700),
+        "checklist": checklist,
+        "issues": [item for item in issues if item.get("issue")],
+        "recommendations": _dedupe_texts(
+            [
+                *checklist_recommendations,
+                *([item.get("recommendation") for item in issues] if issues else []),
+                *(raw_result.get("recommendations") if isinstance(raw_result.get("recommendations"), list) else []),
+            ],
+            limit=20,
+        ),
+        "priorityActions": _dedupe_texts(raw_result.get("priority_actions") if isinstance(raw_result.get("priority_actions"), list) else [], limit=10),
+    }
+
+
+def _merge_ai_page_audit_result(page_result: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, Any]:
+    ai_issues = [
+        item.get("issue")
+        for item in ai_result.get("issues", [])
+        if isinstance(item, dict) and item.get("issue")
+    ]
+    ai_recommendations = ai_result.get("recommendations") if isinstance(ai_result.get("recommendations"), list) else []
+    return {
+        **page_result,
+        "score": _clamp_score(ai_result.get("score")),
+        "issues": _dedupe_texts([*(page_result.get("issues") or []), *ai_issues], limit=30),
+        "recommendations": _dedupe_texts([*(page_result.get("recommendations") or []), *ai_recommendations], limit=30),
+        "aiAudit": ai_result,
+        "aiScore": _clamp_score(ai_result.get("score")),
+        "aiSummary": ai_result.get("summary") or "",
+    }
+
+
+def _audit_page_with_openai(
+    page: dict[str, Any],
+    deterministic_result: dict[str, Any],
+    *,
+    property_id: str,
+    site_id: str | None,
+    entrata_context: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    image_inputs, screenshot_refs = _site_audit_screenshot_image_inputs(page)
+    if not image_inputs:
+        return None, {"status": "skipped", "reason": "No screenshots available for AI audit."}
+    context = _site_audit_page_context(page, deterministic_result, entrata_context)
+    cache_key, context_hash, screenshot_hash = _site_audit_cache_key(context, screenshot_refs)
+    cached_result = _get_cached_ai_page_audit(cache_key)
+    if cached_result:
+        cached_result = {**cached_result, "cacheHit": True}
+        return _merge_ai_page_audit_result(deterministic_result, cached_result), {
+            "status": "cached",
+            "screenshotCount": len(screenshot_refs),
+            "cacheKey": cache_key,
+        }
+    content = [
+        {
+            "type": "input_text",
+            "text": (
+                "Audit this single property website page using the standardized website audit report. "
+                "Return JSON only in the required schema.\n\n"
+                f"Page context:\n{json.dumps(context, ensure_ascii=False)}"
+            ),
+        },
+        *image_inputs,
+    ]
+    raw_result = _call_openai_site_audit(content)
+    ai_result = _normalize_ai_page_result(raw_result, page)
+    ai_result["screenshotsAudited"] = screenshot_refs
+    ai_result["cacheHit"] = False
+    _save_cached_ai_page_audit(
+        cache_key=cache_key,
+        property_id=property_id,
+        site_id=site_id,
+        page_id=page.get("id"),
+        path=page.get("path") or "/",
+        context_hash=context_hash,
+        screenshot_hash=screenshot_hash,
+        ai_result=ai_result,
+    )
+    return _merge_ai_page_audit_result(deterministic_result, ai_result), {
+        "status": "ok",
+        "screenshotCount": len(screenshot_refs),
+        "cacheKey": cache_key,
+    }
+
+
+def _apply_ai_site_audit(
+    pages: list[dict[str, Any]],
+    page_results: list[dict[str, Any]],
+    *,
+    property_id: str,
+    site_id: str | None,
+    include_ai: bool,
+    entrata_context: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    meta = {
+        "enabled": bool(include_ai),
+        "configured": _site_audit_ai_is_configured(),
+        "status": "disabled",
+        "model": SITE_AUDIT_AI_MODEL,
+        "pagesRequested": 0,
+        "pagesScored": 0,
+        "pagesSkipped": 0,
+        "cacheHits": 0,
+        "errors": [],
+        "rubric": SITE_AUDIT_RUBRIC,
+    }
+    if not include_ai:
+        meta["status"] = "not_requested"
+        return page_results, meta
+    if not _site_audit_ai_is_configured():
+        meta["status"] = "not_configured"
+        return page_results, meta
+
+    next_results = list(page_results)
+    page_lookup = {str(result.get("pageId") or result.get("path") or index): result for index, result in enumerate(next_results)}
+    pages_to_audit = pages[: max(1, SITE_AUDIT_AI_MAX_PAGES)]
+    meta["pagesRequested"] = len(pages_to_audit)
+    for page_index, page in enumerate(pages_to_audit):
+        page_key = str(page.get("id") or page.get("path") or "")
+        deterministic_result = page_lookup.get(page_key)
+        if not deterministic_result:
+            deterministic_result = next_results[page_index] if page_index < len(next_results) else _audit_page(page)
+        try:
+            merged_result, page_meta = _audit_page_with_openai(
+                page,
+                deterministic_result,
+                property_id=property_id,
+                site_id=site_id,
+                entrata_context=entrata_context,
+            )
+            if merged_result is None:
+                meta["pagesSkipped"] += 1
+                continue
+            for index, result in enumerate(next_results):
+                if result is deterministic_result or str(result.get("pageId") or result.get("path") or "") == page_key:
+                    next_results[index] = merged_result
+                    break
+            meta["pagesScored"] += 1
+            if page_meta.get("status") == "cached":
+                meta["cacheHits"] += 1
+            meta.setdefault("pageMeta", []).append({"path": page.get("path"), **page_meta})
+        except Exception as error:
+            meta["errors"].append({"path": page.get("path") or "/", "error": str(error)})
+
+    if meta["pagesScored"]:
+        meta["status"] = "ok" if not meta["errors"] else "partial"
+    elif meta["errors"]:
+        meta["status"] = "error"
+    else:
+        meta["status"] = "skipped"
+    return next_results, meta
+
+
+def _audit_page(page: dict[str, Any], entrata_context: dict[str, Any] | None = None) -> dict[str, Any]:
     title = _normalize_text(page.get("title"), 220)
     meta = _normalize_text(page.get("metaDescription"), 320)
     headings = page.get("headings") if isinstance(page.get("headings"), list) else []
@@ -3765,6 +4468,45 @@ def _audit_page(page: dict[str, Any]) -> dict[str, Any]:
     if int(structure.get("imageCount") or 0) > 35:
         recommendations.append("Review image weight and lazy-loading on this page.")
 
+    safe_entrata = entrata_context if isinstance(entrata_context, dict) else {}
+    pricing_context = safe_entrata.get("pricing") if isinstance(safe_entrata.get("pricing"), dict) else {}
+    specials_context = safe_entrata.get("specials") if isinstance(safe_entrata.get("specials"), dict) else {}
+    page_path = _normalize_text(page.get("path") or page.get("url"), 500).lower()
+    page_text = " ".join(
+        [
+            title,
+            meta,
+            " ".join(_normalize_text(item.get("text") or item.get("label") or item, 180) for item in headings if isinstance(item, (dict, str))),
+            " ".join(_normalize_text(item.get("label") if isinstance(item, dict) else item, 180) for item in ctas),
+        ]
+    ).lower()
+    is_floorplan_page = any(token in page_path or token in page_text for token in ("floor", "availability", "pricing", "apartment"))
+    is_homepage = page.get("path") in {"/", "", None}
+    has_apply_cta = any(
+        token in _normalize_text(cta.get("label") if isinstance(cta, dict) else cta, 180).lower()
+        for cta in ctas
+        for token in ("apply", "application", "lease now")
+    )
+    if has_apply_cta:
+        recommendations.append("Use a browser-flow QA pass to confirm the application CTA completes successfully.")
+    elif is_homepage or is_floorplan_page:
+        issues.append("Application flow CTA is not clearly visible in captured page metadata.")
+        recommendations.append("Add or verify a clear Apply Now / Start Application CTA on high-intent pages.")
+    if pricing_context.get("hasSnapshot"):
+        if is_floorplan_page and pricing_context.get("minPrice") is not None and "$" not in page_text:
+            issues.append("Entrata pricing exists, but pricing is not visible in captured floor plan page metadata.")
+            recommendations.append("Show current starting rent or price range on the floor plan / availability page.")
+        if is_floorplan_page and int(pricing_context.get("availableUnitCount") or 0) > 0 and not any(token in page_text for token in ("available", "availability", "unit")):
+            issues.append("Entrata has available units, but availability language is not visible in captured floor plan page metadata.")
+            recommendations.append("Surface live availability count or availability status near floor plan CTAs.")
+    else:
+        recommendations.append("Sync Entrata availability/pricing before relying on pricing and floor plan audit checks.")
+    if specials_context.get("hasSnapshot") and int(specials_context.get("specialCount") or 0) > 0:
+        special_titles = [_normalize_text(item, 180).lower() for item in specials_context.get("titles") or []]
+        if special_titles and not any(title_fragment and title_fragment in page_text for title_fragment in special_titles):
+            issues.append("Entrata has active specials, but matching special offer copy is not visible in captured page metadata.")
+            recommendations.append("Align website special offer copy with current Entrata specials.")
+
     h1_count = sum(1 for item in headings if isinstance(item, dict) and item.get("level") == "h1")
     h2_count = sum(1 for item in headings if isinstance(item, dict) and item.get("level") == "h2")
     link_count = int(structure.get("linkCount") or len(links) or 0)
@@ -3782,8 +4524,11 @@ def _audit_page(page: dict[str, Any]) -> dict[str, Any]:
     cta_score -= 45 if not ctas else 0
     cta_score -= 15 if len(ctas) == 1 else 0
     cta_score -= 10 if form_count == 0 and not any("apply" in _normalize_text(cta.get("label") if isinstance(cta, dict) else cta, 160).lower() for cta in ctas) else 0
+    cta_score -= 15 if (is_homepage or is_floorplan_page) and not has_apply_cta else 0
 
     stale_date_score = max(0, 100 - min(80, len(stale_dates) * 25))
+    if specials_context.get("hasSnapshot") and int(specials_context.get("specialCount") or 0) > 0 and special_titles and not any(title_fragment and title_fragment in page_text for title_fragment in special_titles):
+        stale_date_score = max(0, stale_date_score - 20)
     internal_link_score = max(0, 100 - min(70, len(suspicious_links) * 18))
 
     page_structure_score = 100
@@ -3841,10 +4586,21 @@ def run_site_audit_summary(
     *,
     site_key: str | None = None,
     access_token: str | None = None,
+    include_ai: bool = True,
 ) -> dict[str, Any]:
     pages_payload = get_site_audit_pages_summary(property_id, site_key=site_key, access_token=access_token)
     pages = pages_payload.get("pages") if isinstance(pages_payload.get("pages"), list) else []
-    page_results = [_audit_page(page) for page in pages]
+    site_id = _fetch_site_id_filter(site_key)
+    entrata_context = _get_entrata_site_audit_context(property_id, access_token=access_token)
+    page_results = [_audit_page(page, entrata_context) for page in pages]
+    page_results, ai_audit_meta = _apply_ai_site_audit(
+        pages,
+        page_results,
+        property_id=property_id,
+        site_id=site_id,
+        include_ai=include_ai,
+        entrata_context=entrata_context,
+    )
     all_issues = [
         {"path": page.get("path"), "issue": issue}
         for page in page_results
@@ -3869,36 +4625,69 @@ def run_site_audit_summary(
                 recommendations.append(recommendation)
 
     average_score = round(sum(page.get("score", 0) for page in page_results) / len(page_results), 1) if page_results else 0
-    category_keys = ["seoBasics", "ctaClarity", "staleDates", "internalLinks", "pageStructure", "performanceProxy"]
-    category_labels = {
-        "seoBasics": "SEO basics",
-        "ctaClarity": "CTA clarity",
-        "staleDates": "Stale dates",
-        "internalLinks": "Internal links",
-        "pageStructure": "Page structure",
-        "performanceProxy": "Performance proxy",
-    }
-    category_scores = {
-        key: round(
-            sum((page.get("categoryScores") or {}).get(key, 0) for page in page_results) / len(page_results),
-            1,
-        )
-        for key in category_keys
-    } if page_results else {key: 0 for key in category_keys}
-    category_weights = {
-        "seoBasics": 0.2,
-        "ctaClarity": 0.2,
-        "staleDates": 0.15,
-        "internalLinks": 0.15,
-        "pageStructure": 0.15,
-        "performanceProxy": 0.15,
-    }
-    weighted_score = round(sum(category_scores[key] * category_weights[key] for key in category_keys), 1) if page_results else 0
-    urgency_score = category_scores["ctaClarity"]
-    freshness_score = category_scores["staleDates"]
-    link_score = category_scores["internalLinks"]
+    ai_pages = [page for page in page_results if isinstance(page.get("aiAudit"), dict)]
+    if ai_pages:
+        checklist_scores: dict[str, list[float]] = {}
+        checklist_labels: dict[str, str] = {}
+        for page in ai_pages:
+            ai_audit = page.get("aiAudit") if isinstance(page.get("aiAudit"), dict) else {}
+            for item in ai_audit.get("checklist") if isinstance(ai_audit.get("checklist"), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                key = _normalize_text(item.get("key"), 80)
+                if not key:
+                    continue
+                checklist_scores.setdefault(key, []).append(_clamp_score(item.get("score")))
+                checklist_labels[key] = item.get("label") or key
+        category_keys = [item["key"] for item in SITE_AUDIT_RUBRIC if item["key"] in checklist_scores]
+        category_labels = {item["key"]: item["label"] for item in SITE_AUDIT_RUBRIC}
+        category_labels.update(checklist_labels)
+        category_scores = {
+            key: round(sum(values) / len(values), 1)
+            for key, values in checklist_scores.items()
+            if values
+        }
+        category_weights = {key: round(1 / len(category_keys), 4) for key in category_keys} if category_keys else {}
+        weighted_score = average_score
+        urgency_components = [
+            category_scores.get("homepage_cta"),
+            category_scores.get("application_flow_visible"),
+            category_scores.get("homepage_value_add"),
+        ]
+        urgency_values = [value for value in urgency_components if value is not None]
+        urgency_score = round(sum(urgency_values) / len(urgency_values), 1) if urgency_values else None
+        freshness_score = category_scores.get("special_offers_current")
+        link_score = category_scores.get("page_load_desktop_mobile")
+    else:
+        category_keys = ["seoBasics", "ctaClarity", "staleDates", "internalLinks", "pageStructure", "performanceProxy"]
+        category_labels = {
+            "seoBasics": "SEO basics",
+            "ctaClarity": "CTA clarity",
+            "staleDates": "Stale dates",
+            "internalLinks": "Internal links",
+            "pageStructure": "Page structure",
+            "performanceProxy": "Performance proxy",
+        }
+        category_scores = {
+            key: round(
+                sum((page.get("categoryScores") or {}).get(key, 0) for page in page_results) / len(page_results),
+                1,
+            )
+            for key in category_keys
+        } if page_results else {key: 0 for key in category_keys}
+        category_weights = {
+            "seoBasics": 0.2,
+            "ctaClarity": 0.2,
+            "staleDates": 0.15,
+            "internalLinks": 0.15,
+            "pageStructure": 0.15,
+            "performanceProxy": 0.15,
+        }
+        weighted_score = round(sum(category_scores[key] * category_weights[key] for key in category_keys), 1) if page_results else 0
+        urgency_score = category_scores["ctaClarity"]
+        freshness_score = category_scores["staleDates"]
+        link_score = category_scores["internalLinks"]
 
-    site_id = _fetch_site_id_filter(site_key)
     row = {
         "property_id": str(property_id),
         "site_id": site_id,
@@ -3928,13 +4717,18 @@ def run_site_audit_summary(
                 "ctaCount": page.get("ctaCount"),
                 "imageCount": page.get("imageCount"),
                 "formCount": page.get("formCount"),
+                "aiScore": page.get("aiScore"),
+                "aiSummary": page.get("aiSummary"),
+                "aiChecklist": (page.get("aiAudit") or {}).get("checklist") if isinstance(page.get("aiAudit"), dict) else [],
             }
             for page in page_results
         ][:100],
         "pages": page_results[:500],
         "raw_data": {
             "siteKey": site_key or "",
-            "algorithm": "redstone-weighted-site-audit-v2",
+            "algorithm": "redstone-ai-vision-site-audit-v1" if ai_pages else "redstone-weighted-site-audit-v2",
+            "aiAudit": ai_audit_meta,
+            "entrataAuditContext": entrata_context,
             "categoryScores": [
                 {
                     "key": key,
@@ -3943,6 +4737,7 @@ def run_site_audit_summary(
                     "weight": category_weights[key],
                 }
                 for key in category_keys
+                if key in category_scores
             ],
             "legacyAverageScore": average_score,
         },
@@ -3955,10 +4750,183 @@ def run_site_audit_summary(
         headers={**_supabase_headers(), "Prefer": "return=representation"},
     )
     audit = rows[0] if isinstance(rows, list) and rows else row
+    rubric_result_count = _save_site_audit_rubric_results(audit, page_results)
+    if isinstance(audit.get("raw_data"), dict):
+        audit["raw_data"] = {**audit["raw_data"], "rubricResultCount": rubric_result_count}
     return {
         "status": "ok",
         "property_id": str(property_id),
         "audit": audit,
+        "staging_only": True,
+    }
+
+
+def _save_site_audit_rubric_results(audit: dict[str, Any], page_results: list[dict[str, Any]]) -> int:
+    audit_id = audit.get("id")
+    if not audit_id:
+        return 0
+    rows = []
+    for page in page_results:
+        ai_audit = page.get("aiAudit") if isinstance(page.get("aiAudit"), dict) else {}
+        checklist = ai_audit.get("checklist") if isinstance(ai_audit.get("checklist"), list) else []
+        for item in checklist:
+            if not isinstance(item, dict):
+                continue
+            rubric_key = _normalize_text(item.get("key"), 80)
+            if not rubric_key:
+                continue
+            rows.append(
+                {
+                    "audit_id": audit_id,
+                    "property_id": audit.get("property_id"),
+                    "site_id": audit.get("site_id"),
+                    "page_id": page.get("pageId"),
+                    "path": page.get("path") or "/",
+                    "rubric_key": rubric_key,
+                    "label": item.get("label") or rubric_key,
+                    "status": item.get("status") or "not_verifiable",
+                    "score": item.get("score"),
+                    "severity": item.get("severity") or "low",
+                    "evidence": item.get("evidence") or "",
+                    "recommendation": item.get("recommendation") or "",
+                    "source": "openai_vision",
+                    "model": SITE_AUDIT_AI_MODEL,
+                    "prompt_version": SITE_AUDIT_AI_PROMPT_VERSION,
+                    "raw_data": {
+                        "aiSummary": ai_audit.get("summary"),
+                        "cacheHit": ai_audit.get("cacheHit"),
+                    },
+                }
+            )
+    if not rows:
+        return 0
+    try:
+        _json_request(
+            "property_site_audit_rubric_results",
+            [],
+            method="POST",
+            payload=rows,
+            headers={**_supabase_headers(), "Prefer": "return=minimal"},
+        )
+    except Exception:
+        return 0
+    return len(rows)
+
+
+def enqueue_site_audit_job_summary(
+    property_id: str,
+    *,
+    site_key: str | None = None,
+    include_ai: bool = True,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    site_id = _fetch_site_id_filter(site_key)
+    payload = {
+        "property_id": str(property_id),
+        "site_key": site_key or "",
+        "include_ai": bool(include_ai),
+    }
+    existing = _fetch_json(
+        "property_site_audit_jobs",
+        [
+            ("select", "*"),
+            ("property_id", f"eq.{property_id}"),
+            ("status", "in.(queued,running)"),
+            ("order", "created_at.desc"),
+            ("limit", "1"),
+        ],
+        headers=_supabase_anon_headers(access_token) if access_token else None,
+    )
+    job = existing[0] if existing else None
+    if not job:
+        rows = _json_request(
+            "property_site_audit_jobs",
+            [("select", "*")],
+            method="POST",
+            payload={
+                "property_id": str(property_id),
+                "site_id": site_id,
+                "status": "queued",
+                "job_type": "ai_site_audit" if include_ai else "site_audit",
+                "payload": payload,
+            },
+            headers={**_supabase_headers(), "Prefer": "return=representation"},
+        )
+        job = rows[0] if isinstance(rows, list) and rows else {}
+    latest = get_site_audit_summary(property_id, site_key=site_key, access_token=access_token)
+    return {
+        "status": "queued",
+        "property_id": str(property_id),
+        "job": job,
+        "audit": latest.get("audit"),
+        "message": "Site audit queued for background processing.",
+        "staging_only": True,
+    }
+
+
+def _patch_site_audit_job(job_id: str, fields: dict[str, Any]) -> dict[str, Any]:
+    rows = _json_request(
+        "property_site_audit_jobs",
+        [("id", f"eq.{job_id}"), ("select", "*")],
+        method="PATCH",
+        payload=fields,
+        headers={**_supabase_headers(), "Prefer": "return=representation"},
+    )
+    return rows[0] if isinstance(rows, list) and rows else fields
+
+
+def process_site_audit_jobs(limit: int = SITE_AUDIT_JOB_BATCH_LIMIT) -> dict[str, Any]:
+    limit = max(1, min(25, int(limit or SITE_AUDIT_JOB_BATCH_LIMIT)))
+    jobs = _fetch_json(
+        "property_site_audit_jobs",
+        [
+            ("select", "*"),
+            ("status", "eq.queued"),
+            ("order", "created_at.asc"),
+            ("limit", str(limit)),
+        ],
+    )
+    processed = []
+    for job in jobs:
+        job_id = _normalize_text(job.get("id"), 120)
+        if not job_id:
+            continue
+        payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+        property_id = _normalize_text(job.get("property_id") or payload.get("property_id"), 120)
+        site_key = _normalize_text(payload.get("site_key") or payload.get("siteKey"), 160)
+        include_ai = payload.get("include_ai")
+        include_ai = bool(include_ai) if isinstance(include_ai, bool) else _truthy(include_ai, True)
+        try:
+            _patch_site_audit_job(job_id, {"status": "running", "started_at": datetime.now(timezone.utc).isoformat()})
+            result = run_site_audit_summary(property_id, site_key=site_key or None, include_ai=include_ai)
+            audit_id = result.get("audit", {}).get("id") if isinstance(result.get("audit"), dict) else None
+            _patch_site_audit_job(
+                job_id,
+                {
+                    "status": "completed",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "audit_id": audit_id,
+                    "result": {"auditId": audit_id, "status": result.get("status")},
+                },
+            )
+            processed.append({"jobId": job_id, "propertyId": property_id, "status": "completed", "auditId": audit_id})
+        except Exception as error:
+            attempts = int(job.get("attempts") or 0) + 1
+            next_status = "failed" if attempts >= 3 else "queued"
+            _patch_site_audit_job(
+                job_id,
+                {
+                    "status": next_status,
+                    "attempts": attempts,
+                    "last_error": str(error),
+                    "completed_at": datetime.now(timezone.utc).isoformat() if next_status == "failed" else None,
+                },
+            )
+            processed.append({"jobId": job_id, "propertyId": property_id, "status": next_status, "error": str(error)})
+    return {
+        "status": "ok",
+        "processed": processed,
+        "count": len(processed),
         "staging_only": True,
     }
 
@@ -4009,7 +4977,7 @@ def list_site_audit_portfolio_summary(
         [
             (
                 "select",
-                "property_id,audited_at,status,page_count,performance_score,urgency_score,freshness_score,link_score,summary,issues,recommendations,broken_links,stale_date_findings,performance_notes",
+                "property_id,audited_at,status,page_count,performance_score,urgency_score,freshness_score,link_score,summary,issues,recommendations,broken_links,stale_date_findings,performance_notes,raw_data",
             ),
             ("order", "audited_at.desc"),
             ("limit", "5000"),
@@ -4048,6 +5016,8 @@ def list_site_audit_portfolio_summary(
             if isinstance(audit_row, dict) and isinstance(audit_row.get("performance_notes"), list)
             else []
         )
+        raw_data = audit_row.get("raw_data") if isinstance(audit_row, dict) and isinstance(audit_row.get("raw_data"), dict) else {}
+        ai_audit = raw_data.get("aiAudit") if isinstance(raw_data.get("aiAudit"), dict) else {}
         screenshot_pages = sum(
             1
             for note in performance_notes
@@ -4077,6 +5047,9 @@ def list_site_audit_portfolio_summary(
             "staleDateCount": len(stale_dates),
             "screenshotPageCount": screenshot_pages,
             "ctaMissingPageCount": cta_missing_pages,
+            "auditAlgorithm": raw_data.get("algorithm") if isinstance(raw_data, dict) else "",
+            "aiAuditStatus": ai_audit.get("status") if isinstance(ai_audit, dict) else "",
+            "aiPagesScored": int(ai_audit.get("pagesScored") or 0) if isinstance(ai_audit, dict) else 0,
             "summary": audit_row.get("summary") if isinstance(audit_row, dict) else "No audit has been run yet.",
             "topIssue": (
                 issues[0].get("issue")

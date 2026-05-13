@@ -2732,6 +2732,10 @@ def run_named_cron_job(job_name: str) -> dict[str, Any]:
         import render_supabase_heatmaps
 
         result = render_supabase_heatmaps.capture_site_screenshots()
+    elif job_name == "process_site_audit_jobs":
+        import render_supabase_heatmaps
+
+        result = render_supabase_heatmaps.process_site_audit_jobs()
     else:
         raise ValueError(f"Unsupported cron job: {job_name}")
 

@@ -1845,6 +1845,7 @@ const DashboardApp = ({
   const [heatmapTrackerHealthLoading, setHeatmapTrackerHealthLoading] = useState(false);
   const [siteAuditPagesData, setSiteAuditPagesData] = useState(null);
   const [siteAuditSummaryData, setSiteAuditSummaryData] = useState(null);
+  const [siteAuditNotice, setSiteAuditNotice] = useState(null);
   const [portfolioAuditLoading, setPortfolioAuditLoading] = useState(false);
   const [portfolioAuditError, setPortfolioAuditError] = useState(null);
   const [portfolioAuditProperties, setPortfolioAuditProperties] = useState([]);
@@ -5458,19 +5459,25 @@ const DashboardApp = ({
 
     setSiteAuditRunning(true);
     setHeatmapPanelError(null);
+    setSiteAuditNotice(null);
     try {
       const params = new URLSearchParams({ property_id: selectedPropertyId });
       if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
       const response = await authFetch(`${SITE_AUDIT_RUN_URL}?${params.toString()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ property_id: selectedPropertyId, siteKey: heatmapSiteDraft.siteKey || undefined }),
+        body: JSON.stringify({ property_id: selectedPropertyId, siteKey: heatmapSiteDraft.siteKey || undefined, includeAi: true, background: true }),
       });
       const payload = await response.json();
       if (!response.ok || payload?.status === 'error') {
         throw new Error(payload?.error || `Site audit run failed: ${response.status}`);
       }
-      setSiteAuditSummaryData(payload);
+      if (payload?.status === 'queued') {
+        setSiteAuditNotice(payload.message || 'Site audit queued for background processing.');
+        if (payload.audit) setSiteAuditSummaryData({ status: 'ok', audit: payload.audit });
+      } else {
+        setSiteAuditSummaryData(payload);
+      }
     } catch (error) {
       console.error('Site audit run failed', error);
       setHeatmapPanelError(error.message || 'Unable to run the site audit.');
@@ -5948,6 +5955,10 @@ const DashboardApp = ({
   }, [heatmapClickAnomalies.deadClicks, heatmapClickAnomalies.rageClusters, heatmapOverviewPages]);
   const selectedHeatmapPageOverview = heatmapOverviewPages.find((page) => (page.path || '/') === selectedHeatmapPath) || heatmapOverviewPages[0] || null;
   const latestAudit = siteAuditSummaryData?.audit || null;
+  const latestAuditRawData = latestAudit?.raw_data || latestAudit?.rawData || {};
+  const aiAuditMeta = latestAuditRawData?.aiAudit || {};
+  const isAiAudit = String(latestAuditRawData?.algorithm || '').includes('ai') || ['ok', 'partial'].includes(aiAuditMeta?.status);
+  const auditModeLabel = isAiAudit ? 'AI screenshot audit' : 'Deterministic audit';
   const auditPageResult = useMemo(() => {
     const pages = Array.isArray(latestAudit?.pages) ? latestAudit.pages : [];
     return pages.find((page) => (page.path || '/') === selectedHeatmapPath) || pages[0] || null;
@@ -5956,6 +5967,13 @@ const DashboardApp = ({
   const auditRecommendations = auditPageResult?.recommendations || latestAudit?.recommendations || [];
   const auditStaleDates = auditPageResult?.staleDateStrings || latestAudit?.stale_date_findings || latestAudit?.staleDateFindings || [];
   const auditBrokenLinks = auditPageResult?.suspiciousLinks || latestAudit?.broken_links || latestAudit?.brokenLinks || [];
+  const aiAuditChecklist = useMemo(() => {
+    const directChecklist = auditPageResult?.aiAudit?.checklist;
+    if (Array.isArray(directChecklist)) return directChecklist;
+    const note = (latestAudit?.performance_notes || latestAudit?.performanceNotes || [])
+      .find((item) => item?.path === auditPageResult?.path || item?.path === selectedHeatmapPath);
+    return Array.isArray(note?.aiChecklist) ? note.aiChecklist : [];
+  }, [auditPageResult, latestAudit, selectedHeatmapPath]);
   const auditCategoryScores = useMemo(() => {
     const rawCategories = latestAudit?.raw_data?.categoryScores || latestAudit?.rawData?.categoryScores;
     if (Array.isArray(rawCategories) && rawCategories.length) return rawCategories;
@@ -5968,11 +5986,20 @@ const DashboardApp = ({
         internalLinks: 'Internal links',
         pageStructure: 'Page structure',
         performanceProxy: 'Performance proxy',
+        page_load_desktop_mobile: 'Desktop/mobile load',
+        application_flow_visible: 'Application flow',
+        floor_plan_availability: 'Floor plan availability',
+        pricing_accuracy: 'Pricing',
+        homepage_cta: 'Homepage CTA',
+        homepage_value_add: 'Homepage value-add',
+        special_offers_current: 'Special offers',
+        leasing_verbiage: 'Leasing verbiage',
+        contact_info_hours: 'Contact/hours',
       };
-      return Object.entries(labels).map(([key, label]) => ({
+      return Object.entries(pageCategories).map(([key, score]) => ({
         key,
-        label,
-        score: pageCategories[key],
+        label: labels[key] || key,
+        score,
       })).filter((item) => item.score != null);
     }
     return [
@@ -8045,6 +8072,7 @@ const DashboardApp = ({
       <div className="reports-panel__eyebrow">Website Experience</div>
       <div className="reports-panel__title">Heatmaps + Site Audit</div>
       {heatmapPanelError && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{heatmapPanelError}</div>}
+      {siteAuditNotice && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{siteAuditNotice}</div>}
 
       <div className="heatmap-audit-controls">
         <label className="website-manager-field">
@@ -8062,7 +8090,7 @@ const DashboardApp = ({
         </label>
         <div style={{ display: 'flex', alignItems: 'end' }}>
           <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading}>
-            {siteAuditRunning ? 'Running…' : 'Run Audit'}
+            {siteAuditRunning ? 'Queueing…' : 'Queue AI Audit'}
           </button>
         </div>
       </div>
@@ -8221,7 +8249,7 @@ const DashboardApp = ({
         <div className={`heatmap-audit-status-card ${latestAudit ? 'is-healthy' : 'is-pending'}`}>
           <span>{latestAudit ? 'Audit complete' : 'Audit pending'}</span>
           <strong>{latestAudit ? `Score ${auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}` : 'Run audit'}</strong>
-          <small>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : 'Audit data is separate from heatmap traffic.'}</small>
+          <small>{latestAudit?.audited_at ? `${auditModeLabel} · ${getSnapshotTimestampLabel(latestAudit.audited_at)}` : 'Audit data is separate from heatmap traffic.'}</small>
         </div>
         <div className={`heatmap-audit-status-card ${Number(heatmapTotals.events || 0) > 0 ? 'is-healthy' : 'is-pending'}`}>
           <span>{Number(heatmapTotals.events || 0) > 0 ? 'Heatmap traffic active' : 'Heatmap traffic pending'}</span>
@@ -8313,17 +8341,36 @@ const DashboardApp = ({
           <div className="heatmap-audit-rail-score">
             <span>Combined score</span>
             <strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}</strong>
-            <small>{latestAudit ? 'Weighted deterministic audit' : 'Run audit to score this page'}</small>
+            <small>{latestAudit ? auditModeLabel : 'Run audit to score this page'}</small>
           </div>
           {renderAuditActionCard({
             title: 'Audit score',
             status: getAuditStatus({ score: auditPageResult?.score ?? latestAudit?.performance_score, issueCount: (auditIssues || []).length }),
             count: siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? '—',
-            finding: latestAudit ? 'Weighted score across SEO, CTA, freshness, links, structure, and performance proxy.' : 'Run an audit to generate a score.',
+            finding: latestAudit
+              ? isAiAudit
+                ? `AI reviewed ${formatNumber(aiAuditMeta?.pagesScored || 0)} screenshot page${Number(aiAuditMeta?.pagesScored || 0) === 1 ? '' : 's'} against the website audit rubric.`
+                : 'Weighted score across SEO, CTA, freshness, links, structure, and performance proxy.'
+              : 'Run an audit to generate a score.',
             details: auditCategoryScores.length
               ? auditCategoryScores.map((item) => `${item.label}: ${formatNumber(item.score, 1)}${item.weight != null ? ` (${Math.round(Number(item.weight) * 100)}% weight)` : ''}`)
               : auditIssues.length ? auditIssues : auditRecommendations,
           })}
+          {isAiAudit && auditPageResult?.aiSummary && (
+            <div className="reports-empty">{auditPageResult.aiSummary}</div>
+          )}
+          {aiAuditChecklist.length > 0 && (
+            <div className="heatmap-audit-category-grid">
+              {aiAuditChecklist.map((item) => (
+                <div key={item.key || item.label} className="heatmap-audit-category">
+                  <span>{item.label || item.key}</span>
+                  <strong>{formatNumber(item.score, 1)}</strong>
+                  <small>{[item.status, item.severity].filter(Boolean).join(' | ') || 'AI checklist'}</small>
+                  <small>{item.recommendation || item.evidence || 'No additional note.'}</small>
+                </div>
+              ))}
+            </div>
+          )}
           {auditCategoryScores.length > 0 && (
             <div className="heatmap-audit-category-grid">
               {auditCategoryScores.map((item) => (
@@ -8586,6 +8633,7 @@ const DashboardApp = ({
             <div className="reports-panel__title">
               {selectedPortfolioAudit?.propertyName || selectedPropertyLabel || 'Choose a property'}
             </div>
+            {siteAuditNotice && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{siteAuditNotice}</div>}
             <div className="audit-detail-toolbar">
               <label className="website-manager-field">
                 <span className="website-manager-field__label">Audit page</span>
@@ -8602,13 +8650,13 @@ const DashboardApp = ({
               </label>
               <div style={{ display: 'flex', alignItems: 'end' }}>
                 <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading || !selectedPropertyId}>
-                  {siteAuditRunning ? 'Running…' : 'Run Audit'}
+                  {siteAuditRunning ? 'Queueing…' : 'Queue AI Audit'}
                 </button>
               </div>
             </div>
 
             <div className="reports-panel__grid reports-panel__grid--three">
-              <div className="reports-stat"><span>Audit Score</span><strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—'}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'}</small></div>
+              <div className="reports-stat"><span>Audit Score</span><strong>{siteAuditLoading ? '…' : auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—'}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'} · {auditModeLabel}</small></div>
               <div className="reports-stat"><span>Urgency / CTA</span><strong>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</strong><small>{auditPageResult?.ctaCount ?? selectedPortfolioAudit?.ctaMissingPageCount ?? 0} CTA gaps surfaced</small></div>
               <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
             </div>

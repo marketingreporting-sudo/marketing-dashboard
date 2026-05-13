@@ -428,6 +428,13 @@ CRON_JOB_SPECS = (
         purpose="Capture latest page screenshots for heatmap backgrounds and site audits.",
         render_command="python render_cron.py capture_site_screenshots",
     ),
+    CronJobSpec(
+        name="process_site_audit_jobs",
+        schedule="45 9-23 * * * UTC",
+        firebase_handler="n/a",
+        purpose="Process queued AI website audit jobs after screenshot capture.",
+        render_command="python render_cron.py process_site_audit_jobs",
+    ),
 )
 
 

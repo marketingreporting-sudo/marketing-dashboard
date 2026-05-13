@@ -249,6 +249,91 @@ add column if not exists broken_links jsonb not null default '[]'::jsonb,
 add column if not exists stale_date_findings jsonb not null default '[]'::jsonb,
 add column if not exists performance_notes jsonb not null default '[]'::jsonb;
 
+create table if not exists public.property_site_audit_ai_cache (
+  cache_key text primary key,
+  property_id text not null references public.properties(id) on delete cascade,
+  site_id uuid references public.property_heatmap_sites(id) on delete cascade,
+  page_id uuid references public.property_site_pages(id) on delete cascade,
+  path text,
+  model text not null,
+  prompt_version text not null,
+  page_context_hash text not null,
+  screenshot_hash text not null,
+  score numeric,
+  ai_result jsonb not null default '{}'::jsonb,
+  raw_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists set_property_site_audit_ai_cache_updated_at on public.property_site_audit_ai_cache;
+create trigger set_property_site_audit_ai_cache_updated_at
+before update on public.property_site_audit_ai_cache
+for each row
+execute function public.set_updated_at();
+
+create index if not exists idx_property_site_audit_ai_cache_property
+  on public.property_site_audit_ai_cache (property_id, updated_at desc);
+
+create index if not exists idx_property_site_audit_ai_cache_page_hash
+  on public.property_site_audit_ai_cache (page_id, screenshot_hash, model, prompt_version);
+
+create table if not exists public.property_site_audit_rubric_results (
+  id uuid primary key default gen_random_uuid(),
+  audit_id uuid not null references public.property_site_audits(id) on delete cascade,
+  property_id text not null references public.properties(id) on delete cascade,
+  site_id uuid references public.property_heatmap_sites(id) on delete set null,
+  page_id uuid references public.property_site_pages(id) on delete set null,
+  path text,
+  rubric_key text not null,
+  label text,
+  status text not null default 'not_verifiable',
+  score numeric,
+  severity text,
+  evidence text,
+  recommendation text,
+  source text not null default 'openai_vision',
+  model text,
+  prompt_version text,
+  raw_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_property_site_audit_rubric_results_audit
+  on public.property_site_audit_rubric_results (audit_id);
+
+create index if not exists idx_property_site_audit_rubric_results_property_key
+  on public.property_site_audit_rubric_results (property_id, rubric_key, created_at desc);
+
+create table if not exists public.property_site_audit_jobs (
+  id uuid primary key default gen_random_uuid(),
+  property_id text not null references public.properties(id) on delete cascade,
+  site_id uuid references public.property_heatmap_sites(id) on delete set null,
+  audit_id uuid references public.property_site_audits(id) on delete set null,
+  status text not null default 'queued' check (status in ('queued', 'running', 'completed', 'failed', 'cancelled')),
+  job_type text not null default 'ai_site_audit',
+  payload jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  attempts integer not null default 0,
+  last_error text,
+  started_at timestamptz,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists set_property_site_audit_jobs_updated_at on public.property_site_audit_jobs;
+create trigger set_property_site_audit_jobs_updated_at
+before update on public.property_site_audit_jobs
+for each row
+execute function public.set_updated_at();
+
+create index if not exists idx_property_site_audit_jobs_status
+  on public.property_site_audit_jobs (status, created_at);
+
+create index if not exists idx_property_site_audit_jobs_property
+  on public.property_site_audit_jobs (property_id, created_at desc);
+
 create table if not exists public.property_heatmap_daily_cells (
   property_id text not null references public.properties(id) on delete cascade,
   site_id uuid not null references public.property_heatmap_sites(id) on delete cascade,

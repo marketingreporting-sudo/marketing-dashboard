@@ -56,6 +56,7 @@ from render_supabase_heatmaps import (
     collect_site_page_snapshot_payload,
     collect_heatmap_payload,
     create_site_screenshot_upload_url_payload,
+    enqueue_site_audit_job_summary,
     get_heatmap_pages_summary,
     get_heatmap_summary,
     get_heatmap_tracker_health_summary,
@@ -1077,11 +1078,35 @@ def create_app() -> Flask:
 
         try:
             access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
-            payload = run_site_audit_summary(
-                str(property_id),
-                site_key=request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey"),
-                access_token=access_token,
+            include_ai_value = (
+                request.args.get("include_ai")
+                or request.args.get("includeAi")
+                or req_json.get("include_ai")
+                or req_json.get("includeAi")
             )
+            include_ai = str(include_ai_value).strip().lower() not in {"0", "false", "no", "off"} if include_ai_value is not None else True
+            site_key = request.args.get("site_key") or req_json.get("site_key") or req_json.get("siteKey")
+            background_value = (
+                request.args.get("background")
+                or request.args.get("async")
+                or req_json.get("background")
+                or req_json.get("async")
+            )
+            background = str(background_value).strip().lower() in {"1", "true", "yes", "on"} if background_value is not None else False
+            if background:
+                payload = enqueue_site_audit_job_summary(
+                    str(property_id),
+                    site_key=site_key,
+                    access_token=access_token,
+                    include_ai=include_ai,
+                )
+            else:
+                payload = run_site_audit_summary(
+                    str(property_id),
+                    site_key=site_key,
+                    access_token=access_token,
+                    include_ai=include_ai,
+                )
             return build_cors_json_response(payload)
         except RenderPermissionError as error:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
