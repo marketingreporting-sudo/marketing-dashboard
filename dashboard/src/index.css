@@ -736,6 +736,7 @@ h1, h2, h3 {
 .call-prep-bottom-grid {
   display: grid;
   gap: 1rem;
+  align-items: start;
 }
 
 .call-prep-period-grid,
@@ -746,6 +747,10 @@ h1, h2, h3 {
 .call-prep-period {
   display: grid;
   gap: 1rem;
+  align-content: start;
+}
+
+.call-prep-bottom-grid > .reports-panel {
   align-content: start;
 }
 

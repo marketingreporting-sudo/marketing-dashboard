@@ -15,6 +15,7 @@ from render_auth import (
     user_has_property_permission,
 )
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
+from render_supabase_analytics import get_cached_analytics_summary
 from render_runtime import (
     build_local_falcon_location_match_summary,
     configure_historical_backfill,
@@ -559,8 +560,18 @@ def create_app() -> Flask:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 401
         except Exception as error:
-            payload = {"status": "error", "error": str(error), "staging_only": True}
-            status_code = 500
+            cached_payload = get_cached_analytics_summary(str(property_id), "ga4")
+            if cached_payload.get("status") == "error":
+                payload = {"status": "error", "error": str(error), "staging_only": True}
+                status_code = 500
+            else:
+                payload = {
+                    **cached_payload,
+                    "live_refresh_error": str(error),
+                    "source": cached_payload.get("source") or "supabase",
+                    "staging_only": True,
+                }
+                status_code = 200
         return build_cors_json_response(payload, status_code=status_code)
 
     @app.route("/api/analytics/google-ads", methods=["GET", "POST", "OPTIONS"])
@@ -611,8 +622,18 @@ def create_app() -> Flask:
             payload = {"status": "error", "error": str(error), "staging_only": True}
             status_code = 401
         except Exception as error:
-            payload = {"status": "error", "error": str(error), "staging_only": True}
-            status_code = 500
+            cached_payload = get_cached_analytics_summary(str(property_id), "google_ads")
+            if cached_payload.get("status") == "error":
+                payload = {"status": "error", "error": str(error), "staging_only": True}
+                status_code = 500
+            else:
+                payload = {
+                    **cached_payload,
+                    "live_refresh_error": str(error),
+                    "source": cached_payload.get("source") or "supabase",
+                    "staging_only": True,
+                }
+                status_code = 200
         return build_cors_json_response(payload, status_code=status_code)
 
     @app.route("/api/analytics/meta-ads", methods=["GET", "POST", "OPTIONS"])

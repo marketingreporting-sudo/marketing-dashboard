@@ -1157,8 +1157,8 @@ const isRenderAdapterUrl = (value) => {
 };
 
 const isStartedApplicationEvent = (event) => {
-  const reason = String(event.eventReason || event.type || '').toLowerCase().replace(/\s+:/g, ':');
-  return Number(event.typeId) === 12 && (
+  const reason = String(findNestedValue(event, ['eventReason', 'type', 'name']) || '').toLowerCase().replace(/\s+:/g, ':');
+  return getEventTypeId(event) === 12 && (
     reason.includes('application status:completed') ||
     reason.includes('application status: completed') ||
     reason.includes('application: completed')
@@ -1166,8 +1166,8 @@ const isStartedApplicationEvent = (event) => {
 };
 
 const isApprovedNewLeaseEvent = (event) => {
-  const reason = String(event.eventReason || event.type || '').toLowerCase().replace(/\s+:/g, ':');
-  return Number(event.typeId) === 13 &&
+  const reason = String(findNestedValue(event, ['eventReason', 'type', 'name']) || '').toLowerCase().replace(/\s+:/g, ':');
+  return getEventTypeId(event) === 13 &&
     reason.includes('lease status: approved') &&
     !reason.includes('renewal lease');
 };
@@ -2517,7 +2517,12 @@ const DashboardApp = ({
               entry.googleAds = await fetchJson(`${callPrepGoogleAdsUrl}?${params.toString()}`, 'Call prep Google Ads');
               entry.googleAdsError = null;
             } catch (error) {
-              entry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
+              if (googleAdsData) {
+                entry.googleAds = googleAdsData;
+                entry.googleAdsError = null;
+              } else {
+                entry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
+              }
             }
           }
 
@@ -2532,7 +2537,12 @@ const DashboardApp = ({
               entry.ga4 = await fetchJson(`${callPrepGa4Url}?${params.toString()}`, 'Call prep GA4');
               entry.ga4Error = null;
             } catch (error) {
-              entry.ga4Error = error.message || 'Unable to load GA4 metrics.';
+              if (ga4Data) {
+                entry.ga4 = ga4Data;
+                entry.ga4Error = null;
+              } else {
+                entry.ga4Error = error.message || 'Unable to load GA4 metrics.';
+              }
             }
           }
 
@@ -2561,6 +2571,8 @@ const DashboardApp = ({
   }, [
     activeTab,
     availablePropertyIdsKey,
+    ga4Data,
+    googleAdsData,
     isAllPropertiesSelected,
     propertyScopedSelectionId,
     reportingOverviewUrl,
