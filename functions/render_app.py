@@ -80,6 +80,16 @@ from render_recommendations import (
     record_recommendation_feedback_summary,
     review_recommendation_impact_summary,
 )
+from render_tickets import (
+    create_inbound_email_ticket_summary,
+    create_inbound_outlook_ticket_summary,
+    create_ticket_summary,
+    list_ticket_options_summary,
+    list_tickets_summary,
+    OutlookPayloadError,
+    OutlookWebhookAuthError,
+    update_ticket_summary,
+)
 from render_supabase_sync_state import get_supabase_sync_health_summary, get_supabase_sync_state_summary
 from render_supabase_validation import (
     SupabaseValidationConfigError,
@@ -96,7 +106,7 @@ def create_app() -> Flask:
     def apply_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type,Authorization,X-Ticket-Webhook-Secret"
         return response
 
     def build_cors_json_response(payload: dict, status_code: int = 200):
@@ -463,6 +473,115 @@ def create_app() -> Flask:
                 {"status": "error", "error": str(error), "staging_only": True},
                 status_code=500,
             )
+
+    @app.route("/api/tickets/options", methods=["GET", "OPTIONS"])
+    def staged_ticket_options():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            access_token, _user = get_authenticated_request_context()
+            payload = list_ticket_options_summary(access_token)
+            return build_cors_json_response(payload)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=500)
+
+    @app.route("/api/tickets", methods=["GET", "POST", "OPTIONS"])
+    def staged_tickets():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            access_token, user = get_authenticated_request_context()
+            if request.method == "POST":
+                payload = create_ticket_summary(access_token, user, get_request_json_payload())
+            else:
+                payload = list_tickets_summary(access_token, user)
+            return build_cors_json_response(payload)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=400)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=500)
+
+    @app.route("/api/tickets/<ticket_id>", methods=["POST", "OPTIONS"])
+    def staged_ticket_update(ticket_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            access_token, user = get_authenticated_request_context()
+            payload = update_ticket_summary(access_token, user, ticket_id, get_request_json_payload())
+            return build_cors_json_response(payload)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=400)
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=500)
+
+    @app.route("/api/tickets/inbound-email", methods=["POST", "OPTIONS"])
+    def staged_inbound_email_ticket():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        configured_secret = os.environ.get("TICKET_WEBHOOK_SECRET", "").strip()
+        provided_secret = request.headers.get("X-Ticket-Webhook-Secret", "").strip()
+        if not configured_secret or provided_secret != configured_secret:
+            return build_cors_json_response({"status": "error", "error": "Invalid ticket webhook secret."}, status_code=403)
+
+        try:
+            payload = create_inbound_email_ticket_summary(get_request_json_payload())
+            return build_cors_json_response(payload)
+        except ValueError as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=400)
+        except Exception as error:
+            return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=500)
+
+    @app.route("/api/tickets/inbound-outlook", methods=["POST", "OPTIONS"])
+    def staged_inbound_outlook_ticket():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = get_request_json_payload()
+        try:
+            payload = create_inbound_outlook_ticket_summary(req_json)
+            app.logger.info(
+                "Created inbound Outlook ticket",
+                extra={
+                    "ticket_id": payload.get("ticket_id"),
+                    "task_id": payload.get("task_id"),
+                    "property_matched": payload.get("property_matched"),
+                    "assigned": bool(payload.get("assigned_user_id")),
+                    "duplicate": payload.get("duplicate"),
+                },
+            )
+            return build_cors_json_response(payload)
+        except OutlookWebhookAuthError:
+            return build_cors_json_response({"success": False, "error": "Invalid Outlook webhook token."}, status_code=401)
+        except OutlookPayloadError as error:
+            return build_cors_json_response({"success": False, "error": str(error)}, status_code=400)
+        except ValueError as error:
+            return build_cors_json_response({"success": False, "error": str(error)}, status_code=400)
+        except Exception as error:
+            app.logger.exception(
+                "Unexpected inbound Outlook ticket failure",
+                extra={
+                    "has_subject": bool(req_json.get("subject")) if isinstance(req_json, dict) else False,
+                    "has_message_id": bool(req_json.get("messageId")) if isinstance(req_json, dict) else False,
+                    "has_from": bool(req_json.get("from")) if isinstance(req_json, dict) else False,
+                },
+            )
+            return build_cors_json_response({"success": False, "error": "Unable to create Outlook ticket."}, status_code=500)
 
     @app.route("/api/analytics/reputation", methods=["GET", "POST", "OPTIONS"])
     def staged_reputation_dashboard():

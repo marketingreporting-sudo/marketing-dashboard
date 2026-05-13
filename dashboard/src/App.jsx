@@ -23,6 +23,8 @@ import {
   SITE_AUDIT_RUN_URL,
   SITE_AUDIT_SCREENSHOT_PREVIEW_URL,
   SITE_AUDIT_SUMMARY_URL,
+  TICKET_OPTIONS_URL,
+  TICKETS_BASE_URL,
   WEBSITE_MANAGER_SCHEMA_URL,
   WEBSITE_MANAGER_URL
 } from './apiConfig';
@@ -78,6 +80,7 @@ import {
   UserRound,
   X,
   Plus,
+  Ticket,
   Trash2,
   Save,
   AlertTriangle,
@@ -178,6 +181,23 @@ const TASK_STATUSES = [
   { id: 'complete', label: 'Complete' },
 ];
 const TASK_STATUS_IDS = TASK_STATUSES.map((status) => status.id);
+const TICKET_PRIORITIES = [
+  { id: 'low', label: 'Low' },
+  { id: 'normal', label: 'Normal' },
+  { id: 'high', label: 'High' },
+  { id: 'urgent', label: 'Urgent' },
+];
+const TICKET_PRIORITY_IDS = TICKET_PRIORITIES.map((priority) => priority.id);
+const TICKET_CATEGORIES = [
+  { id: 'general', label: 'General' },
+  { id: 'reporting', label: 'Reporting' },
+  { id: 'website', label: 'Website' },
+  { id: 'ads', label: 'Ads' },
+  { id: 'reputation', label: 'Reputation' },
+  { id: 'resident_experience', label: 'Resident Experience' },
+  { id: 'urgent_support', label: 'Urgent Support' },
+];
+const TICKET_CATEGORY_IDS = TICKET_CATEGORIES.map((category) => category.id);
 const MARKETING_BUDGET_STATUSES = [
   { id: 'new', label: 'New' },
   { id: 'active', label: 'Active' },
@@ -235,6 +255,7 @@ const NAV_ITEMS = [
   { id: 'audit', label: 'Audit', icon: AlertTriangle, permission: TAB_PERMISSIONS.audit },
   { id: 'analytics', label: 'Analytics', icon: TrendingUp, permission: TAB_PERMISSIONS.analytics },
   { id: 'reputation', label: 'Reputation', icon: MessageSquareText, permission: TAB_PERMISSIONS.reputation },
+  { id: 'tickets', label: 'Tickets', icon: Ticket, permission: TAB_PERMISSIONS.tickets },
   { id: 'tasks', label: 'Tasks', icon: ClipboardList, permission: TAB_PERMISSIONS.tasks },
   { id: 'admin', label: 'Admin', icon: Users, permission: TAB_PERMISSIONS.admin }
 ];
@@ -694,6 +715,12 @@ const formatReadableDate = (value) => {
   return parsed.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+const formatReadableDateTime = (value) => {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (!parsed || Number.isNaN(parsed.getTime())) return '—';
+  return parsed.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+};
+
 const formatDateInputValue = (value) => {
   const parsed = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(parsed.getTime())) return '';
@@ -703,16 +730,38 @@ const formatDateInputValue = (value) => {
   return `${year}-${month}-${day}`;
 };
 
+const formatDateTimeLocalInputValue = (value) => {
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  const hours = String(parsed.getHours()).padStart(2, '0');
+  const minutes = String(parsed.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const getMinimumTicketDueDateTimeValue = () => {
+  const minimum = new Date(Date.now() + (24 * 60 * 60 * 1000) + (5 * 60 * 1000));
+  minimum.setSeconds(0, 0);
+  return formatDateTimeLocalInputValue(minimum);
+};
+
 const normalizeTaskRecord = (row) => {
   const status = TASK_STATUS_IDS.includes(row?.status) ? row.status : 'new';
   return {
     id: row?.id || '',
+    ownerUserId: row?.owner_user_id || '',
     title: row?.title || '',
     description: row?.description || '',
     notes: row?.notes || '',
     dueDate: row?.due_date || '',
     status,
     propertyId: row?.property_id || '',
+    ticketId: row?.ticket_id || '',
+    source: row?.source || 'manual',
+    priority: row?.priority || 'normal',
+    requesterEmail: row?.requester_email || '',
     createdAt: row?.created_at || '',
     updatedAt: row?.updated_at || '',
   };
@@ -725,6 +774,48 @@ const createEmptyTaskDraft = (propertyId = '') => ({
   dueDate: '',
   status: 'new',
   propertyId: propertyId || '',
+});
+
+const normalizeTicketRecord = (row) => {
+  const status = TASK_STATUS_IDS.includes(row?.status) ? row.status : 'new';
+  const priority = TICKET_PRIORITY_IDS.includes(row?.priority) ? row.priority : 'normal';
+  const category = TICKET_CATEGORY_IDS.includes(row?.category) ? row.category : 'general';
+  return {
+    id: row?.id || '',
+    taskId: row?.taskId || row?.task_id || '',
+    propertyId: row?.propertyId || row?.property_id || '',
+    requesterUserId: row?.requesterUserId || row?.requester_user_id || '',
+    requesterEmail: row?.requesterEmail || row?.requester_email || '',
+    submittedByUserId: row?.submittedByUserId || row?.submitted_by_user_id || '',
+    submittedByEmail: row?.submittedByEmail || row?.submitted_by_email || '',
+    submittedByName: row?.submittedByName || '',
+    assignedUserId: row?.assignedUserId || row?.assigned_user_id || '',
+    assignedUserName: row?.assignedUserName || '',
+    source: row?.source || 'dashboard_form',
+    category,
+    priority,
+    status,
+    title: row?.title || '',
+    description: row?.description || '',
+    dueAt: row?.dueAt || row?.due_at || '',
+    emailSubject: row?.emailSubject || row?.email_subject || '',
+    emailFrom: row?.emailFrom || row?.email_from || '',
+    emailExcerpt: row?.emailExcerpt || row?.email_excerpt || '',
+    createdAt: row?.createdAt || row?.created_at || '',
+    updatedAt: row?.updatedAt || row?.updated_at || '',
+  };
+};
+
+const createEmptyTicketDraft = (propertyId = '', requesterEmail = '') => ({
+  title: '',
+  description: '',
+  propertyId: propertyId || '',
+  requesterEmail: requesterEmail || '',
+  assignedUserId: '',
+  dueAt: getMinimumTicketDueDateTimeValue(),
+  category: 'general',
+  priority: 'normal',
+  status: 'new',
 });
 
 const normalizeMarketingBudgetRecord = (row) => {
@@ -1968,6 +2059,14 @@ const DashboardApp = ({
   const [taskDraft, setTaskDraft] = useState(() => createEmptyTaskDraft(savedWorkspaceState.selectedPropertyId));
   const [tasksError, setTasksError] = useState(null);
   const [tasksNotice, setTasksNotice] = useState(null);
+  const [tickets, setTickets] = useState([]);
+  const [ticketUsers, setTicketUsers] = useState([]);
+  const [ticketAssignments, setTicketAssignments] = useState([]);
+  const [ticketDraft, setTicketDraft] = useState(() => createEmptyTicketDraft(savedWorkspaceState.selectedPropertyId));
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsSaving, setTicketsSaving] = useState(false);
+  const [ticketsError, setTicketsError] = useState(null);
+  const [ticketsNotice, setTicketsNotice] = useState(null);
   const [marketingBudgetItems, setMarketingBudgetItems] = useState([]);
   const [marketingBudgetDraft, setMarketingBudgetDraft] = useState(() => createEmptyMarketingBudgetDraft(savedWorkspaceState.selectedPropertyId));
   const [marketingBudgetLoading, setMarketingBudgetLoading] = useState(false);
@@ -2078,6 +2177,18 @@ const DashboardApp = ({
     () => new Map(availableProperties.map((property) => [property.propertyId, property])),
     [availableProperties]
   );
+  const ticketUserById = useMemo(
+    () => new Map(ticketUsers.map((user) => [user.id, user])),
+    [ticketUsers]
+  );
+  const ticketAssignmentByPropertyId = useMemo(
+    () => new Map(ticketAssignments.map((assignment) => [assignment.propertyId, assignment.defaultAssigneeUserId])),
+    [ticketAssignments]
+  );
+  const ticketAssignableUsers = useMemo(() => {
+    if (!ticketDraft.propertyId) return ticketUsers;
+    return ticketUsers.filter((user) => user.globalRole === 'admin' || user.propertyIds?.includes(ticketDraft.propertyId));
+  }, [ticketDraft.propertyId, ticketUsers]);
   const availablePropertyIdsKey = useMemo(
     () => availableProperties.map((property) => property.propertyId).join(','),
     [availableProperties]
@@ -2113,6 +2224,18 @@ const DashboardApp = ({
   const openTaskCount = useMemo(
     () => tasks.filter((task) => task.status !== 'complete').length,
     [tasks]
+  );
+  const ticketsByStatus = useMemo(() => {
+    const grouped = Object.fromEntries(TASK_STATUSES.map((status) => [status.id, []]));
+    tickets.forEach((ticket) => {
+      const status = TASK_STATUS_IDS.includes(ticket.status) ? ticket.status : 'new';
+      grouped[status].push(ticket);
+    });
+    return grouped;
+  }, [tickets]);
+  const openTicketCount = useMemo(
+    () => tickets.filter((ticket) => ticket.status !== 'complete').length,
+    [tickets]
   );
   const currentMarketingBudgetDate = useMemo(() => formatDateInputValue(new Date()), []);
   const activeMarketingBudgetItems = useMemo(() => (
@@ -2433,6 +2556,55 @@ const DashboardApp = ({
     loadTasks();
   }, [activeTab, loadTasks]);
 
+  const loadTickets = useCallback(async () => {
+    if (!TICKETS_BASE_URL || !TICKET_OPTIONS_URL) {
+      setTicketsError('Ticket endpoints are not configured.');
+      return;
+    }
+
+    setTicketsLoading(true);
+    setTicketsError(null);
+    setTicketsNotice(null);
+
+    try {
+      const [optionsResponse, ticketsResponse] = await Promise.all([
+        authFetch(TICKET_OPTIONS_URL),
+        authFetch(TICKETS_BASE_URL),
+      ]);
+      const [optionsPayload, ticketsPayload] = await Promise.all([
+        optionsResponse.json(),
+        ticketsResponse.json(),
+      ]);
+      if (!optionsResponse.ok || optionsPayload?.status === 'error') {
+        throw new Error(optionsPayload?.error || optionsPayload?.message || `Ticket options failed: ${optionsResponse.status}`);
+      }
+      if (!ticketsResponse.ok || ticketsPayload?.status === 'error') {
+        throw new Error(ticketsPayload?.error || ticketsPayload?.message || `Tickets failed: ${ticketsResponse.status}`);
+      }
+
+      const users = Array.isArray(optionsPayload.users) ? optionsPayload.users : [];
+      const assignments = Array.isArray(optionsPayload.assignments) ? optionsPayload.assignments : [];
+      setTicketUsers(users);
+      setTicketAssignments(assignments);
+      setTickets((Array.isArray(ticketsPayload.tickets) ? ticketsPayload.tickets : []).map(normalizeTicketRecord));
+      setTicketDraft((current) => {
+        const currentPropertyIsValid = current.propertyId && taskPropertyIds.has(current.propertyId);
+        if (currentPropertyIsValid || !selectedPropertyId || isAllPropertiesSelected || !taskPropertyIds.has(selectedPropertyId)) return current;
+        const defaultAssigneeId = assignments.find((assignment) => assignment.propertyId === selectedPropertyId)?.defaultAssigneeUserId || '';
+        return { ...current, propertyId: selectedPropertyId, assignedUserId: defaultAssigneeId, requesterEmail: current.requesterEmail || currentUser?.email || '' };
+      });
+    } catch (error) {
+      setTicketsError(error.message || 'Unable to load tickets.');
+    } finally {
+      setTicketsLoading(false);
+    }
+  }, [currentUser?.email, isAllPropertiesSelected, selectedPropertyId, taskPropertyIds]);
+
+  useEffect(() => {
+    if (activeTab !== 'tickets') return;
+    loadTickets();
+  }, [activeTab, loadTickets]);
+
   useEffect(() => {
     if (activeTab !== 'call prep') return;
 
@@ -2747,6 +2919,140 @@ const DashboardApp = ({
       setTasksError(error.message || 'Unable to delete the task.');
     } finally {
       setTasksSaving(false);
+    }
+  };
+
+  const updateTicketDraft = (field, value) => {
+    setTicketsError(null);
+    setTicketsNotice(null);
+    setTicketDraft((current) => {
+      const next = { ...current, [field]: value };
+      if (field === 'propertyId') {
+        next.assignedUserId = ticketAssignmentByPropertyId.get(value) || '';
+      }
+      return next;
+    });
+  };
+
+  const updateTicketField = (ticketId, field, value) => {
+    setTicketsError(null);
+    setTicketsNotice(null);
+    setTickets((current) => current.map((ticket) => (
+      ticket.id === ticketId ? { ...ticket, [field]: value } : ticket
+    )));
+  };
+
+  const createTicket = async () => {
+    const title = ticketDraft.title.trim();
+    if (!title) {
+      setTicketsError('Add a ticket title before submitting it.');
+      return;
+    }
+    if (!ticketDraft.propertyId || !taskPropertyIds.has(ticketDraft.propertyId)) {
+      setTicketsError('Choose one of your active properties for this ticket.');
+      return;
+    }
+    if (!ticketDraft.dueAt) {
+      setTicketsError('Choose a due date and time at least 24 hours from now.');
+      return;
+    }
+    const dueDate = new Date(ticketDraft.dueAt);
+    if (Number.isNaN(dueDate.getTime()) || dueDate.getTime() < Date.now() + 24 * 60 * 60 * 1000) {
+      setTicketsError('Ticket due date must be at least 24 hours in the future.');
+      return;
+    }
+    if (!TICKETS_BASE_URL) {
+      setTicketsError('Ticket endpoint is not configured.');
+      return;
+    }
+
+    setTicketsSaving(true);
+    setTicketsError(null);
+    setTicketsNotice(null);
+
+    try {
+      const response = await authFetch(TICKETS_BASE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          description: ticketDraft.description.trim(),
+          propertyId: ticketDraft.propertyId,
+          requesterEmail: ticketDraft.requesterEmail.trim() || currentUser?.email || '',
+          assignedUserId: ticketDraft.assignedUserId || undefined,
+          dueAt: dueDate.toISOString(),
+          category: ticketDraft.category,
+          priority: ticketDraft.priority,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || payload?.message || `Ticket submit failed: ${response.status}`);
+      }
+
+      const savedTicket = normalizeTicketRecord(payload.ticket);
+      setTickets((current) => [savedTicket, ...current]);
+      if (payload.task) {
+        const savedTask = normalizeTaskRecord(payload.task);
+        setTasks((current) => (
+          current.some((task) => task.id === savedTask.id) ? current : [savedTask, ...current]
+        ));
+      }
+      setTicketDraft(createEmptyTicketDraft(ticketDraft.propertyId, currentUser?.email || ''));
+      setTicketsNotice('Ticket submitted and task created.');
+    } catch (error) {
+      setTicketsError(error.message || 'Unable to submit the ticket.');
+    } finally {
+      setTicketsSaving(false);
+    }
+  };
+
+  const saveTicket = async (ticket) => {
+    if (!ticket?.id || !TICKETS_BASE_URL) return;
+    if (!ticket.title.trim()) {
+      setTicketsError('Ticket titles cannot be blank.');
+      return;
+    }
+
+    setTicketsSaving(true);
+    setTicketsError(null);
+    setTicketsNotice(null);
+
+    try {
+      const dueDate = ticket.dueAt ? new Date(ticket.dueAt) : null;
+      const response = await authFetch(`${TICKETS_BASE_URL}/${ticket.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: ticket.title.trim(),
+          description: ticket.description.trim(),
+          status: ticket.status,
+          priority: ticket.priority,
+          category: ticket.category,
+          assignedUserId: ticket.assignedUserId || undefined,
+          dueAt: dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate.toISOString() : null,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || payload?.message || `Ticket update failed: ${response.status}`);
+      }
+
+      const savedTicket = normalizeTicketRecord(payload.ticket);
+      setTickets((current) => current.map((candidate) => (
+        candidate.id === savedTicket.id ? savedTicket : candidate
+      )));
+      if (payload.task) {
+        const savedTask = normalizeTaskRecord(payload.task);
+        setTasks((current) => current.map((candidate) => (
+          candidate.id === savedTask.id ? savedTask : candidate
+        )));
+      }
+      setTicketsNotice('Ticket updated.');
+    } catch (error) {
+      setTicketsError(error.message || 'Unable to update the ticket.');
+    } finally {
+      setTicketsSaving(false);
     }
   };
 
@@ -10824,6 +11130,230 @@ const DashboardApp = ({
     );
   };
 
+  const renderTickets = () => {
+    const minimumDueAt = getMinimumTicketDueDateTimeValue();
+    const defaultAssigneeId = ticketAssignmentByPropertyId.get(ticketDraft.propertyId) || '';
+    const defaultAssignee = ticketUserById.get(defaultAssigneeId);
+
+    return (
+      <div className="tasks-view tickets-view">
+        <div className="tasks-hero">
+          <div>
+            <div className="tasks-kicker">Shared intake</div>
+            <h2 className="tasks-headline">Tickets</h2>
+            <p className="tasks-copy">
+              Submit property-scoped requests, auto-route them to the property assignee, and create the linked task in the same workflow.
+            </p>
+          </div>
+          <div className="tasks-summary">
+            <span>{openTicketCount} open</span>
+            <strong>{tickets.length}</strong>
+            <small>total tickets</small>
+          </div>
+        </div>
+
+        <div className="tasks-create-panel tickets-create-panel">
+          <div className="tasks-create-panel__main tickets-create-panel__main">
+            <label className="tasks-field">
+              <span>Request</span>
+              <input
+                value={ticketDraft.title}
+                onChange={(event) => updateTicketDraft('title', event.target.value)}
+                placeholder="What needs to happen?"
+              />
+            </label>
+            <label className="tasks-field">
+              <span>Details</span>
+              <input
+                value={ticketDraft.description}
+                onChange={(event) => updateTicketDraft('description', event.target.value)}
+                placeholder="Add context, links, screenshots, or desired outcome"
+              />
+            </label>
+          </div>
+          <div className="tasks-create-panel__meta tickets-create-panel__meta">
+            <label className="tasks-field">
+              <span>Property</span>
+              <select
+                value={ticketDraft.propertyId}
+                onChange={(event) => updateTicketDraft('propertyId', event.target.value)}
+              >
+                <option value="">Choose property</option>
+                {availableProperties.map((property) => (
+                  <option key={property.propertyId} value={property.propertyId}>
+                    {property.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="tasks-field">
+              <span>Assignee</span>
+              <select
+                value={ticketDraft.assignedUserId}
+                onChange={(event) => updateTicketDraft('assignedUserId', event.target.value)}
+              >
+                <option value="">{defaultAssignee ? `Auto: ${defaultAssignee.fullName}` : 'Auto assign'}</option>
+                {ticketAssignableUsers.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.fullName || user.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="tasks-field">
+              <span>Due</span>
+              <input
+                type="datetime-local"
+                min={minimumDueAt}
+                value={ticketDraft.dueAt}
+                onChange={(event) => updateTicketDraft('dueAt', event.target.value)}
+              />
+            </label>
+            <label className="tasks-field">
+              <span>Priority</span>
+              <select
+                value={ticketDraft.priority}
+                onChange={(event) => updateTicketDraft('priority', event.target.value)}
+              >
+                {TICKET_PRIORITIES.map((priority) => (
+                  <option key={priority.id} value={priority.id}>{priority.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="tasks-field">
+              <span>Category</span>
+              <select
+                value={ticketDraft.category}
+                onChange={(event) => updateTicketDraft('category', event.target.value)}
+              >
+                {TICKET_CATEGORIES.map((category) => (
+                  <option key={category.id} value={category.id}>{category.label}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="tasks-create-button"
+              onClick={createTicket}
+              disabled={ticketsSaving || !ticketDraft.title.trim()}
+            >
+              <Plus size={16} />
+              Submit
+            </button>
+          </div>
+          <div className="tickets-intake-meta">
+            <span>Due dates must be at least 24 hours out.</span>
+            <span>{defaultAssignee ? `Default assignee: ${defaultAssignee.fullName || defaultAssignee.email}` : 'No default assignee is set for this property yet.'}</span>
+          </div>
+        </div>
+
+        {(ticketsError || ticketsNotice) && (
+          <div className={`tasks-message ${ticketsError ? 'tasks-message--error' : 'tasks-message--success'}`}>
+            {ticketsError || ticketsNotice}
+          </div>
+        )}
+
+        {ticketsLoading ? (
+          <div className="tasks-empty">Loading tickets...</div>
+        ) : (
+          <div className="tasks-board tickets-board" aria-label="Ticket board">
+            {TASK_STATUSES.map((status) => {
+              const statusTickets = ticketsByStatus[status.id] || [];
+              return (
+                <section className="tasks-column" key={status.id}>
+                  <div className="tasks-column__header">
+                    <h3>{status.label}</h3>
+                    <span>{statusTickets.length}</span>
+                  </div>
+                  <div className="tasks-column__cards">
+                    {statusTickets.length === 0 ? (
+                      <div className="tasks-empty-card">No tickets</div>
+                    ) : statusTickets.map((ticket) => {
+                      const property = taskPropertyById.get(ticket.propertyId);
+                      const assignedUser = ticketUserById.get(ticket.assignedUserId);
+                      const editableUsers = ticketUsers.filter((user) => user.globalRole === 'admin' || user.propertyIds?.includes(ticket.propertyId));
+                      return (
+                        <article className={`task-card ticket-card ticket-card--${ticket.priority}`} key={ticket.id}>
+                          <div className="ticket-card__topline">
+                            <span>{TICKET_PRIORITIES.find((priority) => priority.id === ticket.priority)?.label || 'Normal'}</span>
+                            <span>{ticket.source === 'forwarded_email' ? 'Email' : 'Dashboard'}</span>
+                          </div>
+                          <label className="tasks-field task-card__title-field">
+                            <span>Title</span>
+                            <input
+                              value={ticket.title}
+                              onChange={(event) => updateTicketField(ticket.id, 'title', event.target.value)}
+                            />
+                          </label>
+                          <label className="tasks-field">
+                            <span>Status</span>
+                            <select
+                              value={ticket.status}
+                              onChange={(event) => {
+                                const nextTicket = { ...ticket, status: event.target.value };
+                                updateTicketField(ticket.id, 'status', event.target.value);
+                                saveTicket(nextTicket);
+                              }}
+                            >
+                              {TASK_STATUSES.map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>{candidate.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="tasks-field">
+                            <span>Assignee</span>
+                            <select
+                              value={ticket.assignedUserId}
+                              onChange={(event) => updateTicketField(ticket.id, 'assignedUserId', event.target.value)}
+                            >
+                              {editableUsers.map((user) => (
+                                <option key={user.id} value={user.id}>{user.fullName || user.email}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="tasks-field">
+                            <span>Due</span>
+                            <input
+                              type="datetime-local"
+                              min={minimumDueAt}
+                              value={ticket.dueAt ? formatDateTimeLocalInputValue(ticket.dueAt) : ''}
+                              onChange={(event) => updateTicketField(ticket.id, 'dueAt', event.target.value)}
+                            />
+                          </label>
+                          <label className="tasks-field">
+                            <span>Details</span>
+                            <textarea
+                              value={ticket.description}
+                              onChange={(event) => updateTicketField(ticket.id, 'description', event.target.value)}
+                              rows={4}
+                            />
+                          </label>
+                          <div className="task-card__meta">
+                            <span>{property?.name || 'Active property'}</span>
+                            <span>Assigned to {assignedUser?.fullName || assignedUser?.email || ticket.assignedUserName || 'Auto assignment'}</span>
+                            <span>Submitted by {ticket.submittedByName || ticket.submittedByEmail || ticket.requesterEmail || 'Dashboard user'}</span>
+                            <span>{ticket.dueAt ? `Due ${formatReadableDateTime(ticket.dueAt)}` : 'No due date'}</span>
+                            {ticket.taskId && <span>Linked task created</span>}
+                          </div>
+                          <div className="task-card__actions ticket-card__actions">
+                            <button type="button" onClick={() => saveTicket(ticket)} disabled={ticketsSaving}>
+                              <Save size={15} />
+                              Save
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderTasks = () => (
     <div className="tasks-view">
       <div className="tasks-hero">
@@ -12224,6 +12754,7 @@ const DashboardApp = ({
           {activeTab === 'audit' && renderAuditCommandCenter()}
           {activeTab === 'analytics' && renderAnalytics()}
           {activeTab === 'reputation' && renderReputation()}
+          {activeTab === 'tickets' && renderTickets()}
           {activeTab === 'tasks' && renderTasks()}
           {activeTab === 'admin' && renderAdmin()}
 

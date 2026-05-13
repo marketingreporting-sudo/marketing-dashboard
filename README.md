@@ -101,8 +101,42 @@ The staged adapter now includes live staging routes backed by Supabase:
 - `GET|POST|OPTIONS /api/reporting/property-overview`
 - `GET|POST|OPTIONS /api/admin/website-manager`
 - `GET|POST|OPTIONS /api/admin/reporting-layout`
+- `POST|OPTIONS /api/tickets/inbound-outlook`
 
 These routes are intended for staging verification and staged cutover work. They run against Supabase and Render-managed job execution without changing production Firebase traffic by default.
+
+### Outlook Inbound Ticket Webhook
+
+The Render adapter can create dashboard tickets and linked `user_tasks` from Outlook emails forwarded through Power Automate.
+
+Required private Render env vars:
+
+- `OUTLOOK_WEBHOOK_TOKEN`: shared secret sent in the Power Automate HTTP body as `token`
+- `TICKET_TRIAGE_USER_ID` optional: fallback assignee when no property default assignment is found
+
+Power Automate setup summary:
+
+- Trigger: `When a new email arrives`
+- Action: `HTTP`
+- Method: `POST`
+- URI: `https://YOUR_RENDER_SERVICE/api/tickets/inbound-outlook`
+- Headers: `Content-Type: application/json`
+- Body fields: `token`, `from`, `subject`, `body`, `messageId`, `receivedDateTime`
+
+Local/staging test command:
+
+```bash
+curl -X POST http://localhost:PORT/api/tickets/inbound-outlook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "test-token",
+    "from": "sender@example.com",
+    "subject": "Test Ticket - Property Name",
+    "body": "<p>This is a test ticket from Outlook.</p>",
+    "messageId": "test-message-123",
+    "receivedDateTime": "2026-05-13T12:00:00Z"
+  }'
+```
 
 Concrete staged Render start command:
 

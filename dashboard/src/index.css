@@ -2799,6 +2799,10 @@ td {
   align-items: end;
 }
 
+.tickets-create-panel__meta {
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 1fr) minmax(13rem, 0.9fr) minmax(8rem, 0.6fr) minmax(11rem, 0.7fr) auto;
+}
+
 .tasks-field {
   display: grid;
   gap: 0.4rem;
@@ -2953,6 +2957,47 @@ td {
 .task-card__actions .task-card__delete {
   background: transparent;
   color: #ffd9dd;
+}
+
+.tickets-intake-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+}
+
+.tickets-intake-meta span {
+  border: 1px solid var(--surface-line);
+  border-radius: 999px;
+  padding: 0.35rem 0.55rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ticket-card__topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: var(--primary-tan);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ticket-card--urgent {
+  border-color: rgba(229, 104, 112, 0.72);
+}
+
+.ticket-card--high {
+  border-color: rgba(221, 170, 95, 0.72);
+}
+
+.ticket-card--low {
+  border-color: rgba(108, 178, 139, 0.58);
+}
+
+.ticket-card__actions {
+  grid-template-columns: 1fr;
 }
 
 @media (max-width: 1100px) {

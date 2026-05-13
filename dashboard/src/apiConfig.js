@@ -59,6 +59,16 @@ export const ADMIN_ACCESS_USERS_URL = resolveApiUrl(
   '/api/admin/access/users'
 );
 
+export const TICKETS_BASE_URL = resolveApiUrl(
+  import.meta.env.VITE_TICKETS_BASE_URL || '',
+  '/api/tickets'
+);
+
+export const TICKET_OPTIONS_URL = resolveApiUrl(
+  import.meta.env.VITE_TICKET_OPTIONS_URL || '',
+  '/api/tickets/options'
+);
+
 export const GA4_DASHBOARD_URL = resolveApiUrl(
   import.meta.env.VITE_GA4_DASHBOARD_URL || '',
   '/api/analytics/ga4',
