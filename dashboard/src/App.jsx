@@ -80,7 +80,9 @@ import {
   Plus,
   Trash2,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  Upload,
+  ExternalLink
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -157,6 +159,7 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'roi', title: 'ROAS Metrics', eyebrow: 'Revenue Efficiency' },
   { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
   { id: 'entrata', title: 'Entrata Funnel', eyebrow: 'Leads to Leases' },
+  { id: 'lead-deficit', title: 'Lead Deficit', eyebrow: 'Student Prelease' },
   { id: 'heatmaps-audit', title: 'Heatmaps + Site Audit', eyebrow: 'Website Experience' },
   { id: 'google-ads', title: 'Google Ads', eyebrow: 'Paid Search' },
   { id: 'ga4', title: 'Google Analytics', eyebrow: 'Behavior + Demand' },
@@ -175,6 +178,31 @@ const TASK_STATUSES = [
   { id: 'complete', label: 'Complete' },
 ];
 const TASK_STATUS_IDS = TASK_STATUSES.map((status) => status.id);
+const MARKETING_BUDGET_STATUSES = [
+  { id: 'new', label: 'New' },
+  { id: 'active', label: 'Active' },
+  { id: 'inactive', label: 'Inactive' },
+  { id: 'past', label: 'Past' },
+];
+const MARKETING_BUDGET_STATUS_IDS = MARKETING_BUDGET_STATUSES.map((status) => status.id);
+const MARKETING_BUDGET_SELECT_COLUMNS = [
+  'id',
+  'property_id',
+  'status',
+  'item_name',
+  'monthly_amount',
+  'start_date',
+  'end_date',
+  'listing_url',
+  'contract_file_name',
+  'contract_storage_path',
+  'contract_mime_type',
+  'notes',
+  'created_at',
+  'updated_at',
+  'created_by',
+  'updated_by'
+].join(', ');
 const CALL_PREP_PERIODS = [
   { days: 7, label: 'Last 7 Days', shortLabel: '7D' },
   { days: 30, label: 'Last 30 Days', shortLabel: '30D' },
@@ -465,6 +493,16 @@ const writeWebsiteSchemaHistory = (propertyId, history) => {
 const PROFILE_AVATAR_BUCKET = 'profile-avatars';
 const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 const PROFILE_AVATAR_ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MARKETING_BUDGET_CONTRACT_BUCKET = 'property-marketing-contracts';
+const MARKETING_BUDGET_CONTRACT_MAX_BYTES = 15 * 1024 * 1024;
+const MARKETING_BUDGET_CONTRACT_ALLOWED_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
 
 const getDashboardWorkspaceStateKey = (user) => {
   const accountId = user?.id || user?.email || 'anonymous';
@@ -687,6 +725,62 @@ const createEmptyTaskDraft = (propertyId = '') => ({
   status: 'new',
   propertyId: propertyId || '',
 });
+
+const normalizeMarketingBudgetRecord = (row) => {
+  const status = MARKETING_BUDGET_STATUS_IDS.includes(row?.status) ? row.status : 'new';
+  return {
+    id: row?.id || '',
+    propertyId: row?.property_id || '',
+    status,
+    itemName: row?.item_name || '',
+    monthlyAmount: row?.monthly_amount == null ? '' : String(row.monthly_amount),
+    startDate: row?.start_date || '',
+    endDate: row?.end_date || '',
+    listingUrl: row?.listing_url || '',
+    contractFileName: row?.contract_file_name || '',
+    contractStoragePath: row?.contract_storage_path || '',
+    contractMimeType: row?.contract_mime_type || '',
+    notes: row?.notes || '',
+    createdAt: row?.created_at || '',
+    updatedAt: row?.updated_at || '',
+  };
+};
+
+const createEmptyMarketingBudgetDraft = (propertyId = '') => ({
+  id: '',
+  propertyId: propertyId || '',
+  status: 'new',
+  itemName: '',
+  monthlyAmount: '',
+  startDate: formatDateInputValue(new Date()),
+  endDate: '',
+  listingUrl: '',
+  contractFileName: '',
+  contractStoragePath: '',
+  contractMimeType: '',
+  notes: '',
+  contractFile: null,
+});
+
+const getSafeStorageFilename = (filename) => (
+  String(filename || 'contract')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120) || 'contract'
+);
+
+const createMarketingBudgetContractPath = (propertyId, budgetItemId, file) => {
+  const safeName = getSafeStorageFilename(file?.name);
+  return `${propertyId}/${budgetItemId}/${Date.now()}-${safeName}`;
+};
+
+const normalizeExternalUrl = (value) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+};
 
 const parseEntrataPostMonth = (value) => {
   if (!value) return null;
@@ -1068,6 +1162,17 @@ const isApprovedNewLeaseEvent = (event) => {
     !reason.includes('renewal lease');
 };
 
+const isTourEvent = (event) => {
+  const reason = String(event.eventReason || event.type || event.name || '').toLowerCase().replace(/\s+:/g, ':');
+  return (
+    reason.includes('tour') ||
+    reason.includes('showing') ||
+    reason.includes('appointment') ||
+    reason.includes('property visit') ||
+    reason.includes('visited property')
+  );
+};
+
 const EVENT_OCCURRED_DATE_KEYS = [
   'eventDate',
   'event_date',
@@ -1082,6 +1187,85 @@ const EVENT_OCCURRED_DATE_KEYS = [
 const isInDateRange = (date, start, end) => {
   if (!date || Number.isNaN(date.getTime())) return false;
   return date >= start && date <= end;
+};
+
+const getDaysBetweenDates = (start, end) => {
+  if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.ceil((end.getTime() - start.getTime()) / msPerDay));
+};
+
+const getStudentPreleaseCycle = (rangeEnd) => {
+  const fallYear = rangeEnd.getMonth() >= 8 ? rangeEnd.getFullYear() + 1 : rangeEnd.getFullYear();
+  return {
+    cycleStart: new Date(fallYear - 1, 10, 10),
+    fallStart: new Date(fallYear, 7, 15),
+    fallWindowStart: new Date(fallYear, 7, 1),
+    fallWindowEnd: new Date(fallYear, 10, 30),
+  };
+};
+
+const getLeaseApprovalDate = (lease) => (
+  parseEntrataDate(
+    lease?.attribution_event_date ||
+    lease?._date ||
+    findNestedValue(lease, ['approvalDate', 'approvedDate', 'leaseApprovedDate', 'leaseSignedDate', 'signedDate', 'eventDate', 'date'])
+  )
+);
+
+const getLeaseStartDate = (lease) => (
+  parseEntrataDate(
+    lease?.lease_start_date ||
+    lease?.move_in_date ||
+    findNestedValue(lease, ['leaseStartDate', 'lease_start_date', 'moveInDate', 'move_in_date', 'startDate'])
+  )
+);
+
+const getLeaseEndDate = (lease) => (
+  parseEntrataDate(
+    lease?.lease_end_date ||
+    lease?.move_out_date ||
+    findNestedValue(lease, ['leaseEndDate', 'lease_end_date', 'moveOutDate', 'move_out_date', 'endDate'])
+  )
+);
+
+const isLeaseActiveOnDate = (lease, date) => {
+  const startDate = getLeaseStartDate(lease);
+  const endDate = getLeaseEndDate(lease);
+  if (!startDate || startDate > date) return false;
+  if (endDate && endDate < date) return false;
+  return true;
+};
+
+const filterUniqueActiveLeases = (leases, date, signedAsOf = date) => {
+  const uniqueLeases = new Map();
+  leases.forEach((lease) => {
+    if (!isLeaseActiveOnDate(lease, date)) return;
+    const approvalDate = getLeaseApprovalDate(lease);
+    if (approvalDate && approvalDate > signedAsOf) return;
+    const key = getApprovedLeaseRecordKey(lease);
+    const existing = uniqueLeases.get(key);
+    if (!existing || (approvalDate && approvalDate < existing.approvalDate)) {
+      uniqueLeases.set(key, { lease, approvalDate: approvalDate || date });
+    }
+  });
+  return Array.from(uniqueLeases.values());
+};
+
+const filterUniqueFallPreleaseLeases = (leases, cycle, rangeEnd) => {
+  const uniqueLeases = new Map();
+  leases.forEach((lease) => {
+    const approvalDate = getLeaseApprovalDate(lease);
+    if (!approvalDate || approvalDate < cycle.cycleStart || approvalDate > rangeEnd) return;
+    const startDate = getLeaseStartDate(lease);
+    if (!startDate || startDate < cycle.fallWindowStart || startDate > cycle.fallWindowEnd) return;
+    const key = getApprovedLeaseRecordKey(lease);
+    const existing = uniqueLeases.get(key);
+    if (!existing || approvalDate < existing.approvalDate) {
+      uniqueLeases.set(key, { lease, approvalDate, startDate });
+    }
+  });
+  return Array.from(uniqueLeases.values());
 };
 
 const getCallPrepWindowRange = (days, offsetDays = 0) => {
@@ -1712,7 +1896,19 @@ const DashboardApp = ({
   // Real data state
   const [leadItems, setLeadItems] = useState([]);
   const [eventItems, setEventItems] = useState([]);
-  const [, setLeaseItems] = useState([]);
+  const [leaseItems, setLeaseItems] = useState([]);
+  const [preleaseLeaseItems, setPreleaseLeaseItems] = useState([]);
+  const [priorPreleaseLeaseItems, setPriorPreleaseLeaseItems] = useState([]);
+  const [conventionalLeaseItems, setConventionalLeaseItems] = useState([]);
+  const [lead60DayItems, setLead60DayItems] = useState([]);
+  const [event60DayItems, setEvent60DayItems] = useState([]);
+  const [studentPreleaseCycle, setStudentPreleaseCycle] = useState(null);
+  const [conventionalOccupancyWindow, setConventionalOccupancyWindow] = useState(null);
+  const [reportingPortfolio, setReportingPortfolio] = useState('student');
+  const [redListSummary, setRedListSummary] = useState(null);
+  const [redListPortfolioLoading, setRedListPortfolioLoading] = useState(false);
+  const [redListPortfolioError, setRedListPortfolioError] = useState(null);
+  const [redListPortfolioSummaries, setRedListPortfolioSummaries] = useState([]);
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [availabilityPricingSnapshot, setAvailabilityPricingSnapshot] = useState(null);
   const [specialsSnapshot, setSpecialsSnapshot] = useState(null);
@@ -1746,6 +1942,15 @@ const DashboardApp = ({
   const [taskDraft, setTaskDraft] = useState(() => createEmptyTaskDraft(savedWorkspaceState.selectedPropertyId));
   const [tasksError, setTasksError] = useState(null);
   const [tasksNotice, setTasksNotice] = useState(null);
+  const [marketingBudgetItems, setMarketingBudgetItems] = useState([]);
+  const [marketingBudgetDraft, setMarketingBudgetDraft] = useState(() => createEmptyMarketingBudgetDraft(savedWorkspaceState.selectedPropertyId));
+  const [marketingBudgetLoading, setMarketingBudgetLoading] = useState(false);
+  const [marketingBudgetSaving, setMarketingBudgetSaving] = useState(false);
+  const [marketingBudgetError, setMarketingBudgetError] = useState(null);
+  const [marketingBudgetNotice, setMarketingBudgetNotice] = useState(null);
+  const [actualMarketingSpendItems, setActualMarketingSpendItems] = useState([]);
+  const [actualMarketingSpendLoading, setActualMarketingSpendLoading] = useState(false);
+  const [actualMarketingSpendError, setActualMarketingSpendError] = useState(null);
   const [callPrepLoading, setCallPrepLoading] = useState(false);
   const [callPrepError, setCallPrepError] = useState(null);
   const [callPrepOverview, setCallPrepOverview] = useState(null);
@@ -1871,6 +2076,22 @@ const DashboardApp = ({
     () => tasks.filter((task) => task.status !== 'complete').length,
     [tasks]
   );
+  const currentMarketingBudgetDate = useMemo(() => formatDateInputValue(new Date()), []);
+  const activeMarketingBudgetItems = useMemo(() => (
+    marketingBudgetItems.filter((item) => (
+      item.status === 'active' &&
+      item.startDate &&
+      item.startDate <= currentMarketingBudgetDate &&
+      (!item.endDate || item.endDate >= currentMarketingBudgetDate)
+    ))
+  ), [currentMarketingBudgetDate, marketingBudgetItems]);
+  const activeApprovedMarketingBudget = useMemo(() => (
+    activeMarketingBudgetItems.reduce((total, item) => total + parseCurrency(item.monthlyAmount), 0)
+  ), [activeMarketingBudgetItems]);
+  const futureMarketingBudgetItems = useMemo(() => (
+    marketingBudgetItems.filter((item) => item.status === 'new' || (item.startDate && item.startDate > currentMarketingBudgetDate))
+  ), [currentMarketingBudgetDate, marketingBudgetItems]);
+  const actualMarketingSpendWindow = useMemo(() => getCallPrepWindowRange(30), []);
 
   const handleDateRangeChange = (nextDateRange) => {
     setDraftDateRange(nextDateRange);
@@ -2050,6 +2271,99 @@ const DashboardApp = ({
       return { ...current, propertyId: selectedPropertyId || availableProperties[0]?.propertyId || '' };
     });
   }, [availableProperties, selectedPropertyId, taskPropertyIds]);
+
+  useEffect(() => {
+    setMarketingBudgetDraft((current) => ({
+      ...createEmptyMarketingBudgetDraft(propertyScopedSelectionId || selectedPropertyId || availableProperties[0]?.propertyId || ''),
+      startDate: current.startDate || formatDateInputValue(new Date()),
+    }));
+  }, [availableProperties, propertyScopedSelectionId, selectedPropertyId]);
+
+  const loadMarketingBudgetItems = useCallback(async () => {
+    if (!propertyScopedSelectionId) {
+      setMarketingBudgetItems([]);
+      setMarketingBudgetError('Choose a single property to manage approved marketing budget items.');
+      setMarketingBudgetLoading(false);
+      return;
+    }
+    if (!currentUser?.id || !supabase) {
+      setMarketingBudgetItems([]);
+      setMarketingBudgetError('Marketing budgets require a signed-in Supabase account.');
+      setMarketingBudgetLoading(false);
+      return;
+    }
+
+    setMarketingBudgetLoading(true);
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+
+    try {
+      const response = await supabase
+        .from('property_marketing_budget_items')
+        .select(MARKETING_BUDGET_SELECT_COLUMNS)
+        .eq('property_id', propertyScopedSelectionId)
+        .order('start_date', { ascending: false })
+        .order('updated_at', { ascending: false });
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      setMarketingBudgetItems((response.data || []).map(normalizeMarketingBudgetRecord));
+    } catch (error) {
+      setMarketingBudgetItems([]);
+      setMarketingBudgetError(error.message || 'Unable to load approved marketing budget items.');
+    } finally {
+      setMarketingBudgetLoading(false);
+    }
+  }, [currentUser, propertyScopedSelectionId]);
+
+  useEffect(() => {
+    if (activeTab !== 'property info') return;
+    loadMarketingBudgetItems();
+  }, [activeTab, loadMarketingBudgetItems]);
+
+  const loadActualMarketingSpendItems = useCallback(async () => {
+    if (!propertyScopedSelectionId) {
+      setActualMarketingSpendItems([]);
+      setActualMarketingSpendError(null);
+      setActualMarketingSpendLoading(false);
+      return;
+    }
+    if (!PROPERTY_REPORTING_OVERVIEW_URL) {
+      setActualMarketingSpendItems([]);
+      setActualMarketingSpendError('Reporting overview endpoint is not configured.');
+      setActualMarketingSpendLoading(false);
+      return;
+    }
+
+    setActualMarketingSpendLoading(true);
+    setActualMarketingSpendError(null);
+
+    try {
+      const params = new URLSearchParams({
+        property_id: propertyScopedSelectionId,
+        start_date: formatDateInputValue(actualMarketingSpendWindow.start),
+        end_date: formatDateInputValue(actualMarketingSpendWindow.end),
+      });
+      const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.message || payload?.error || `Actual marketing spend fetch failed: ${response.status}`);
+      }
+      setActualMarketingSpendItems(Array.isArray(payload.invoice_items) ? payload.invoice_items : []);
+    } catch (error) {
+      setActualMarketingSpendItems([]);
+      setActualMarketingSpendError(error.message || 'Unable to load actual marketing spend.');
+    } finally {
+      setActualMarketingSpendLoading(false);
+    }
+  }, [actualMarketingSpendWindow, propertyScopedSelectionId]);
+
+  useEffect(() => {
+    if (activeTab !== 'property info') return;
+    loadActualMarketingSpendItems();
+  }, [activeTab, loadActualMarketingSpendItems]);
 
   const loadTasks = useCallback(async () => {
     if (!currentUser?.id || !supabase) {
@@ -2371,6 +2685,202 @@ const DashboardApp = ({
       setTasksSaving(false);
     }
   };
+
+  const updateMarketingBudgetDraft = (field, value) => {
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+    setMarketingBudgetDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const updateMarketingBudgetField = (itemId, field, value) => {
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+    setMarketingBudgetItems((current) => current.map((item) => (
+      item.id === itemId ? { ...item, [field]: value } : item
+    )));
+  };
+
+  const validateMarketingBudgetFile = (file) => {
+    if (!file) return null;
+    if (!MARKETING_BUDGET_CONTRACT_ALLOWED_TYPES.has(file.type)) {
+      return 'Use a PDF, Word doc, JPG, PNG, or WEBP file for the contract.';
+    }
+    if (file.size > MARKETING_BUDGET_CONTRACT_MAX_BYTES) {
+      return 'Keep contract uploads under 15 MB.';
+    }
+    return null;
+  };
+
+  const saveMarketingBudgetItem = async (item, contractFile = null) => {
+    if (!propertyScopedSelectionId || !currentUser?.id || !supabase) {
+      setMarketingBudgetError('Choose a single property before saving a marketing budget item.');
+      return;
+    }
+
+    const itemName = String(item.itemName || '').trim();
+    const startDate = item.startDate || '';
+    const monthlyAmount = parseCurrency(item.monthlyAmount);
+    const status = MARKETING_BUDGET_STATUS_IDS.includes(item.status) ? item.status : 'new';
+    const fileError = validateMarketingBudgetFile(contractFile);
+
+    if (!itemName) {
+      setMarketingBudgetError('Add an item name before saving.');
+      return;
+    }
+    if (!isDateInputValue(startDate)) {
+      setMarketingBudgetError('Add a valid start date before saving.');
+      return;
+    }
+    if (String(item.monthlyAmount ?? '').trim() === '') {
+      setMarketingBudgetError('Add a monthly amount before saving.');
+      return;
+    }
+    if (!Number.isFinite(monthlyAmount) || monthlyAmount < 0) {
+      setMarketingBudgetError('Add a valid monthly amount before saving.');
+      return;
+    }
+    if (item.endDate && !isDateInputValue(item.endDate)) {
+      setMarketingBudgetError('End date must be blank or a valid date.');
+      return;
+    }
+    if (fileError) {
+      setMarketingBudgetError(fileError);
+      return;
+    }
+
+    setMarketingBudgetSaving(true);
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+
+    try {
+      const itemId = item.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`);
+      let contractFileName = item.contractFileName || null;
+      let contractStoragePath = item.contractStoragePath || null;
+      let contractMimeType = item.contractMimeType || null;
+
+      if (contractFile) {
+        contractStoragePath = createMarketingBudgetContractPath(propertyScopedSelectionId, itemId, contractFile);
+        contractFileName = contractFile.name;
+        contractMimeType = contractFile.type;
+
+        const uploadResponse = await supabase.storage
+          .from(MARKETING_BUDGET_CONTRACT_BUCKET)
+          .upload(contractStoragePath, contractFile, { upsert: true });
+
+        if (uploadResponse.error) {
+          throw new Error(uploadResponse.error.message || 'Unable to upload the contract.');
+        }
+      }
+
+      const payload = {
+        property_id: propertyScopedSelectionId,
+        status,
+        item_name: itemName,
+        monthly_amount: monthlyAmount,
+        start_date: startDate,
+        end_date: item.endDate || null,
+        listing_url: String(item.listingUrl || '').trim() || null,
+        contract_file_name: contractFileName,
+        contract_storage_path: contractStoragePath,
+        contract_mime_type: contractMimeType,
+        notes: String(item.notes || '').trim(),
+        updated_by: currentUser.id,
+        updated_at: new Date().toISOString(),
+      };
+
+      const response = item.id
+        ? await supabase
+            .from('property_marketing_budget_items')
+            .update(payload)
+            .eq('id', item.id)
+            .eq('property_id', propertyScopedSelectionId)
+            .select(MARKETING_BUDGET_SELECT_COLUMNS)
+            .single()
+        : await supabase
+            .from('property_marketing_budget_items')
+            .insert({
+              id: itemId,
+              ...payload,
+              created_by: currentUser.id,
+            })
+            .select(MARKETING_BUDGET_SELECT_COLUMNS)
+            .single();
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      const savedItem = normalizeMarketingBudgetRecord(response.data);
+      setMarketingBudgetItems((current) => {
+        const nextItems = item.id
+          ? current.map((candidate) => (candidate.id === savedItem.id ? savedItem : candidate))
+          : [savedItem, ...current];
+        return nextItems.sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')));
+      });
+      if (!item.id) {
+        setMarketingBudgetDraft(createEmptyMarketingBudgetDraft(propertyScopedSelectionId));
+      }
+      setMarketingBudgetNotice(contractFile ? 'Budget item and contract saved.' : 'Budget item saved.');
+    } catch (error) {
+      setMarketingBudgetError(error.message || 'Unable to save the marketing budget item.');
+    } finally {
+      setMarketingBudgetSaving(false);
+    }
+  };
+
+  const deleteMarketingBudgetItem = async (itemId) => {
+    if (!itemId || !propertyScopedSelectionId || !supabase) return;
+    const item = marketingBudgetItems.find((candidate) => candidate.id === itemId);
+    if (item && !window.confirm(`Delete "${item.itemName}"?`)) return;
+
+    setMarketingBudgetSaving(true);
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+
+    try {
+      const response = await supabase
+        .from('property_marketing_budget_items')
+        .delete()
+        .eq('id', itemId)
+        .eq('property_id', propertyScopedSelectionId);
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      if (item?.contractStoragePath) {
+        await supabase.storage.from(MARKETING_BUDGET_CONTRACT_BUCKET).remove([item.contractStoragePath]);
+      }
+
+      setMarketingBudgetItems((current) => current.filter((candidate) => candidate.id !== itemId));
+      setMarketingBudgetNotice('Budget item deleted.');
+    } catch (error) {
+      setMarketingBudgetError(error.message || 'Unable to delete the marketing budget item.');
+    } finally {
+      setMarketingBudgetSaving(false);
+    }
+  };
+
+  const openMarketingBudgetContract = async (item) => {
+    if (!item?.contractStoragePath || !supabase) return;
+
+    setMarketingBudgetError(null);
+    setMarketingBudgetNotice(null);
+
+    try {
+      const response = await supabase.storage
+        .from(MARKETING_BUDGET_CONTRACT_BUCKET)
+        .createSignedUrl(item.contractStoragePath, 60);
+      if (response.error) {
+        throw response.error;
+      }
+      if (response.data?.signedUrl) {
+        window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch (error) {
+      setMarketingBudgetError(error.message || 'Unable to open the contract file.');
+    }
+  };
   // Derived Date Range
   const rangeDates = useMemo(() => {
     const end = new Date();
@@ -2416,6 +2926,15 @@ const DashboardApp = ({
         setLeadItems([]);
         setEventItems([]);
         setLeaseItems([]);
+        setPreleaseLeaseItems([]);
+        setPriorPreleaseLeaseItems([]);
+        setConventionalLeaseItems([]);
+        setLead60DayItems([]);
+        setEvent60DayItems([]);
+        setStudentPreleaseCycle(null);
+        setConventionalOccupancyWindow(null);
+        setReportingPortfolio('student');
+        setRedListSummary(null);
         setInvoiceItems([]);
         setAvailabilityPricingSnapshot(null);
         setSpecialsSnapshot(null);
@@ -2434,6 +2953,15 @@ const DashboardApp = ({
         setLeadItems([]);
         setEventItems([]);
         setLeaseItems([]);
+        setPreleaseLeaseItems([]);
+        setPriorPreleaseLeaseItems([]);
+        setConventionalLeaseItems([]);
+        setLead60DayItems([]);
+        setEvent60DayItems([]);
+        setStudentPreleaseCycle(null);
+        setConventionalOccupancyWindow(null);
+        setReportingPortfolio('student');
+        setRedListSummary(null);
         setInvoiceItems([]);
         setAvailabilityPricingSnapshot(null);
         setSpecialsSnapshot(null);
@@ -2474,6 +3002,18 @@ const DashboardApp = ({
         setLeadItems(Array.isArray(payload.lead_items) ? payload.lead_items : []);
         setEventItems(Array.isArray(payload.event_items) ? payload.event_items : []);
         setLeaseItems(Array.isArray(payload.lease_items) ? payload.lease_items : []);
+        setPreleaseLeaseItems(Array.isArray(payload.prelease_lease_items) ? payload.prelease_lease_items : []);
+        setPriorPreleaseLeaseItems(Array.isArray(payload.prior_prelease_lease_items) ? payload.prior_prelease_lease_items : []);
+        setConventionalLeaseItems(Array.isArray(payload.conventional_lease_items) ? payload.conventional_lease_items : []);
+        setLead60DayItems(Array.isArray(payload.lead_60_day_items) ? payload.lead_60_day_items : []);
+        setEvent60DayItems(Array.isArray(payload.event_60_day_items) ? payload.event_60_day_items : []);
+        setStudentPreleaseCycle(payload.student_prelease_cycle || null);
+        setConventionalOccupancyWindow(payload.conventional_occupancy_window || null);
+        setReportingPortfolio(payload.portfolio || payload.availability_pricing_snapshot?.portfolio || 'student');
+        setRedListSummary(payload.red_list_summary || null);
+        if (Array.isArray(payload.red_list_summaries)) {
+          setRedListPortfolioSummaries(payload.red_list_summaries);
+        }
         setInvoiceItems(Array.isArray(payload.invoice_items) ? payload.invoice_items : []);
         setAvailabilityPricingSnapshot(payload.availability_pricing_snapshot || null);
         setSpecialsSnapshot(payload.specials_snapshot || null);
@@ -2491,6 +3031,15 @@ const DashboardApp = ({
           setLeadItems([]);
           setEventItems([]);
           setLeaseItems([]);
+          setPreleaseLeaseItems([]);
+          setPriorPreleaseLeaseItems([]);
+          setConventionalLeaseItems([]);
+          setLead60DayItems([]);
+          setEvent60DayItems([]);
+          setStudentPreleaseCycle(null);
+          setConventionalOccupancyWindow(null);
+          setReportingPortfolio('student');
+          setRedListSummary(null);
           setInvoiceItems([]);
           setAvailabilityPricingSnapshot(null);
           setSpecialsSnapshot(null);
@@ -2510,6 +3059,52 @@ const DashboardApp = ({
       cancelled = true;
     };
   }, [availableProperties, isAllPropertiesSelected, rangeDates, selectedPropertyId, reportingUsesStagedOverview]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadRedListPortfolio = async () => {
+      if (!canManageUsers || activeTab !== 'admin' || !PROPERTY_REPORTING_OVERVIEW_URL || availableProperties.length === 0) {
+        if (!cancelled && activeTab !== 'admin') {
+          setRedListPortfolioError(null);
+        }
+        return;
+      }
+
+      setRedListPortfolioLoading(true);
+      setRedListPortfolioError(null);
+
+      try {
+        const redListEndDate = new Date();
+        redListEndDate.setHours(23, 59, 59, 999);
+        const params = new URLSearchParams({
+          property_id: 'all',
+          property_ids: JSON.stringify(availableProperties.map((property) => property.propertyId)),
+          end_date: formatDateInputValue(redListEndDate),
+          red_list_only: '1',
+        });
+        const response = await authFetch(`${PROPERTY_REPORTING_OVERVIEW_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.message || `Red list fetch failed: ${response.status}`);
+        }
+        if (cancelled) return;
+        setRedListPortfolioSummaries(Array.isArray(payload.red_list_summaries) ? payload.red_list_summaries : []);
+      } catch (error) {
+        if (!cancelled) {
+          setRedListPortfolioSummaries([]);
+          setRedListPortfolioError(error.message || 'Unable to load red list summary.');
+        }
+      } finally {
+        if (!cancelled) setRedListPortfolioLoading(false);
+      }
+    };
+
+    loadRedListPortfolio();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, availableProperties, canManageUsers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3378,6 +3973,27 @@ const DashboardApp = ({
     return Array.from(uniqueInvoices.values());
   }, [invoiceItems]);
 
+  const normalizedActualMarketingSpendItems = useMemo(() => {
+    const uniqueInvoices = new Map();
+
+    actualMarketingSpendItems.forEach((invoice) => {
+      const key = getInvoiceKey(invoice);
+      const existing = uniqueInvoices.get(key);
+      if (!existing) {
+        uniqueInvoices.set(key, invoice);
+        return;
+      }
+
+      const effectiveDate = getInvoiceEffectiveDate(invoice);
+      const existingDate = getInvoiceEffectiveDate(existing);
+      if (effectiveDate && existingDate && effectiveDate < existingDate) {
+        uniqueInvoices.set(key, invoice);
+      }
+    });
+
+    return Array.from(uniqueInvoices.values());
+  }, [actualMarketingSpendItems]);
+
   const allMarketingInvoices = useMemo(() => {
     return normalizedInvoiceItems.filter((invoice) => {
       if (!hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS)) {
@@ -3487,6 +4103,37 @@ const DashboardApp = ({
   const activeMarketingSpendLineCount = useMemo(() => (
     marketingSpendBreakdown.filter((item) => !item.excluded).length
   ), [marketingSpendBreakdown]);
+
+  const actualMarketingSpendBreakdown = useMemo(() => {
+    const groupedSpend = new Map();
+
+    normalizedActualMarketingSpendItems.forEach((invoice) => {
+      if (!hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS)) return;
+      const amount = getAllocatedInvoiceAmountInRange(invoice, actualMarketingSpendWindow.start, actualMarketingSpendWindow.end);
+      if (amount === 0) return;
+      const label = getInvoiceBreakdownLabel(invoice);
+      groupedSpend.set(label, (groupedSpend.get(label) || 0) + amount);
+    });
+
+    return Array.from(groupedSpend.entries())
+      .map(([label, amount]) => ({ label, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [actualMarketingSpendWindow, normalizedActualMarketingSpendItems]);
+
+  const actualMarketingSpendLast30 = useMemo(() => (
+    actualMarketingSpendBreakdown.reduce((total, item) => total + item.amount, 0)
+  ), [actualMarketingSpendBreakdown]);
+
+  const actualPerformanceMarketingSpendLast30 = useMemo(() => (
+    normalizedActualMarketingSpendItems.reduce((total, invoice) => {
+      if (!hasInvoiceClassification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS)) return total;
+      return total + getAllocatedInvoiceAmountInRange(invoice, actualMarketingSpendWindow.start, actualMarketingSpendWindow.end);
+    }, 0)
+  ), [actualMarketingSpendWindow, normalizedActualMarketingSpendItems]);
+
+  const marketingBudgetVarianceLast30 = useMemo(() => (
+    activeApprovedMarketingBudget - actualMarketingSpendLast30
+  ), [activeApprovedMarketingBudget, actualMarketingSpendLast30]);
 
   const specialItems = useMemo(() => {
     return extractSpecialItems(specialsSnapshot);
@@ -3683,6 +4330,233 @@ const DashboardApp = ({
   const blendedRoi = roiTotals.marketingSpend > 0 ? ((roiTotals.netEffectiveRevenue - roiTotals.marketingSpend) / roiTotals.marketingSpend) : null;
   const blendedRoas = roiTotals.marketingSpend > 0 ? (roiTotals.netEffectiveRevenue / roiTotals.marketingSpend) : null;
   const roiCostPerLease = totalLeases > 0 && roiTotals.marketingSpend > 0 ? (roiTotals.marketingSpend / totalLeases).toFixed(2) : '—';
+  const studentLeadDeficitMetrics = useMemo(() => {
+    const cycle = {
+      ...getStudentPreleaseCycle(rangeDates.end),
+      cycleStart: parseEntrataDate(studentPreleaseCycle?.cycle_start) || getStudentPreleaseCycle(rangeDates.end).cycleStart,
+      fallStart: parseEntrataDate(studentPreleaseCycle?.fall_start) || getStudentPreleaseCycle(rangeDates.end).fallStart,
+      fallWindowStart: parseEntrataDate(studentPreleaseCycle?.fall_window_start) || getStudentPreleaseCycle(rangeDates.end).fallWindowStart,
+      fallWindowEnd: parseEntrataDate(studentPreleaseCycle?.fall_window_end) || getStudentPreleaseCycle(rangeDates.end).fallWindowEnd,
+    };
+    const currentPreleases = filterUniqueFallPreleaseLeases([...preleaseLeaseItems, ...leaseItems], cycle, rangeDates.end);
+    const priorComparableEnd = parseEntrataDate(studentPreleaseCycle?.prior_comparable_end);
+    const priorCycle = {
+      cycleStart: parseEntrataDate(studentPreleaseCycle?.prior_cycle_start) || new Date(cycle.cycleStart.getFullYear() - 1, cycle.cycleStart.getMonth(), cycle.cycleStart.getDate()),
+      fallStart: new Date(cycle.fallStart.getFullYear() - 1, cycle.fallStart.getMonth(), cycle.fallStart.getDate()),
+      fallWindowStart: parseEntrataDate(studentPreleaseCycle?.prior_fall_window_start) || new Date(cycle.fallWindowStart.getFullYear() - 1, cycle.fallWindowStart.getMonth(), cycle.fallWindowStart.getDate()),
+      fallWindowEnd: parseEntrataDate(studentPreleaseCycle?.prior_fall_window_end) || new Date(cycle.fallWindowEnd.getFullYear() - 1, cycle.fallWindowEnd.getMonth(), cycle.fallWindowEnd.getDate()),
+    };
+    const priorPreleases = filterUniqueFallPreleaseLeases(
+      priorPreleaseLeaseItems,
+      priorCycle,
+      priorComparableEnd || new Date(rangeDates.end.getFullYear() - 1, rangeDates.end.getMonth(), rangeDates.end.getDate())
+    );
+    const targetLeaseCount = Math.max(
+      0,
+      Number(availabilityPricingSnapshot?.bed_count || availabilityPricingSnapshot?.bedCount || 0),
+      Number(availabilityPricingSnapshot?.unit_space_count || availabilityPricingSnapshot?.unitSpaceCount || 0),
+      Number(availabilitySummary.unitSpaceCount || 0),
+      Number(availabilityPricingSnapshot?.unit_count || availabilityPricingSnapshot?.unitCount || 0),
+      Number(availabilitySummary.unitCount || 0)
+    );
+    const currentPreleaseCount = currentPreleases.length;
+    const leasesRemaining = targetLeaseCount > 0 ? Math.max(0, targetLeaseCount - currentPreleaseCount) : null;
+    const reportDays = Math.max(1, countInclusiveDays(rangeDates.start, rangeDates.end));
+    const reportMonths = reportDays / 30.4375;
+    const leadsPerMonth = totalLeads / Math.max(reportMonths, 0.1);
+    const leadsPerDay = totalLeads / reportDays;
+    const currentCloseRate = totalLeads > 0 ? totalLeases / totalLeads : null;
+    const leadToAppRate = totalLeads > 0 ? totalApplications / totalLeads : null;
+    const appToLeaseRate = totalApplications > 0 ? totalLeases / totalApplications : null;
+    const daysToFallStart = getDaysBetweenDates(rangeDates.end, cycle.fallStart);
+    const projectedLeadsBeforeFall = leadsPerDay * daysToFallStart;
+    const projectedAdditionalLeases = currentCloseRate != null ? projectedLeadsBeforeFall * currentCloseRate : 0;
+    const leadNeedAtCurrentClose = leasesRemaining != null && currentCloseRate > 0 ? Math.ceil(leasesRemaining / currentCloseRate) : null;
+    const leadNeedAtThirtyClose = leasesRemaining != null ? Math.ceil(leasesRemaining / 0.3) : null;
+    const leadDeficitAtCurrentClose = leadNeedAtCurrentClose != null ? Math.max(0, Math.ceil(leadNeedAtCurrentClose - projectedLeadsBeforeFall)) : null;
+    const leadDeficitAtThirtyClose = leadNeedAtThirtyClose != null ? Math.max(0, Math.ceil(leadNeedAtThirtyClose - projectedLeadsBeforeFall)) : null;
+    const leadDeficitPercentAtThirtyClose = leadNeedAtThirtyClose > 0 ? leadDeficitAtThirtyClose / leadNeedAtThirtyClose : null;
+    const monthsToFallStart = Math.max(daysToFallStart / 30.4375, 0.1);
+    const leadsNeededPerMonthAtThirtyClose = leadNeedAtThirtyClose != null ? leadNeedAtThirtyClose / monthsToFallStart : null;
+    const leadFulfillmentRate = leadsNeededPerMonthAtThirtyClose > 0 ? leadsPerMonth / leadsNeededPerMonthAtThirtyClose : null;
+    const isRedList = Boolean(
+      ((leadDeficitAtThirtyClose || 0) > 0 && (leadDeficitPercentAtThirtyClose || 0) > 0.8) ||
+      (leadFulfillmentRate != null && leadFulfillmentRate < 0.5)
+    );
+    const numericCostPerLead = totalLeads > 0 && totalPerformanceMarketingCost > 0 ? totalPerformanceMarketingCost / totalLeads : null;
+
+    return {
+      cycle,
+      targetLeaseCount,
+      currentPreleaseCount,
+      priorPreleaseCount: priorPreleases.length,
+      yoyDelta: priorPreleases.length > 0 ? (currentPreleaseCount - priorPreleases.length) / priorPreleases.length : null,
+      leasesRemaining,
+      currentPreleaseRate: targetLeaseCount > 0 ? currentPreleaseCount / targetLeaseCount : null,
+      projectedOccupancyRate: targetLeaseCount > 0 ? Math.min(1, (currentPreleaseCount + projectedAdditionalLeases) / targetLeaseCount) : null,
+      leadsPerMonth,
+      currentCloseRate,
+      leadToAppRate,
+      appToLeaseRate,
+      daysToFallStart,
+      projectedLeadsBeforeFall,
+      projectedAdditionalLeases,
+      leadNeedAtCurrentClose,
+      leadNeedAtThirtyClose,
+      leadDeficitAtCurrentClose,
+      leadDeficitAtThirtyClose,
+      leadDeficitPercentAtThirtyClose,
+      leadsNeededPerMonthAtThirtyClose,
+      leadFulfillmentRate,
+      isRedList,
+      extraSpendAtCurrentClose: numericCostPerLead != null && leadDeficitAtCurrentClose != null ? leadDeficitAtCurrentClose * numericCostPerLead : null,
+      extraSpendAtThirtyClose: numericCostPerLead != null && leadDeficitAtThirtyClose != null ? leadDeficitAtThirtyClose * numericCostPerLead : null,
+      costPerLead: numericCostPerLead,
+    };
+  }, [
+    availabilityPricingSnapshot,
+    availabilitySummary.unitCount,
+    availabilitySummary.unitSpaceCount,
+    leaseItems,
+    preleaseLeaseItems,
+    priorPreleaseLeaseItems,
+    rangeDates,
+    studentPreleaseCycle,
+    totalApplications,
+    totalLeads,
+    totalLeases,
+    totalPerformanceMarketingCost
+  ]);
+  const conventionalLeadDeficitMetrics = useMemo(() => {
+    const forecastDate = parseEntrataDate(conventionalOccupancyWindow?.forecast_date) || new Date(rangeDates.end.getFullYear(), rangeDates.end.getMonth(), rangeDates.end.getDate() + 60);
+    const priorWeekDate = parseEntrataDate(conventionalOccupancyWindow?.prior_week_date) || new Date(rangeDates.end.getFullYear(), rangeDates.end.getMonth(), rangeDates.end.getDate() - 7);
+    const windowStart = parseEntrataDate(conventionalOccupancyWindow?.window_start) || new Date(rangeDates.end.getFullYear(), rangeDates.end.getMonth(), rangeDates.end.getDate() - 59);
+    const targetUnitCount = Math.max(
+      0,
+      Number(availabilityPricingSnapshot?.unit_count || availabilityPricingSnapshot?.unitCount || 0),
+      Number(availabilitySummary.unitCount || 0)
+    );
+    const activeLeaseFeed = conventionalLeaseItems.length > 0 ? conventionalLeaseItems : leaseItems;
+    const activeCurrentLeases = filterUniqueActiveLeases(activeLeaseFeed, rangeDates.end, rangeDates.end);
+    const activeForecastLeases = filterUniqueActiveLeases(activeLeaseFeed, forecastDate, rangeDates.end);
+    const activePriorWeekLeases = filterUniqueActiveLeases(activeLeaseFeed, priorWeekDate, priorWeekDate);
+    const currentOccupancyRate = targetUnitCount > 0 ? Math.min(1, activeCurrentLeases.length / targetUnitCount) : null;
+    const forecastOccupancyRate = targetUnitCount > 0 ? Math.min(1, activeForecastLeases.length / targetUnitCount) : null;
+    const currentExposureRate = currentOccupancyRate != null ? Math.max(0, 1 - currentOccupancyRate) : null;
+    const forecastExposureRate = forecastOccupancyRate != null ? Math.max(0, 1 - forecastOccupancyRate) : null;
+    const priorWeekExposureRate = targetUnitCount > 0 ? Math.max(0, 1 - Math.min(1, activePriorWeekLeases.length / targetUnitCount)) : null;
+    const exposureVariance = currentExposureRate != null && priorWeekExposureRate != null ? currentExposureRate - priorWeekExposureRate : null;
+    const availableUnitsIn60Days = targetUnitCount > 0 ? Math.max(0, targetUnitCount - activeForecastLeases.length) : null;
+
+    const canonicalLeads = new Map();
+    lead60DayItems.forEach((lead) => {
+      const leadDate = getCallPrepDate(lead._date || lead.activity_date || lead.date);
+      if (!isInDateRange(leadDate, windowStart, rangeDates.end)) return;
+      const key = getLeadKey(lead);
+      const current = canonicalLeads.get(key);
+      if (!current || String(lead._date || '') < String(current._date || '9999-12-31')) {
+        canonicalLeads.set(key, lead);
+      }
+    });
+    const leads60 = Array.from(canonicalLeads.values());
+
+    const tourRecords = new Map();
+    const applicationRecords = new Map();
+    const leaseRecords = new Map();
+    event60DayItems.forEach((event) => {
+      const eventDate = getTrueEventOccurredDate(event);
+      if (!isInDateRange(eventDate, windowStart, rangeDates.end)) return;
+      const eventKey = getScopedStableKey(
+        getItemPropertyId(event),
+        event.eventId || event.eventID || event.id || event._firestorePath || JSON.stringify(event)
+      );
+      if (isTourEvent(event)) {
+        const existing = tourRecords.get(eventKey);
+        if (!existing || eventDate < existing.date) tourRecords.set(eventKey, { date: eventDate, item: event });
+      }
+      if (isStartedApplicationEvent(event)) {
+        const key = getCompletedApplicationRecordKey(event);
+        const existing = applicationRecords.get(key);
+        if (!existing || eventDate < existing.date) applicationRecords.set(key, { date: eventDate, item: event });
+      }
+      if (isApprovedNewLeaseEvent(event)) {
+        const key = getApprovedLeaseRecordKey(event);
+        const existing = leaseRecords.get(key);
+        if (!existing || eventDate < existing.date) leaseRecords.set(key, { date: eventDate, item: event });
+      }
+    });
+
+    const totalLeads60 = leads60.length;
+    const totalTours60 = tourRecords.size;
+    const totalApplications60 = applicationRecords.size;
+    const totalLeases60 = leaseRecords.size;
+    const currentCloseRate = totalLeads60 > 0 ? totalLeases60 / totalLeads60 : null;
+    const requiredLeadsAtCurrentClose = availableUnitsIn60Days != null && currentCloseRate > 0 ? Math.ceil(availableUnitsIn60Days / currentCloseRate) : null;
+    const requiredLeadsAtTenClose = availableUnitsIn60Days != null ? Math.ceil(availableUnitsIn60Days / 0.1) : null;
+    const leadDeficitAtTenClose = requiredLeadsAtTenClose != null ? Math.max(0, requiredLeadsAtTenClose - totalLeads60) : null;
+    const isRedList = Boolean((forecastExposureRate || 0) > 0.12 && (leadDeficitAtTenClose || 0) > 0);
+
+    return {
+      forecastDate,
+      priorWeekDate,
+      windowStart,
+      targetUnitCount,
+      currentOccupiedUnits: activeCurrentLeases.length,
+      forecastOccupiedUnits: activeForecastLeases.length,
+      currentOccupancyRate,
+      forecastOccupancyRate,
+      currentExposureRate,
+      forecastExposureRate,
+      priorWeekExposureRate,
+      exposureVariance,
+      availableUnitsIn60Days,
+      totalLeads60,
+      totalTours60,
+      totalApplications60,
+      totalLeases60,
+      currentCloseRate,
+      leadDeficitAtCurrentClose: requiredLeadsAtCurrentClose != null ? Math.max(0, requiredLeadsAtCurrentClose - totalLeads60) : null,
+      leadDeficitAtTenClose,
+      requiredLeadsAtCurrentClose,
+      requiredLeadsAtTenClose,
+      isRedList,
+      leadToTourRate: totalLeads60 > 0 ? totalTours60 / totalLeads60 : null,
+      tourToApplicationRate: totalTours60 > 0 ? totalApplications60 / totalTours60 : null,
+      tourToLeaseRate: totalTours60 > 0 ? totalLeases60 / totalTours60 : null,
+      leadToLeaseRate: currentCloseRate,
+      leadToApplicationRate: totalLeads60 > 0 ? totalApplications60 / totalLeads60 : null,
+      applicationToLeaseRate: totalApplications60 > 0 ? totalLeases60 / totalApplications60 : null,
+    };
+  }, [
+    availabilityPricingSnapshot,
+    availabilitySummary.unitCount,
+    conventionalLeaseItems,
+    conventionalOccupancyWindow,
+    event60DayItems,
+    lead60DayItems,
+    leaseItems,
+    rangeDates,
+  ]);
+  const isConventionalLeadDeficitPanel = reportingPortfolio === 'multifamily';
+  const activeRedListStatus = isConventionalLeadDeficitPanel
+    ? {
+        isRedList: Boolean(redListSummary?.is_red_list ?? conventionalLeadDeficitMetrics.isRedList),
+        label: (redListSummary?.is_red_list ?? conventionalLeadDeficitMetrics.isRedList) ? 'On Red List' : 'Clear',
+        detail: redListSummary?.reason || (
+          conventionalLeadDeficitMetrics.isRedList
+            ? '60-day exposure is above 12% and the 10% close-rate lead deficit is positive.'
+            : 'Conventional red-list thresholds are currently clear.'
+        ),
+      }
+    : {
+        isRedList: Boolean(redListSummary?.is_red_list ?? studentLeadDeficitMetrics.isRedList),
+        label: (redListSummary?.is_red_list ?? studentLeadDeficitMetrics.isRedList) ? 'On Red List' : 'Clear',
+        detail: redListSummary?.reason || (
+          studentLeadDeficitMetrics.isRedList
+            ? '30% close-rate deficit is above 80% or lead fulfillment is below 50%.'
+            : 'Student red-list thresholds are currently clear.'
+        ),
+      };
   const selectedPropertyLabel = useMemo(() => {
     if (isAllPropertiesSelected) {
       return 'All Properties';
@@ -5132,11 +6006,50 @@ const DashboardApp = ({
       staleDateProperties,
     };
   }, [portfolioAuditProperties]);
+  const redListAdminRows = useMemo(() => (
+    redListPortfolioSummaries
+      .filter((summary) => summary?.is_red_list)
+      .map((summary) => {
+        const property = taskPropertyById.get(String(summary.property_id));
+        const title = property?.name || `Property ${summary.property_id}`;
+        const location = [property?.city, property?.state].filter(Boolean).join(', ');
+        const primaryMetric = summary.portfolio === 'multifamily'
+          ? `${formatPercent(summary.forecast_exposure_rate, 1)} 60-day exposure`
+          : `${formatPercent(summary.lead_fulfillment_rate, 1)} lead fulfillment`;
+        const secondaryMetric = summary.portfolio === 'multifamily'
+          ? `${formatNumber(summary.lead_deficit_at_ten_close)} lead deficit at 10%`
+          : `${formatNumber(summary.lead_deficit_at_thirty_close)} lead deficit at 30%`;
+        return {
+          ...summary,
+          title,
+          location,
+          primaryMetric,
+          secondaryMetric,
+        };
+      })
+      .sort((a, b) => {
+        if (a.portfolio !== b.portfolio) return a.portfolio.localeCompare(b.portfolio);
+        const aRisk = a.portfolio === 'multifamily'
+          ? Number(a.forecast_exposure_rate || 0)
+          : 1 - Number(a.lead_fulfillment_rate ?? 1);
+        const bRisk = b.portfolio === 'multifamily'
+          ? Number(b.forecast_exposure_rate || 0)
+          : 1 - Number(b.lead_fulfillment_rate ?? 1);
+        return bRisk - aRisk;
+      })
+  ), [redListPortfolioSummaries, taskPropertyById]);
   const reportingPanelSummaries = useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
     budget: `${activeMarketingSpendLineCount} active spend lines | ${formatCurrency(totalPerformanceMarketingCost)} paid media`,
     entrata: `${totalLeads} leads | ${totalApplications} apps | ${totalLeases} leases`,
+    'lead-deficit': isConventionalLeadDeficitPanel
+      ? conventionalLeadDeficitMetrics.targetUnitCount > 0
+        ? `${formatNumber(conventionalLeadDeficitMetrics.availableUnitsIn60Days)} units exposed | ${formatPercent(conventionalLeadDeficitMetrics.forecastOccupancyRate, 1)} forecast occupancy`
+        : 'Waiting on unit capacity'
+      : studentLeadDeficitMetrics.targetLeaseCount > 0
+        ? `${formatNumber(studentLeadDeficitMetrics.leasesRemaining)} leases remaining | ${formatNumber(studentLeadDeficitMetrics.leadDeficitAtCurrentClose)} lead gap`
+        : 'Waiting on prelease target capacity',
     'google-ads': googleAdsLoading ? 'Loading paid search metrics' : googleAdsStatusMessage ? 'Google Ads connection needs attention' : `${formatNumber(googleAdsOverview?.clicks)} clicks | ${formatCurrency(googleAdsOverview?.cost)} spend`,
     ga4: ga4Loading ? 'Loading analytics metrics' : ga4Blocked ? 'GA4 access required' : `${formatNumber(ga4Sessions)} sessions | ${formatNumber(ga4EventTotal)} tracked events`,
     opiniion: reputationLoading ? 'Loading reputation metrics' : `${formatNumber(reputationReviewCount)} reviews | ${formatNumber(reputationAverageRating, 2)} avg rating`,
@@ -5166,6 +6079,13 @@ const DashboardApp = ({
     reputationLoading,
     reputationReviewCount,
     roiTotals.netEffectiveRevenue,
+    conventionalLeadDeficitMetrics.availableUnitsIn60Days,
+    conventionalLeadDeficitMetrics.forecastOccupancyRate,
+    conventionalLeadDeficitMetrics.targetUnitCount,
+    isConventionalLeadDeficitPanel,
+    studentLeadDeficitMetrics.leadDeficitAtCurrentClose,
+    studentLeadDeficitMetrics.leasesRemaining,
+    studentLeadDeficitMetrics.targetLeaseCount,
     totalApplications,
     totalBlendedMarketingSpend,
     totalLeads,
@@ -5259,9 +6179,280 @@ const DashboardApp = ({
           <div className="property-info-card__value">{loading ? '…' : `${formatNumber(totalLeads)} / ${formatNumber(totalApplications)} / ${formatNumber(totalLeases)}`}</div>
           <div className="property-info-card__meta">Leads / apps / leases in selected range</div>
         </div>
+        <div className="property-info-card">
+          <div className="property-info-card__label">Budgeted Spend</div>
+          <div className="property-info-card__value">{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</div>
+          <div className="property-info-card__meta">{formatNumber(activeMarketingBudgetItems.length)} active monthly item{activeMarketingBudgetItems.length === 1 ? '' : 's'} as of today</div>
+        </div>
+        <div className="property-info-card">
+          <div className="property-info-card__label">Actual GL Spend</div>
+          <div className="property-info-card__value">{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</div>
+          <div className="property-info-card__meta">Last 30 days from posted marketing invoices</div>
+        </div>
       </div>
 
       <div className="property-info-panels">
+        <div className="property-info-panel property-info-panel--marketing-budget">
+          <div className="property-info-panel__header">
+            <div>
+              <div className="property-info-panel__eyebrow">Approved Marketing Budget</div>
+              <div className="property-info-panel__title">Property budget items</div>
+              <div className="property-info-panel__subhead">
+                Track approved monthly spend, listing links, contracts, notes, active status, and the last modified date for this property.
+              </div>
+            </div>
+            <button type="button" className="property-budget-refresh" onClick={loadMarketingBudgetItems} disabled={marketingBudgetLoading || marketingBudgetSaving}>
+              Refresh
+            </button>
+          </div>
+
+          {marketingBudgetError && <div className="property-budget-alert property-budget-alert--error">{marketingBudgetError}</div>}
+          {marketingBudgetNotice && <div className="property-budget-alert">{marketingBudgetNotice}</div>}
+          {actualMarketingSpendError && <div className="property-budget-alert property-budget-alert--error">{actualMarketingSpendError}</div>}
+
+          <div className="property-budget-summary-grid">
+            <div className="property-budget-summary-card">
+              <span>Budgeted spend now</span>
+              <strong>{marketingBudgetLoading ? '…' : formatCurrency(activeApprovedMarketingBudget)}</strong>
+              <small>
+                {formatNumber(activeMarketingBudgetItems.length)} active item{activeMarketingBudgetItems.length === 1 ? '' : 's'}
+                {futureMarketingBudgetItems.length > 0 ? ` | ${formatNumber(futureMarketingBudgetItems.length)} future/new` : ''}
+              </small>
+            </div>
+            <div className="property-budget-summary-card">
+              <span>Actual GL spend, last 30 days</span>
+              <strong>{actualMarketingSpendLoading ? '…' : formatCurrency(actualMarketingSpendLast30)}</strong>
+              <small>{formatCurrency(actualPerformanceMarketingSpendLast30)} performance marketing | {formatNumber(actualMarketingSpendBreakdown.length)} GL line{actualMarketingSpendBreakdown.length === 1 ? '' : 's'}</small>
+            </div>
+            <div className="property-budget-summary-card">
+              <span>Budget less actual</span>
+              <strong>{actualMarketingSpendLoading || marketingBudgetLoading ? '…' : formatCurrency(marketingBudgetVarianceLast30)}</strong>
+              <small>Budget uses currently active approvals; actuals use posted invoice allocation.</small>
+            </div>
+          </div>
+
+          <div className="property-budget-create">
+            <label className="property-budget-field property-budget-field--item">
+              <span>Item name</span>
+              <input
+                type="text"
+                value={marketingBudgetDraft.itemName}
+                onChange={(event) => updateMarketingBudgetDraft('itemName', event.target.value)}
+                placeholder="Apartments.com listing"
+              />
+            </label>
+            <label className="property-budget-field">
+              <span>Status</span>
+              <select
+                value={marketingBudgetDraft.status}
+                onChange={(event) => updateMarketingBudgetDraft('status', event.target.value)}
+              >
+                {MARKETING_BUDGET_STATUSES.map((status) => (
+                  <option key={status.id} value={status.id}>{status.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="property-budget-field">
+              <span>Start date</span>
+              <input
+                type="date"
+                value={marketingBudgetDraft.startDate}
+                onChange={(event) => updateMarketingBudgetDraft('startDate', event.target.value)}
+              />
+            </label>
+            <label className="property-budget-field">
+              <span>End date</span>
+              <input
+                type="date"
+                value={marketingBudgetDraft.endDate}
+                onChange={(event) => updateMarketingBudgetDraft('endDate', event.target.value)}
+              />
+            </label>
+            <label className="property-budget-field">
+              <span>Monthly amount</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={marketingBudgetDraft.monthlyAmount}
+                onChange={(event) => updateMarketingBudgetDraft('monthlyAmount', event.target.value)}
+                placeholder="1000"
+              />
+            </label>
+            <label className="property-budget-field property-budget-field--url">
+              <span>Listing link</span>
+              <input
+                type="url"
+                value={marketingBudgetDraft.listingUrl}
+                onChange={(event) => updateMarketingBudgetDraft('listingUrl', event.target.value)}
+                placeholder="https://www.apartments.com/..."
+              />
+            </label>
+            <label className="property-budget-field property-budget-field--notes">
+              <span>Notes</span>
+              <textarea
+                value={marketingBudgetDraft.notes}
+                onChange={(event) => updateMarketingBudgetDraft('notes', event.target.value)}
+                rows={2}
+                placeholder="Package level, terms, renewal notes"
+              />
+            </label>
+            <label className="property-budget-upload">
+              <input
+                type="file"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  event.target.value = '';
+                  updateMarketingBudgetDraft('contractFile', file);
+                }}
+              />
+              <Upload size={15} />
+              {marketingBudgetDraft.contractFile?.name || 'Attach contract'}
+            </label>
+            <button
+              type="button"
+              className="property-budget-save"
+              onClick={() => saveMarketingBudgetItem(marketingBudgetDraft, marketingBudgetDraft.contractFile)}
+              disabled={marketingBudgetSaving || marketingBudgetLoading}
+            >
+              <Plus size={15} />
+              Add row
+            </button>
+          </div>
+
+          {marketingBudgetLoading ? (
+            <div className="property-info-empty">Loading approved budget items…</div>
+          ) : marketingBudgetItems.length === 0 ? (
+            <div className="property-info-empty">No approved marketing budget items are stored for this property yet.</div>
+          ) : (
+            <div className="property-budget-table-wrap">
+              <table className="property-budget-table">
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>Item</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Monthly</th>
+                    <th>Contract</th>
+                    <th>Listing</th>
+                    <th>Notes</th>
+                    <th>Modified On</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {marketingBudgetItems.map((item) => {
+                    const listingUrl = normalizeExternalUrl(item.listingUrl);
+                    return (
+                      <tr key={item.id}>
+                        <td>
+                          <select
+                            value={item.status}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'status', event.target.value)}
+                          >
+                            {MARKETING_BUDGET_STATUSES.map((status) => (
+                              <option key={status.id} value={status.id}>{status.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            value={item.itemName}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'itemName', event.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="date"
+                            value={item.startDate}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'startDate', event.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="date"
+                            value={item.endDate}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'endDate', event.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.monthlyAmount}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'monthlyAmount', event.target.value)}
+                          />
+                        </td>
+                        <td>
+                          <div className="property-budget-file-actions">
+                            {item.contractStoragePath ? (
+                              <button type="button" onClick={() => openMarketingBudgetContract(item)}>
+                                <FileCheck size={14} />
+                                Open
+                              </button>
+                            ) : (
+                              <span>No file</span>
+                            )}
+                            <label>
+                              <input
+                                type="file"
+                                onChange={async (event) => {
+                                  const file = event.target.files?.[0] || null;
+                                  event.target.value = '';
+                                  if (file) await saveMarketingBudgetItem(item, file);
+                                }}
+                              />
+                              <Upload size={14} />
+                              Upload
+                            </label>
+                          </div>
+                          {item.contractFileName && <small>{item.contractFileName}</small>}
+                        </td>
+                        <td>
+                          <input
+                            type="url"
+                            value={item.listingUrl}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'listingUrl', event.target.value)}
+                            placeholder="https://"
+                          />
+                          {listingUrl && (
+                            <a className="property-budget-link" href={listingUrl} target="_blank" rel="noreferrer">
+                              <ExternalLink size={13} />
+                              View
+                            </a>
+                          )}
+                        </td>
+                        <td>
+                          <textarea
+                            value={item.notes}
+                            onChange={(event) => updateMarketingBudgetField(item.id, 'notes', event.target.value)}
+                            rows={3}
+                          />
+                        </td>
+                        <td>
+                          <div className="property-budget-modified">{formatReadableDate(item.updatedAt)}</div>
+                          <div className="property-budget-row-actions">
+                            <button type="button" onClick={() => saveMarketingBudgetItem(item)} disabled={marketingBudgetSaving}>
+                              <Save size={14} />
+                              Save
+                            </button>
+                            <button type="button" className="property-budget-delete" onClick={() => deleteMarketingBudgetItem(item.id)} disabled={marketingBudgetSaving}>
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         <div className="property-info-panel property-info-panel--specials">
           <div className="property-info-panel__eyebrow">Specials</div>
           <div className="property-info-panel__title">Current leasing offers</div>
@@ -7706,6 +8897,65 @@ const DashboardApp = ({
               </section>
             )}
 
+            {activeReportingPanels.some((panel) => panel.id === 'lead-deficit') && (
+              <section id="reporting-panel-lead-deficit" className="reports-panel">
+                <div className="reports-panel__eyebrow">{isConventionalLeadDeficitPanel ? 'Conventional Occupancy' : 'Student Prelease'}</div>
+                <div className="reports-panel__title">Lead Deficit</div>
+                {isConventionalLeadDeficitPanel ? (
+                  <>
+                    <div className="reports-panel__grid reports-panel__grid--three">
+                      <div className="reports-stat"><span>Red List</span><strong>{activeRedListStatus.label}</strong><small>{activeRedListStatus.detail}</small></div>
+                      <div className="reports-stat"><span>Current Occupancy</span><strong>{formatPercent(conventionalLeadDeficitMetrics.currentOccupancyRate, 1)}</strong><small>{formatNumber(conventionalLeadDeficitMetrics.currentOccupiedUnits)} of {conventionalLeadDeficitMetrics.targetUnitCount > 0 ? formatNumber(conventionalLeadDeficitMetrics.targetUnitCount) : 'target missing'} units active</small></div>
+                      <div className="reports-stat"><span>60-Day Forecast Occupancy</span><strong>{formatPercent(conventionalLeadDeficitMetrics.forecastOccupancyRate, 1)}</strong><small>Forecast date {formatReadableDate(conventionalLeadDeficitMetrics.forecastDate)}</small></div>
+                      <div className="reports-stat"><span>60-Day Exposure</span><strong>{formatPercent(conventionalLeadDeficitMetrics.forecastExposureRate, 1)}</strong><small>{conventionalLeadDeficitMetrics.availableUnitsIn60Days != null ? `${formatNumber(conventionalLeadDeficitMetrics.availableUnitsIn60Days)} units available to rent` : 'Unit target needed'}</small></div>
+                      <div className="reports-stat"><span>Week-over-Week Exposure</span><strong>{formatSignedPercent(conventionalLeadDeficitMetrics.exposureVariance, 1)}</strong><small>{conventionalLeadDeficitMetrics.exposureVariance < 0 ? 'Improving exposure' : conventionalLeadDeficitMetrics.exposureVariance > 0 ? 'Exposure increasing' : 'Flat exposure'} vs {formatReadableDate(conventionalLeadDeficitMetrics.priorWeekDate)}</small></div>
+                      <div className="reports-stat"><span>Leads Last 60 Days</span><strong>{formatNumber(conventionalLeadDeficitMetrics.totalLeads60)}</strong><small>{formatReadableDate(conventionalLeadDeficitMetrics.windowStart)} - {formatReadableDate(rangeDates.end)}</small></div>
+                      <div className="reports-stat"><span>Close Rate Last 60 Days</span><strong>{formatPercent(conventionalLeadDeficitMetrics.currentCloseRate, 1)}</strong><small>{formatNumber(conventionalLeadDeficitMetrics.totalLeases60)} approved leases</small></div>
+                      <div className="reports-stat"><span>Lead Deficit at Current Rate</span><strong>{conventionalLeadDeficitMetrics.leadDeficitAtCurrentClose != null ? formatNumber(conventionalLeadDeficitMetrics.leadDeficitAtCurrentClose) : '—'}</strong><small>{conventionalLeadDeficitMetrics.requiredLeadsAtCurrentClose != null ? `${formatNumber(conventionalLeadDeficitMetrics.requiredLeadsAtCurrentClose)} required leads before 60-day run-rate offset` : 'Close rate needed'}</small></div>
+                      <div className="reports-stat"><span>Lead Deficit at 10%</span><strong>{conventionalLeadDeficitMetrics.leadDeficitAtTenClose != null ? formatNumber(conventionalLeadDeficitMetrics.leadDeficitAtTenClose) : '—'}</strong><small>{conventionalLeadDeficitMetrics.requiredLeadsAtTenClose != null ? `${formatNumber(conventionalLeadDeficitMetrics.requiredLeadsAtTenClose)} required leads before 60-day run-rate offset` : 'Unit target needed'}</small></div>
+                      <div className="reports-stat"><span>Tours Last 60 Days</span><strong>{formatNumber(conventionalLeadDeficitMetrics.totalTours60)}</strong><small>Tour events matched from Entrata activity</small></div>
+                    </div>
+                    <div className="reports-list" style={{ marginTop: '0.9rem' }}>
+                      <div className="reports-list__row"><div><strong>Lead to tour</strong><small>Tours divided by leads in the last 60 days.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.leadToTourRate, 1)}</div></div>
+                      <div className="reports-list__row"><div><strong>Tour to completed application</strong><small>Completed applications divided by tours.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.tourToApplicationRate, 1)}</div></div>
+                      <div className="reports-list__row"><div><strong>Tour to approved lease</strong><small>Approved leases divided by tours.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.tourToLeaseRate, 1)}</div></div>
+                      <div className="reports-list__row"><div><strong>Lead to approved lease</strong><small>Standard 60-day lead-to-lease conversion.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.leadToLeaseRate, 1)}</div></div>
+                      <div className="reports-list__row"><div><strong>Lead to completed application</strong><small>Standard 60-day lead-to-application conversion.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.leadToApplicationRate, 1)}</div></div>
+                      <div className="reports-list__row"><div><strong>Completed application to approved lease</strong><small>Standard 60-day application-to-lease conversion.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.applicationToLeaseRate, 1)}</div></div>
+                      {conventionalLeadDeficitMetrics.targetUnitCount <= 0 && (
+                        <div className="reports-empty">A unit target could not be inferred from the latest availability snapshot. Add unit capacity to enable occupancy, exposure, and lead deficit calculations.</div>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="reports-panel__grid reports-panel__grid--three">
+                      <div className="reports-stat"><span>Red List</span><strong>{activeRedListStatus.label}</strong><small>{activeRedListStatus.detail}</small></div>
+                      <div className="reports-stat"><span>Current Prelease</span><strong>{studentLeadDeficitMetrics.targetLeaseCount > 0 ? formatPercent(studentLeadDeficitMetrics.currentPreleaseRate, 1) : '—'}</strong><small>{formatNumber(studentLeadDeficitMetrics.currentPreleaseCount)} of {studentLeadDeficitMetrics.targetLeaseCount > 0 ? formatNumber(studentLeadDeficitMetrics.targetLeaseCount) : 'target missing'} fall leases</small></div>
+                      <div className="reports-stat"><span>Leases Remaining</span><strong>{studentLeadDeficitMetrics.leasesRemaining != null ? formatNumber(studentLeadDeficitMetrics.leasesRemaining) : '—'}</strong><small>Fall start {formatReadableDate(studentLeadDeficitMetrics.cycle.fallStart)} | {formatNumber(studentLeadDeficitMetrics.daysToFallStart)} days left</small></div>
+                      <div className="reports-stat"><span>Projected Occupancy</span><strong>{formatPercent(studentLeadDeficitMetrics.projectedOccupancyRate, 1)}</strong><small>{formatNumber(studentLeadDeficitMetrics.projectedAdditionalLeases, 1)} projected additional leases at current pace</small></div>
+                      <div className="reports-stat"><span>Current Leads / Month</span><strong>{formatNumber(studentLeadDeficitMetrics.leadsPerMonth, 1)}</strong><small>{formatNumber(totalLeads)} leads in the selected window</small></div>
+                      <div className="reports-stat"><span>Lead Deficit</span><strong>{studentLeadDeficitMetrics.leadDeficitAtCurrentClose != null ? formatNumber(studentLeadDeficitMetrics.leadDeficitAtCurrentClose) : '—'}</strong><small>{formatPercent(studentLeadDeficitMetrics.currentCloseRate, 1)} current lead-to-lease close rate</small></div>
+                      <div className="reports-stat"><span>Lead Deficit at 30%</span><strong>{studentLeadDeficitMetrics.leadDeficitAtThirtyClose != null ? formatNumber(studentLeadDeficitMetrics.leadDeficitAtThirtyClose) : '—'}</strong><small>{studentLeadDeficitMetrics.leadNeedAtThirtyClose != null ? `${formatNumber(studentLeadDeficitMetrics.leadNeedAtThirtyClose)} required leads before run-rate offset` : 'Target capacity needed'}</small></div>
+                      <div className="reports-stat"><span>Lead Fulfillment</span><strong>{formatPercent(redListSummary?.lead_fulfillment_rate ?? studentLeadDeficitMetrics.leadFulfillmentRate, 1)}</strong><small>{(redListSummary?.leads_needed_per_month_at_thirty_close ?? studentLeadDeficitMetrics.leadsNeededPerMonthAtThirtyClose) != null ? `${formatNumber(redListSummary?.leads_needed_per_month_at_thirty_close ?? studentLeadDeficitMetrics.leadsNeededPerMonthAtThirtyClose, 1)} leads needed/month at 30%` : 'Target capacity needed'}</small></div>
+                      <div className="reports-stat"><span>Lead to App Completed</span><strong>{formatPercent(studentLeadDeficitMetrics.leadToAppRate, 1)}</strong><small>{formatNumber(totalApplications)} completed applications</small></div>
+                      <div className="reports-stat"><span>App Completed to Lease</span><strong>{formatPercent(studentLeadDeficitMetrics.appToLeaseRate, 1)}</strong><small>{formatNumber(totalLeases)} approved leases</small></div>
+                      <div className="reports-stat"><span>Extra Spend Projection</span><strong>{studentLeadDeficitMetrics.extraSpendAtCurrentClose != null ? formatCurrency(studentLeadDeficitMetrics.extraSpendAtCurrentClose) : '—'}</strong><small>CPL {studentLeadDeficitMetrics.costPerLead != null ? formatCurrency(studentLeadDeficitMetrics.costPerLead, 2) : '—'} | 30% case {studentLeadDeficitMetrics.extraSpendAtThirtyClose != null ? formatCurrency(studentLeadDeficitMetrics.extraSpendAtThirtyClose) : '—'}</small></div>
+                    </div>
+                    <div className="reports-list" style={{ marginTop: '0.9rem' }}>
+                      <div className="reports-list__row"><div><strong>Season window</strong><small>Approved fall-start leases counted from the November 10 student prelease update.</small></div><div>{formatReadableDate(studentLeadDeficitMetrics.cycle.cycleStart)} - {formatReadableDate(rangeDates.end)}</div></div>
+                      <div className="reports-list__row"><div><strong>Projected lead supply</strong><small>Current lead pace carried through fall start before calculating the gap.</small></div><div>{formatNumber(studentLeadDeficitMetrics.projectedLeadsBeforeFall)} leads</div></div>
+                      <div className="reports-list__row"><div><strong>Required leads at current close</strong><small>Leases remaining divided by the selected-window lead-to-approved-lease rate.</small></div><div>{studentLeadDeficitMetrics.leadNeedAtCurrentClose != null ? formatNumber(studentLeadDeficitMetrics.leadNeedAtCurrentClose) : '—'}</div></div>
+                      <div className="reports-list__row"><div><strong>Year-over-year prelease</strong><small>Comparable prior-year season through the same update date when historical lease records exist.</small></div><div>{studentLeadDeficitMetrics.priorPreleaseCount > 0 ? `${formatNumber(studentLeadDeficitMetrics.currentPreleaseCount)} vs ${formatNumber(studentLeadDeficitMetrics.priorPreleaseCount)} (${formatSignedPercent(studentLeadDeficitMetrics.yoyDelta, 1)})` : 'No prior year data'}</div></div>
+                      {studentLeadDeficitMetrics.targetLeaseCount <= 0 && (
+                        <div className="reports-empty">A target lease count could not be inferred from the latest availability snapshot. Add bed/unit capacity to enable deficit and occupancy calculations.</div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
+            )}
+
             {activeReportingPanels.some((panel) => panel.id === 'heatmaps-audit') && renderHeatmapAuditPanel()}
 
             {activeReportingPanels.some((panel) => panel.id === 'google-ads') && (
@@ -10017,6 +11267,37 @@ const DashboardApp = ({
           {websiteSchemaError || websiteSchemaNotice}
         </div>
       )}
+
+      <div className="admin-access-panel" style={{ marginBottom: '1rem' }}>
+        <div className="admin-access-section-head">
+          <div>
+            <div className="admin-access-panel__eyebrow">Red List</div>
+            <h3 className="admin-access-panel__title">Properties requiring leasing attention</h3>
+          </div>
+          <span>{redListPortfolioLoading ? 'Loading…' : `${formatNumber(redListAdminRows.length)} flagged`}</span>
+        </div>
+        {redListPortfolioError && <div className="admin-access-empty">{redListPortfolioError}</div>}
+        {!redListPortfolioError && redListPortfolioLoading && <div className="admin-access-empty">Loading red list metrics…</div>}
+        {!redListPortfolioError && !redListPortfolioLoading && redListAdminRows.length === 0 && (
+          <div className="admin-access-empty">No properties are currently on the red list.</div>
+        )}
+        {!redListPortfolioError && redListAdminRows.length > 0 && (
+          <div className="reports-list">
+            {redListAdminRows.map((property) => (
+              <div key={property.property_id} className="reports-list__row">
+                <div>
+                  <strong>{property.title}</strong>
+                  <small>{property.location || property.portfolio} | {property.reason}</small>
+                </div>
+                <div>
+                  <strong>{property.primaryMetric}</strong>
+                  <small>{property.secondaryMetric}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="admin-access-layout">
         <div className="admin-access-panel">

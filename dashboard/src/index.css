@@ -3010,7 +3010,7 @@ td {
 .property-info-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .property-info-card {
@@ -3064,6 +3064,10 @@ td {
 .property-info-panel--specials,
 .property-info-panel--units {
   grid-column: span 2;
+}
+
+.property-info-panel--marketing-budget {
+  grid-column: 1 / -1;
 }
 
 .property-info-panel__eyebrow {
@@ -3206,6 +3210,249 @@ td {
   font-size: 0.82rem;
   line-height: 1.5;
   color: rgba(16, 33, 38, 0.68);
+}
+
+.property-budget-refresh,
+.property-budget-save,
+.property-budget-file-actions button,
+.property-budget-file-actions label,
+.property-budget-row-actions button,
+.property-budget-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(16, 33, 38, 0.12);
+  background: #102126;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.property-budget-refresh {
+  background: #ffffff;
+  color: var(--analytics-ink);
+}
+
+.property-budget-save {
+  align-self: end;
+  min-height: 43px;
+}
+
+.property-budget-refresh:disabled,
+.property-budget-save:disabled,
+.property-budget-row-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.property-budget-alert {
+  border: 1px solid rgba(56, 117, 81, 0.22);
+  background: rgba(56, 117, 81, 0.08);
+  color: #24523a;
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.84rem;
+}
+
+.property-budget-alert--error {
+  border-color: rgba(121, 41, 36, 0.24);
+  background: rgba(121, 41, 36, 0.08);
+  color: #792924;
+}
+
+.property-budget-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.property-budget-summary-card {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  background: linear-gradient(180deg, #f8f3ed 0%, #f4ede7 100%);
+}
+
+.property-budget-summary-card span {
+  color: rgba(16, 33, 38, 0.62);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.property-budget-summary-card strong {
+  color: var(--analytics-ink);
+  font-size: 1.55rem;
+  line-height: 1.1;
+}
+
+.property-budget-summary-card small {
+  color: rgba(16, 33, 38, 0.66);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.property-budget-create {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(120px, 0.7fr) repeat(3, minmax(130px, 0.75fr));
+  gap: 0.75rem;
+  padding: 0.95rem;
+  border-radius: 12px;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  background: linear-gradient(180deg, #f8f3ed 0%, #f4ede7 100%);
+}
+
+.property-budget-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.property-budget-field span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(16, 33, 38, 0.62);
+}
+
+.property-budget-field input,
+.property-budget-field select,
+.property-budget-field textarea,
+.property-budget-table input,
+.property-budget-table select,
+.property-budget-table textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(16, 33, 38, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--analytics-ink);
+  padding: 0.62rem 0.7rem;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.property-budget-field textarea,
+.property-budget-table textarea {
+  resize: vertical;
+}
+
+.property-budget-field--url,
+.property-budget-field--notes {
+  grid-column: span 2;
+}
+
+.property-budget-upload {
+  align-self: end;
+  min-height: 43px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px dashed rgba(16, 33, 38, 0.2);
+  background: rgba(255, 255, 255, 0.68);
+  color: rgba(16, 33, 38, 0.74);
+  border-radius: 8px;
+  padding: 0.65rem 0.8rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.property-budget-upload input,
+.property-budget-file-actions input {
+  display: none;
+}
+
+.property-budget-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(16, 33, 38, 0.08);
+  border-radius: 14px;
+  background: #fbfaf8;
+}
+
+.property-budget-table {
+  width: 100%;
+  min-width: 1240px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.property-budget-table th,
+.property-budget-table td {
+  vertical-align: top;
+  border-right: 1px solid rgba(16, 33, 38, 0.06);
+  border-bottom: 1px solid rgba(16, 33, 38, 0.08);
+  padding: 0.75rem;
+  font-size: 0.82rem;
+  color: rgba(16, 33, 38, 0.78);
+}
+
+.property-budget-table th {
+  background: rgba(16, 33, 38, 0.04);
+  color: rgba(16, 33, 38, 0.68);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.property-budget-table th:last-child,
+.property-budget-table td:last-child {
+  border-right: none;
+}
+
+.property-budget-table tr:last-child td {
+  border-bottom: none;
+}
+
+.property-budget-file-actions,
+.property-budget-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.property-budget-file-actions button,
+.property-budget-file-actions label,
+.property-budget-link {
+  padding: 0.5rem 0.6rem;
+  background: #ffffff;
+  color: var(--analytics-ink);
+}
+
+.property-budget-file-actions span,
+.property-budget-table small {
+  display: block;
+  margin-top: 0.45rem;
+  color: rgba(16, 33, 38, 0.58);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.property-budget-link {
+  width: max-content;
+  margin-top: 0.45rem;
+}
+
+.property-budget-modified {
+  margin-bottom: 0.6rem;
+  color: var(--analytics-ink);
+  font-weight: 600;
+}
+
+.property-budget-delete {
+  background: rgba(121, 41, 36, 0.1) !important;
+  color: #792924 !important;
 }
 
 .reputation-view {
@@ -4913,6 +5160,14 @@ td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .property-budget-create {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .property-budget-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
   .analytics-kpis,
   .analytics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5042,7 +5297,17 @@ td {
   }
 
   .property-info-panel--specials,
-  .property-info-panel--units {
+  .property-info-panel--units,
+  .property-info-panel--marketing-budget {
+    grid-column: span 1;
+  }
+
+  .property-budget-create {
+    grid-template-columns: 1fr;
+  }
+
+  .property-budget-field--url,
+  .property-budget-field--notes {
     grid-column: span 1;
   }
 

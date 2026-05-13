@@ -19,6 +19,7 @@ VALIDATION_TABLES = (
     "property_leases",
     "property_roi_daily",
     "property_snapshot_leases",
+    "property_marketing_budget_items",
     "property_heatmap_sites",
     "property_heatmap_sessions",
     "property_heatmap_events",
