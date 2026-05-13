@@ -6372,7 +6372,7 @@ const DashboardApp = ({
                   {marketingBudgetItems.map((item) => {
                     const listingUrl = normalizeExternalUrl(item.listingUrl);
                     return (
-                      <tr key={item.id}>
+                      <tr key={item.id} className={`property-budget-row property-budget-row--${item.status}`}>
                         <td>
                           <select
                             value={item.status}

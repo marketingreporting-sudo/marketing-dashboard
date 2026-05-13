@@ -3066,8 +3066,25 @@ td {
   grid-column: span 2;
 }
 
-.property-info-panel--marketing-budget {
+.property-info-panel.property-info-panel--marketing-budget {
   grid-column: 1 / -1;
+  background: var(--panel-deep);
+  border-color: var(--panel-border);
+  color: var(--text-main);
+  box-shadow: 0 18px 36px rgba(8, 17, 21, 0.22);
+}
+
+.property-info-panel--marketing-budget .property-info-panel__eyebrow {
+  color: var(--primary-tan);
+}
+
+.property-info-panel--marketing-budget .property-info-panel__title {
+  color: var(--text-main);
+}
+
+.property-info-panel--marketing-budget .property-info-panel__subhead,
+.property-info-panel--marketing-budget .property-info-empty {
+  color: var(--text-soft);
 }
 
 .property-info-panel__eyebrow {
@@ -3222,9 +3239,9 @@ td {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  border: 1px solid rgba(16, 33, 38, 0.12);
-  background: #102126;
-  color: #ffffff;
+  border: 1px solid var(--surface-line-strong);
+  background: var(--secondary-blue);
+  color: var(--text-main);
   border-radius: 8px;
   padding: 0.65rem 0.8rem;
   font-size: 0.78rem;
@@ -3234,13 +3251,30 @@ td {
 }
 
 .property-budget-refresh {
-  background: #ffffff;
-  color: var(--analytics-ink);
+  background: rgba(215, 210, 207, 0.08);
+  color: var(--primary-tan);
 }
 
 .property-budget-save {
   align-self: end;
   min-height: 43px;
+  background: var(--primary-tan);
+  color: var(--primary-blue);
+}
+
+.property-budget-save:hover {
+  border-color: var(--primary-tan);
+  background: #e3ddd8;
+}
+
+.property-budget-refresh:hover,
+.property-budget-upload:hover,
+.property-budget-file-actions button:hover,
+.property-budget-file-actions label:hover,
+.property-budget-row-actions button:hover,
+.property-budget-link:hover {
+  border-color: var(--primary-tan);
+  background: rgba(215, 210, 207, 0.12);
 }
 
 .property-budget-refresh:disabled,
@@ -3251,18 +3285,18 @@ td {
 }
 
 .property-budget-alert {
-  border: 1px solid rgba(56, 117, 81, 0.22);
-  background: rgba(56, 117, 81, 0.08);
-  color: #24523a;
+  border: 1px solid rgba(91, 136, 108, 0.36);
+  background: rgba(91, 136, 108, 0.16);
+  color: #cfe7d7;
   border-radius: 10px;
   padding: 0.75rem 0.85rem;
   font-size: 0.84rem;
 }
 
 .property-budget-alert--error {
-  border-color: rgba(121, 41, 36, 0.24);
-  background: rgba(121, 41, 36, 0.08);
-  color: #792924;
+  border-color: rgba(121, 41, 36, 0.38);
+  background: rgba(121, 41, 36, 0.18);
+  color: #ffc5ca;
 }
 
 .property-budget-summary-grid {
@@ -3277,25 +3311,25 @@ td {
   min-width: 0;
   padding: 1rem;
   border-radius: 12px;
-  border: 1px solid rgba(16, 33, 38, 0.08);
-  background: linear-gradient(180deg, #f8f3ed 0%, #f4ede7 100%);
+  border: 1px solid var(--panel-border);
+  background: rgba(16, 33, 38, 0.42);
 }
 
 .property-budget-summary-card span {
-  color: rgba(16, 33, 38, 0.62);
+  color: var(--primary-tan);
   font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .property-budget-summary-card strong {
-  color: var(--analytics-ink);
+  color: var(--text-main);
   font-size: 1.55rem;
   line-height: 1.1;
 }
 
 .property-budget-summary-card small {
-  color: rgba(16, 33, 38, 0.66);
+  color: var(--text-soft);
   font-size: 0.78rem;
   line-height: 1.4;
 }
@@ -3306,8 +3340,8 @@ td {
   gap: 0.75rem;
   padding: 0.95rem;
   border-radius: 12px;
-  border: 1px solid rgba(16, 33, 38, 0.08);
-  background: linear-gradient(180deg, #f8f3ed 0%, #f4ede7 100%);
+  border: 1px solid var(--panel-border);
+  background: rgba(46, 74, 81, 0.52);
 }
 
 .property-budget-field {
@@ -3319,7 +3353,7 @@ td {
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: rgba(16, 33, 38, 0.62);
+  color: var(--primary-tan);
 }
 
 .property-budget-field input,
@@ -3330,14 +3364,38 @@ td {
 .property-budget-table textarea {
   width: 100%;
   min-width: 0;
-  border: 1px solid rgba(16, 33, 38, 0.12);
+  border: 1px solid var(--surface-line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.86);
-  color: var(--analytics-ink);
+  background: rgba(9, 20, 25, 0.62);
+  color: var(--text-main);
   padding: 0.62rem 0.7rem;
   font: inherit;
   font-size: 0.82rem;
   line-height: 1.35;
+  outline: none;
+}
+
+.property-budget-field input:focus,
+.property-budget-field select:focus,
+.property-budget-field textarea:focus,
+.property-budget-table input:focus,
+.property-budget-table select:focus,
+.property-budget-table textarea:focus {
+  border-color: var(--primary-tan);
+  box-shadow: 0 0 0 3px rgba(215, 210, 207, 0.08);
+}
+
+.property-budget-field input::placeholder,
+.property-budget-field textarea::placeholder,
+.property-budget-table input::placeholder,
+.property-budget-table textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.property-budget-field select option,
+.property-budget-table select option {
+  background: var(--primary-blue);
+  color: var(--text-main);
 }
 
 .property-budget-field textarea,
@@ -3357,9 +3415,9 @@ td {
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  border: 1px dashed rgba(16, 33, 38, 0.2);
-  background: rgba(255, 255, 255, 0.68);
-  color: rgba(16, 33, 38, 0.74);
+  border: 1px dashed var(--surface-line-strong);
+  background: rgba(16, 33, 38, 0.32);
+  color: var(--text-soft);
   border-radius: 8px;
   padding: 0.65rem 0.8rem;
   font-size: 0.78rem;
@@ -3373,9 +3431,9 @@ td {
 
 .property-budget-table-wrap {
   overflow-x: auto;
-  border: 1px solid rgba(16, 33, 38, 0.08);
+  border: 1px solid var(--panel-border);
   border-radius: 14px;
-  background: #fbfaf8;
+  background: rgba(9, 20, 25, 0.72);
 }
 
 .property-budget-table {
@@ -3388,16 +3446,16 @@ td {
 .property-budget-table th,
 .property-budget-table td {
   vertical-align: top;
-  border-right: 1px solid rgba(16, 33, 38, 0.06);
-  border-bottom: 1px solid rgba(16, 33, 38, 0.08);
+  border-right: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--panel-border);
   padding: 0.75rem;
   font-size: 0.82rem;
-  color: rgba(16, 33, 38, 0.78);
+  color: var(--text-soft);
 }
 
 .property-budget-table th {
-  background: rgba(16, 33, 38, 0.04);
-  color: rgba(16, 33, 38, 0.68);
+  background: rgba(215, 210, 207, 0.08);
+  color: var(--primary-tan);
   font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -3414,6 +3472,22 @@ td {
   border-bottom: none;
 }
 
+.property-budget-row--active td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent-green);
+}
+
+.property-budget-row--new td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent-gold);
+}
+
+.property-budget-row--inactive td:first-child {
+  box-shadow: inset 3px 0 0 rgba(121, 41, 36, 0.72);
+}
+
+.property-budget-row--past td:first-child {
+  box-shadow: inset 3px 0 0 rgba(215, 210, 207, 0.44);
+}
+
 .property-budget-file-actions,
 .property-budget-row-actions {
   display: flex;
@@ -3425,15 +3499,15 @@ td {
 .property-budget-file-actions label,
 .property-budget-link {
   padding: 0.5rem 0.6rem;
-  background: #ffffff;
-  color: var(--analytics-ink);
+  background: rgba(16, 33, 38, 0.34);
+  color: var(--text-main);
 }
 
 .property-budget-file-actions span,
 .property-budget-table small {
   display: block;
   margin-top: 0.45rem;
-  color: rgba(16, 33, 38, 0.58);
+  color: var(--text-muted);
   font-size: 0.72rem;
   line-height: 1.35;
   word-break: break-word;
@@ -3446,13 +3520,14 @@ td {
 
 .property-budget-modified {
   margin-bottom: 0.6rem;
-  color: var(--analytics-ink);
+  color: var(--text-main);
   font-weight: 600;
 }
 
 .property-budget-delete {
-  background: rgba(121, 41, 36, 0.1) !important;
-  color: #792924 !important;
+  border-color: rgba(121, 41, 36, 0.38) !important;
+  background: rgba(121, 41, 36, 0.18) !important;
+  color: #ffc5ca !important;
 }
 
 .reputation-view {
