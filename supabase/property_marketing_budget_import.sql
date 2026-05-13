@@ -1,153 +1,23 @@
 -- Import approved marketing budget rows from /Users/steele/Downloads/By Property.csv.
--- This replaces existing budget seed rows for properties present in the CSV.
+-- This replaces existing budget seed rows for mapped CSV properties that exist in public.properties.
+-- Rows for property IDs missing from public.properties are skipped and reported as a NOTICE.
 begin;
 
-delete from public.property_marketing_budget_items
-where property_id in (
-  '100002535',
-  '100002949',
-  '100019894',
-  '100023181',
-  '100033231',
-  '100044236',
-  '100047338',
-  '100062038',
-  '100064351',
-  '100064352',
-  '100064353',
-  '100076494',
-  '100083094',
-  '100089290',
-  '100089291',
-  '100102307',
-  '100102308',
-  '100102309',
-  '100102310',
-  '100102312',
-  '100102313',
-  '100102315',
-  '100102316',
-  '100102317',
-  '100102318',
-  '100103673',
-  '100103674',
-  '100112455',
-  '100123270',
-  '100124963',
-  '100124964',
-  '100127451',
-  '100135280',
-  '100136327',
-  '100136428',
-  '100136429',
-  '100136430',
-  '100136431',
-  '100136432',
-  '100136433',
-  '100136434',
-  '100141198',
-  '100141647',
-  '100141648',
-  '100149245',
-  '101048',
-  '104354',
-  '1047282',
-  '1047283',
-  '1047285',
-  '1047286',
-  '104878',
-  '104879',
-  '104880',
-  '104882',
-  '104884',
-  '104885',
-  '104888',
-  '1076652',
-  '1076707',
-  '1089137',
-  '1111047',
-  '1114953',
-  '1125580',
-  '1126261',
-  '1130046',
-  '1132457',
-  '1141805',
-  '1141807',
-  '1141808',
-  '1141810',
-  '1141816',
-  '1141818',
-  '1141819',
-  '1141821',
-  '1150964',
-  '1150965',
-  '1169416',
-  '1169417',
-  '1169419',
-  '1169649',
-  '1172068',
-  '1175408',
-  '1185471',
-  '1194265',
-  '1213410',
-  '1213412',
-  '1213414',
-  '1213419',
-  '1213421',
-  '1213422',
-  '1213425',
-  '1213426',
-  '1227565',
-  '124440',
-  '124441',
-  '1248940',
-  '1251384',
-  '125765',
-  '126864',
-  '1279225',
-  '1281654',
-  '1284231',
-  '1284712',
-  '1285899',
-  '1309927',
-  '1311032',
-  '1318988',
-  '172846',
-  '203547',
-  '203548',
-  '350504',
-  '483982',
-  '487930',
-  '492822',
-  '520129',
-  '520130',
-  '520131',
-  '520132',
-  '520133',
-  '520134',
-  '560737',
-  '560738',
-  '560739',
-  '560740',
-  '560741',
-  '560742',
-  '560743',
-  '560744',
-  '560745',
-  '598830',
-  '599511',
-  '665615',
-  '673845',
-  '796193',
-  '844970',
-  '871990',
-  '871991',
-  '938668',
-  '95477',
-  '968381'
-);
+create temp table tmp_property_marketing_budget_import (
+  property_id text not null,
+  status text not null,
+  item_name text not null,
+  monthly_amount numeric(14,2) not null,
+  start_date date not null,
+  end_date date,
+  listing_url text,
+  contract_file_name text,
+  contract_storage_path text,
+  contract_mime_type text,
+  notes text not null
+) on commit drop;
 
-insert into public.property_marketing_budget_items (
+insert into tmp_property_marketing_budget_import (
   property_id,
   status,
   item_name,
@@ -2424,5 +2294,61 @@ values
 ('126864', 'active', 'Opiniion', 101.00, '2026-01-01', null, null, null, null, null, ''),
 ('126864', 'active', 'Social Ads (FB/IG)', 500.00, '2025-09-26', null, null, null, null, null, ''),
 ('126864', 'inactive', 'Google Ads', 5000.00, '2025-09-26', '2025-12-31', null, null, null, null, '');
+
+do $$
+declare
+  skipped_rows integer;
+  skipped_property_ids text;
+begin
+  select count(*), string_agg(distinct import_rows.property_id, ', ' order by import_rows.property_id)
+  into skipped_rows, skipped_property_ids
+  from tmp_property_marketing_budget_import import_rows
+  left join public.properties properties
+    on properties.id = import_rows.property_id
+  where properties.id is null;
+
+  if skipped_rows > 0 then
+    raise notice 'Skipping % marketing budget rows because these property IDs are missing from public.properties: %',
+      skipped_rows,
+      skipped_property_ids;
+  end if;
+end $$;
+
+delete from public.property_marketing_budget_items
+where property_id in (
+  select distinct import_rows.property_id
+  from tmp_property_marketing_budget_import import_rows
+  join public.properties properties
+    on properties.id = import_rows.property_id
+);
+
+insert into public.property_marketing_budget_items (
+  property_id,
+  status,
+  item_name,
+  monthly_amount,
+  start_date,
+  end_date,
+  listing_url,
+  contract_file_name,
+  contract_storage_path,
+  contract_mime_type,
+  notes
+)
+select
+  import_rows.property_id,
+  import_rows.status,
+  import_rows.item_name,
+  import_rows.monthly_amount,
+  import_rows.start_date,
+  import_rows.end_date,
+  import_rows.listing_url,
+  import_rows.contract_file_name,
+  import_rows.contract_storage_path,
+  import_rows.contract_mime_type,
+  import_rows.notes
+from tmp_property_marketing_budget_import import_rows
+join public.properties properties
+  on properties.id = import_rows.property_id;
 
 commit;
