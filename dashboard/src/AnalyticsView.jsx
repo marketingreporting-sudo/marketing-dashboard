@@ -11,6 +11,39 @@ import {
   LineChart,
   Line,
 } from 'recharts';
+import {
+  GA4_DASHBOARD_URL,
+  GOOGLE_ADS_DASHBOARD_URL,
+  META_ADS_DASHBOARD_URL,
+  RENDER_API_BASE_URL,
+  REPORTING_TAB_SUMMARY_URL,
+} from './apiConfig';
+import { authFetch } from './lib/authFetch';
+
+const isRenderAdapterUrl = (value) => {
+  if (!value || !RENDER_API_BASE_URL) return false;
+  return String(value).startsWith(RENDER_API_BASE_URL);
+};
+
+const normalizeAnalyticsError = (message) => {
+  const text = String(message || '').trim();
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (normalized.includes('deleted_client') || normalized.includes('oauth client was deleted')) {
+    return 'Google Ads access needs to be reconnected. The OAuth client in GOOGLE_ADS_CONFIG_JSON was deleted, so refresh the Google Ads credentials before live paid search metrics can load.';
+  }
+  if (
+    normalized.includes('consumer_invalid')
+    || normalized.includes('project #')
+    || normalized.includes('project has been deleted')
+  ) {
+    return 'GA4 reporting credentials need to be updated. The Google Cloud project behind the Analytics API credential was deleted or disabled, so replace the service account/API credential and enable the Analytics Data API.';
+  }
+  if (text.includes('403') && normalized.includes('property')) {
+    return 'GA4 access is not enabled for this property yet. Share the property with the reporting service account to unlock the GA4 sections.';
+  }
+  return text;
+};
 
 export default function AnalyticsView(props) {
   const {
@@ -33,71 +66,358 @@ export default function AnalyticsView(props) {
     CHART_TOOLTIP_LABEL_STYLE,
     CHART_TOOLTIP_STYLE,
     MeasuredChart,
-    analyticsSourceBadge,
     formatCurrency,
+    formatDateInputValue,
     formatNumber,
     formatPercent,
     formatSignedPercent,
-    ga4AcquisitionChannels,
-    ga4ApplyPage,
-    ga4Blocked,
-    ga4Cities,
-    ga4ConversionByMedium,
-    ga4ConversionEvents,
-    ga4CoverageGaps,
-    ga4DeviceBreakdown,
-    ga4DevicesDetailed,
-    ga4EventTotal,
-    ga4LandingPages,
-    ga4LlmTraffic,
-    ga4Loading,
-    ga4NewUsers,
-    ga4OrganicConversionBreakdown,
-    ga4PagePerformance,
-    ga4PathExploration,
-    ga4Sessions,
-    ga4StatusMessage,
-    ga4TopPages,
-    ga4TopSources,
-    ga4TrafficByMonth,
-    ga4TrafficBySessionSource,
-    ga4ConversionsByDay,
     getDeltaTone,
-    googleAdsAds,
-    googleAdsBrandSplit,
-    googleAdsCampaigns,
-    googleAdsConversionActionNote,
-    googleAdsConversionActions,
-    googleAdsCoverage,
-    googleAdsDailyPerformance,
-    googleAdsError,
-    googleAdsKeywords,
-    googleAdsLoading,
-    googleAdsOverview,
-    googleAdsOverviewDelta,
-    googleAdsTopAd,
-    metaAdsAdSets,
-    metaAdsAttribution,
     metaAdsAttributionMode,
-    metaAdsCampaigns,
-    metaAdsCoverage,
-    metaAdsDailyPerformance,
-    metaAdsError,
-    metaAdsKeyMetrics,
-    metaAdsLoading,
-    metaAdsOverview,
-    metaAdsOverviewDelta,
-    metaAdsPlacements,
-    metaAdsScoping,
-    metaAdsTopAds,
-    metaAdsTopPreview,
     rangeDates,
     renderMetricValue,
     selectedProperty,
+    selectedPropertyId,
     selectedPropertyLabel,
     setMetaAdsAttributionMode,
     shortenLabel,
   } = props;
+
+  const [ga4Data, setGa4Data] = React.useState(null);
+  const [ga4Error, setGa4Error] = React.useState(null);
+  const [ga4Loading, setGa4Loading] = React.useState(true);
+  const [googleAdsData, setGoogleAdsData] = React.useState(null);
+  const [googleAdsError, setGoogleAdsError] = React.useState(null);
+  const [googleAdsLoading, setGoogleAdsLoading] = React.useState(true);
+  const [metaAdsData, setMetaAdsData] = React.useState(null);
+  const [metaAdsError, setMetaAdsError] = React.useState(null);
+  const [metaAdsLoading, setMetaAdsLoading] = React.useState(true);
+  const [analyticsSummaryBypass, setAnalyticsSummaryBypass] = React.useState(false);
+  const propertyScopedSelectionId = selectedPropertyId || selectedProperty?.propertyId || '';
+  const analyticsEndpointsConfigured = Boolean(GA4_DASHBOARD_URL && GOOGLE_ADS_DASHBOARD_URL && META_ADS_DASHBOARD_URL);
+  const analyticsUsesRenderAdapter = React.useMemo(
+    () => [GA4_DASHBOARD_URL, GOOGLE_ADS_DASHBOARD_URL, META_ADS_DASHBOARD_URL].every(isRenderAdapterUrl),
+    []
+  );
+  const analyticsSourceBadge = React.useMemo(() => {
+    if (REPORTING_TAB_SUMMARY_URL && !analyticsSummaryBypass && metaAdsAttributionMode === 'account_default') {
+      return { label: 'Data source: Staged summary', className: 'analytics-chip analytics-chip--staged' };
+    }
+    if (analyticsUsesRenderAdapter) {
+      return { label: 'Data source: Staged Render', className: 'analytics-chip analytics-chip--staged' };
+    }
+    if (analyticsEndpointsConfigured) {
+      return { label: 'Data source: External endpoints', className: 'analytics-chip analytics-chip--fallback' };
+    }
+    return { label: 'Data source: Endpoint unavailable', className: 'analytics-chip analytics-chip--error' };
+  }, [analyticsEndpointsConfigured, analyticsSummaryBypass, analyticsUsesRenderAdapter, metaAdsAttributionMode]);
+  const shouldUseAnalyticsSummary = Boolean(REPORTING_TAB_SUMMARY_URL)
+    && !analyticsSummaryBypass
+    && metaAdsAttributionMode === 'account_default';
+
+  React.useEffect(() => {
+    setAnalyticsSummaryBypass(false);
+  }, [propertyScopedSelectionId, rangeDates, metaAdsAttributionMode]);
+
+  React.useEffect(() => {
+    if (!shouldUseAnalyticsSummary) return undefined;
+
+    if (!propertyScopedSelectionId) {
+      setGa4Data(null);
+      setGoogleAdsData(null);
+      setMetaAdsData(null);
+      setGa4Error(null);
+      setGoogleAdsError(null);
+      setMetaAdsError(null);
+      setGa4Loading(false);
+      setGoogleAdsLoading(false);
+      setMetaAdsLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const applySummaryEntry = (entry, setData, setError, fallbackMessage) => {
+      if (entry?.status === 'ok' && entry.payload) {
+        setData(entry.payload);
+        setError(null);
+        return;
+      }
+      setData(null);
+      setError(entry?.error || fallbackMessage);
+    };
+
+    const loadAnalyticsSummary = async () => {
+      setGa4Loading(true);
+      setGoogleAdsLoading(true);
+      setMetaAdsLoading(true);
+      setGa4Error(null);
+      setGoogleAdsError(null);
+      setMetaAdsError(null);
+
+      try {
+        const params = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          sections: 'analytics',
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+          attribution_mode: metaAdsAttributionMode,
+        });
+        const response = await authFetch(`${REPORTING_TAB_SUMMARY_URL}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Analytics summary fetch failed: ${response.status}`);
+        }
+
+        const analytics = payload.analytics || {};
+        applySummaryEntry(analytics.ga4, setGa4Data, setGa4Error, 'No cached GA4 summary is available yet.');
+        applySummaryEntry(analytics.googleAds, setGoogleAdsData, setGoogleAdsError, 'No cached Google Ads summary is available yet.');
+        applySummaryEntry(analytics.metaAds, setMetaAdsData, setMetaAdsError, 'No cached Meta Ads summary is available yet.');
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Analytics summary fetch failed', error);
+        setAnalyticsSummaryBypass(true);
+        setGa4Error(error.message || 'Unable to load analytics summary.');
+        setGoogleAdsError(error.message || 'Unable to load paid search summary.');
+        setMetaAdsError(error.message || 'Unable to load paid social summary.');
+      } finally {
+        if (!controller.signal.aborted) {
+          setGa4Loading(false);
+          setGoogleAdsLoading(false);
+          setMetaAdsLoading(false);
+        }
+      }
+    };
+
+    loadAnalyticsSummary();
+    return () => controller.abort();
+  }, [formatDateInputValue, metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, shouldUseAnalyticsSummary]);
+
+  React.useEffect(() => {
+    if (shouldUseAnalyticsSummary) return undefined;
+
+    if (!propertyScopedSelectionId) {
+      setGa4Data(null);
+      setGa4Error(null);
+      setGa4Loading(false);
+      return undefined;
+    }
+
+    const ga4PropertyId = selectedProperty?.googleAnalyticsId;
+    if (!ga4PropertyId) {
+      setGa4Data(null);
+      setGa4Error('No GA4 property ID is configured for this property.');
+      setGa4Loading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const loadGa4Data = async () => {
+      setGa4Loading(true);
+      setGa4Error(null);
+
+      try {
+        if (!GA4_DASHBOARD_URL) {
+          throw new Error('GA4 endpoint is not configured. Set VITE_GA4_DASHBOARD_URL to enable live refresh.');
+        }
+
+        const params = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          ga4_property_id: ga4PropertyId,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        const response = await authFetch(`${GA4_DASHBOARD_URL}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || `GA4 fetch failed: ${response.status}`);
+        }
+        setGa4Data(payload);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('GA4 dashboard fetch failed', error);
+        setGa4Data(null);
+        setGa4Error(error.message || 'Unable to load GA4 analytics. The staged adapter may not be reachable yet.');
+      } finally {
+        if (!controller.signal.aborted) setGa4Loading(false);
+      }
+    };
+
+    loadGa4Data();
+    return () => controller.abort();
+  }, [formatDateInputValue, propertyScopedSelectionId, rangeDates, selectedProperty, shouldUseAnalyticsSummary]);
+
+  React.useEffect(() => {
+    if (shouldUseAnalyticsSummary) return undefined;
+
+    if (!propertyScopedSelectionId) {
+      setGoogleAdsData(null);
+      setGoogleAdsError(null);
+      setGoogleAdsLoading(false);
+      return undefined;
+    }
+
+    const googleAdsCustomerId = selectedProperty?.googleAdsId;
+    if (!googleAdsCustomerId) {
+      setGoogleAdsData(null);
+      setGoogleAdsError('No Google Ads customer ID is configured for this property.');
+      setGoogleAdsLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const loadGoogleAdsData = async () => {
+      setGoogleAdsLoading(true);
+      setGoogleAdsError(null);
+
+      try {
+        if (!GOOGLE_ADS_DASHBOARD_URL) {
+          throw new Error('Google Ads endpoint is not configured. Set VITE_GOOGLE_ADS_DASHBOARD_URL to enable live refresh.');
+        }
+
+        const params = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          google_ads_customer_id: googleAdsCustomerId,
+          property_name: selectedProperty?.name || '',
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        const response = await authFetch(`${GOOGLE_ADS_DASHBOARD_URL}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || `Google Ads fetch failed: ${response.status}`);
+        }
+        setGoogleAdsData(payload);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Google Ads dashboard fetch failed', error);
+        setGoogleAdsData(null);
+        setGoogleAdsError(error.message || 'Unable to load Google Ads analytics. The staged adapter may not be reachable yet.');
+      } finally {
+        if (!controller.signal.aborted) setGoogleAdsLoading(false);
+      }
+    };
+
+    loadGoogleAdsData();
+    return () => controller.abort();
+  }, [formatDateInputValue, propertyScopedSelectionId, rangeDates, selectedProperty, shouldUseAnalyticsSummary]);
+
+  React.useEffect(() => {
+    if (shouldUseAnalyticsSummary) return undefined;
+
+    if (!propertyScopedSelectionId) {
+      setMetaAdsData(null);
+      setMetaAdsError(null);
+      setMetaAdsLoading(false);
+      return undefined;
+    }
+
+    const metaAdsAccountId = selectedProperty?.metaAdsAccountId;
+    if (!metaAdsAccountId) {
+      setMetaAdsData(null);
+      setMetaAdsError('No Meta Ads account ID is configured for this property.');
+      setMetaAdsLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    const loadMetaAdsData = async () => {
+      setMetaAdsLoading(true);
+      setMetaAdsError(null);
+
+      try {
+        if (!META_ADS_DASHBOARD_URL) {
+          throw new Error('Meta Ads endpoint is not configured. Set VITE_META_ADS_DASHBOARD_URL to enable live refresh.');
+        }
+
+        const params = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          meta_ads_account_id: metaAdsAccountId,
+          property_name: selectedProperty?.name || '',
+          attribution_mode: metaAdsAttributionMode,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        if (selectedProperty?.metaAdsCampaignIds?.length) {
+          params.set('campaign_ids', JSON.stringify(selectedProperty.metaAdsCampaignIds));
+        }
+        if (selectedProperty?.metaAdsMatchTerms?.length) {
+          params.set('match_terms', JSON.stringify(selectedProperty.metaAdsMatchTerms));
+        }
+        const response = await authFetch(`${META_ADS_DASHBOARD_URL}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error || `Meta Ads fetch failed: ${response.status}`);
+        }
+        setMetaAdsData(payload);
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Meta Ads dashboard fetch failed', error);
+        setMetaAdsData(null);
+        setMetaAdsError(error.message || 'Unable to load Meta Ads analytics. The staged adapter may not be reachable yet.');
+      } finally {
+        if (!controller.signal.aborted) setMetaAdsLoading(false);
+      }
+    };
+
+    loadMetaAdsData();
+    return () => controller.abort();
+  }, [formatDateInputValue, metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, selectedProperty, shouldUseAnalyticsSummary]);
+
+  const ga4AcquisitionChannels = React.useMemo(() => ga4Data?.Acquisition?.channels || [], [ga4Data]);
+  const ga4TopSources = React.useMemo(() => ga4Data?.Acquisition?.topSources || [], [ga4Data]);
+  const ga4TrafficByMonth = React.useMemo(() => ga4Data?.Acquisition?.trafficByMonth || [], [ga4Data]);
+  const ga4TrafficBySessionSource = React.useMemo(() => ga4Data?.Acquisition?.trafficBySessionSource || [], [ga4Data]);
+  const ga4LlmTraffic = React.useMemo(() => ga4Data?.Acquisition?.llmTraffic || [], [ga4Data]);
+  const ga4ConversionEvents = React.useMemo(() => ga4Data?.Conversion?.events || [], [ga4Data]);
+  const ga4LandingPages = React.useMemo(() => ga4Data?.Conversion?.landingPages || [], [ga4Data]);
+  const ga4DeviceBreakdown = React.useMemo(() => ga4Data?.Conversion?.deviceBreakdown || [], [ga4Data]);
+  const ga4ConversionByMedium = React.useMemo(() => ga4Data?.Conversion?.conversionByMedium || [], [ga4Data]);
+  const ga4ConversionsByDay = React.useMemo(() => ga4Data?.Conversion?.conversionsByDay || [], [ga4Data]);
+  const ga4OrganicConversionBreakdown = React.useMemo(() => ga4Data?.Conversion?.organicConversionBreakdown || [], [ga4Data]);
+  const ga4Cities = React.useMemo(() => ga4Data?.Geo?.cities || [], [ga4Data]);
+  const ga4TopPages = React.useMemo(() => ga4Data?.Diagnostic?.topPages || [], [ga4Data]);
+  const ga4ApplyPage = ga4Data?.Diagnostic?.applyPage || null;
+  const ga4PathExploration = ga4Data?.Diagnostic?.pathExploration || null;
+  const ga4DevicesDetailed = ga4Data?.Diagnostic?.devicesDetailed || [];
+  const ga4PagePerformance = ga4Data?.Diagnostic?.pagePerformance || [];
+  const ga4CoverageGaps = ga4Data?.CoverageGaps || null;
+  const ga4Sessions = ga4Data?.Acquisition?.totals?.current?.sessions ?? null;
+  const ga4NewUsers = ga4Data?.Acquisition?.totals?.current?.newUsers ?? null;
+  const ga4EventTotal = ga4Data?.Conversion?.totals?.currentEventCount ?? null;
+  const googleAdsOverview = googleAdsData?.Overview?.current || null;
+  const googleAdsOverviewDelta = googleAdsData?.Overview?.delta || null;
+  const googleAdsCampaigns = React.useMemo(() => googleAdsData?.Campaigns || [], [googleAdsData]);
+  const googleAdsKeywords = React.useMemo(() => googleAdsData?.Keywords || [], [googleAdsData]);
+  const googleAdsConversionActions = React.useMemo(() => googleAdsData?.ConversionActions?.items || [], [googleAdsData]);
+  const googleAdsConversionActionNote = googleAdsData?.ConversionActions?.repeatRateNote || null;
+  const googleAdsBrandSplit = googleAdsData?.BrandVsNonBrand || null;
+  const googleAdsAds = React.useMemo(() => googleAdsData?.Ads?.topAds || [], [googleAdsData]);
+  const googleAdsDailyPerformance = React.useMemo(() => googleAdsData?.Ads?.dailyPerformance || [], [googleAdsData]);
+  const googleAdsCoverage = googleAdsData?.Coverage || null;
+  const metaAdsOverview = metaAdsData?.Overview?.current || null;
+  const metaAdsOverviewDelta = metaAdsData?.Overview?.delta || null;
+  const metaAdsCampaigns = React.useMemo(() => metaAdsData?.Campaigns || [], [metaAdsData]);
+  const metaAdsAdSets = React.useMemo(() => metaAdsData?.AdSets?.items || [], [metaAdsData]);
+  const metaAdsPlacements = React.useMemo(() => metaAdsData?.Placements?.items || [], [metaAdsData]);
+  const metaAdsTopAds = React.useMemo(() => metaAdsData?.Ads?.topAds || [], [metaAdsData]);
+  const metaAdsDailyPerformance = React.useMemo(() => metaAdsData?.Ads?.dailyPerformance || [], [metaAdsData]);
+  const metaAdsCoverage = metaAdsData?.Coverage || null;
+  const metaAdsScoping = metaAdsData?.Scoping || null;
+  const metaAdsAttribution = metaAdsData?.Attribution || null;
+  const metaAdsKeyMetrics = metaAdsOverview?.keyMetrics || {};
+  const googleAdsTopAd = googleAdsAds[0] || null;
+  const ga4StatusMessage = normalizeAnalyticsError(ga4Error);
+  const googleAdsStatusMessage = normalizeAnalyticsError(googleAdsError);
+  const metaAdsStatusMessage = normalizeAnalyticsError(metaAdsError);
+  const ga4Blocked = Boolean(ga4StatusMessage && !ga4Data);
+  const metaAdsTopPreview = metaAdsTopAds[0] || null;
 
   const ga4OutcomeChartData = React.useMemo(() => (
     ga4ConversionEvents.map((item) => ({
@@ -608,8 +928,8 @@ export default function AnalyticsView(props) {
           </div>
           {googleAdsLoading ? (
             <div className="analytics-note">Loading Google Ads search performance…</div>
-          ) : googleAdsError ? (
-            <div className="analytics-note">{googleAdsError}</div>
+          ) : googleAdsStatusMessage ? (
+            <div className="analytics-note">{googleAdsStatusMessage}</div>
           ) : (
             <div className="analytics-search-grid">
               <div className="analytics-search-card analytics-search-card--wide">
@@ -851,8 +1171,8 @@ export default function AnalyticsView(props) {
           </div>
           {metaAdsLoading ? (
             <div className="analytics-note">Loading Meta Ads campaign performance…</div>
-          ) : metaAdsError ? (
-            <div className="analytics-note">{metaAdsError}</div>
+          ) : metaAdsStatusMessage ? (
+            <div className="analytics-note">{metaAdsStatusMessage}</div>
           ) : (
             <div className="analytics-search-grid">
               <div className="analytics-search-card">

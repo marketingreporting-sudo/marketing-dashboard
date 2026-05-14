@@ -1,13 +1,23 @@
 import React from 'react';
 import HeatmapRenderer from './components/HeatmapRenderer';
+import useWebsiteExperienceData from './useWebsiteExperienceData';
 
 export default function HeatmapAuditPanel(props) {
   const {
     HEATMAP_DEVICE_OPTIONS,
     MiniMetricLoader,
+    formatDateInputValue,
     formatDurationMs,
     formatNumber,
     getSnapshotTimestampLabel,
+    heatmapSiteKey,
+    rangeDates,
+    renderMetricValue,
+    reportingAdminEnabled,
+    selectedPropertyId,
+    selectedPropertyLabel,
+  } = props;
+  const {
     heatmapClickSignalTab,
     heatmapLayers,
     heatmapPagesData,
@@ -19,8 +29,6 @@ export default function HeatmapAuditPanel(props) {
     heatmapTrackerHealthData,
     heatmapTrackerHealthLoading,
     highlightedHeatmapTarget,
-    renderMetricValue,
-    reportingAdminEnabled,
     runSiteAudit,
     screenshotPreviewError,
     screenshotPreviewLoading,
@@ -38,7 +46,14 @@ export default function HeatmapAuditPanel(props) {
     siteAuditNotice,
     siteAuditRunning,
     updateHeatmapLayer,
-  } = props;
+  } = useWebsiteExperienceData({
+    enabled: true,
+    formatDateInputValue,
+    heatmapSiteKey,
+    rangeDates,
+    selectedPropertyId,
+    selectedPropertyLabel,
+  });
 
   const heatmapScrollSummary = heatmapSummaryData?.scroll || {};
   const heatmapScrollMilestones = heatmapScrollSummary.milestones || {};

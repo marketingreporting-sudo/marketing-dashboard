@@ -7,9 +7,6 @@ import {
   GOOGLE_ADS_DASHBOARD_URL,
   LOCAL_FALCON_DASHBOARD_URL,
   HEATMAP_SITES_URL,
-  HEATMAP_PAGES_URL,
-  HEATMAP_SUMMARY_URL,
-  HEATMAP_TRACKER_HEALTH_URL,
   HEATMAP_TRACKER_URL,
   META_ADS_DASHBOARD_URL,
   PROPERTY_REPORTING_OVERVIEW_URL,
@@ -19,11 +16,6 @@ import {
   REPORTING_TAB_SUMMARY_URL,
   REPUTATION_DASHBOARD_URL,
   ROI_PIPELINE_STATUS_URL,
-  SITE_AUDIT_PORTFOLIO_URL,
-  SITE_AUDIT_PAGES_URL,
-  SITE_AUDIT_RUN_URL,
-  SITE_AUDIT_SCREENSHOT_PREVIEW_URL,
-  SITE_AUDIT_SUMMARY_URL,
   TICKET_OPTIONS_URL,
   TICKETS_BASE_URL,
   WEBSITE_MANAGER_SCHEMA_URL,
@@ -214,7 +206,6 @@ const AUDIT_FINDING_WORKFLOW_STATUSES = [
   { id: 'ignored', label: 'Ignored' },
   { id: 'needs_manual_qa', label: 'Needs manual QA' },
 ];
-const AUDIT_FINDING_WORKFLOW_STATUS_IDS = AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => status.id);
 const TASK_STATUSES = [
   { id: 'new', label: 'New' },
   { id: 'in_progress', label: 'In Progress' },
@@ -590,23 +581,6 @@ const readDashboardWorkspaceState = (storageKey) => {
   } catch {
     return {};
   }
-};
-
-const readAuditFindingWorkflowState = (storageKey) => {
-  if (typeof window === 'undefined' || !storageKey) return {};
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-const writeAuditFindingWorkflowState = (storageKey, state) => {
-  if (typeof window === 'undefined' || !storageKey) return;
-  window.localStorage.setItem(storageKey, JSON.stringify(state && typeof state === 'object' ? state : {}));
 };
 
 const isDateInputValue = (value) => (
@@ -1297,11 +1271,6 @@ const getSnapshotTimestampLabel = (value) => {
   return parsed.toLocaleString();
 };
 
-const isRenderAdapterUrl = (value) => {
-  if (!value || !RENDER_API_BASE_URL) return false;
-  return String(value).startsWith(RENDER_API_BASE_URL);
-};
-
 const getEventContainerValue = (event, key) => {
   const value = event?.[key];
   if (!value) return null;
@@ -1939,50 +1908,6 @@ const DashboardApp = ({
   const [heatmapSiteNotice, setHeatmapSiteNotice] = useState(null);
   const [heatmapSiteDoc, setHeatmapSiteDoc] = useState(HEATMAP_SITE_DEFAULT_CONFIG);
   const [heatmapSiteDraft, setHeatmapSiteDraft] = useState(HEATMAP_SITE_DEFAULT_CONFIG);
-  const [, setHeatmapPagesLoading] = useState(false);
-  const [heatmapSummaryLoading, setHeatmapSummaryLoading] = useState(false);
-  const [siteAuditLoading, setSiteAuditLoading] = useState(false);
-  const [siteAuditRunning, setSiteAuditRunning] = useState(false);
-  const [heatmapPanelError, setHeatmapPanelError] = useState(null);
-  const [heatmapPagesData, setHeatmapPagesData] = useState(null);
-  const [heatmapSummaryData, setHeatmapSummaryData] = useState(null);
-  const [heatmapTrackerHealthData, setHeatmapTrackerHealthData] = useState(null);
-  const [heatmapTrackerHealthLoading, setHeatmapTrackerHealthLoading] = useState(false);
-  const [siteAuditPagesData, setSiteAuditPagesData] = useState(null);
-  const [siteAuditSummaryData, setSiteAuditSummaryData] = useState(null);
-  const [siteAuditNotice, setSiteAuditNotice] = useState(null);
-  const [portfolioAuditLoading, setPortfolioAuditLoading] = useState(false);
-  const [portfolioAuditError, setPortfolioAuditError] = useState(null);
-  const [portfolioAuditProperties, setPortfolioAuditProperties] = useState([]);
-  const [auditTableFilter, setAuditTableFilter] = useState('all');
-  const [auditPortfolioFilter, setAuditPortfolioFilter] = useState('all');
-  const [auditRegionFilter, setAuditRegionFilter] = useState('all');
-  const [auditTableSort, setAuditTableSort] = useState({ key: 'propertyRiskScore', direction: 'desc' });
-  const [auditReviewTab, setAuditReviewTab] = useState('overview');
-  const [auditFindingWorkflowState, setAuditFindingWorkflowState] = useState(() => readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
-  const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState('');
-  const [screenshotPreviewLoading, setScreenshotPreviewLoading] = useState(false);
-  const [screenshotPreviewError, setScreenshotPreviewError] = useState(null);
-  const [selectedHeatmapPath, setSelectedHeatmapPath] = useState('');
-  const [heatmapLayers, setHeatmapLayers] = useState({
-    click: true,
-    cursor: false,
-    scroll: false,
-    engagement: false,
-  });
-  const [heatmapLayersTouched, setHeatmapLayersTouched] = useState(false);
-  const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
-  const [highlightedHeatmapTarget, setHighlightedHeatmapTarget] = useState(null);
-  const [heatmapClickSignalTab, setHeatmapClickSignalTab] = useState('top');
-  const heatmapPageOptions = useMemo(() => heatmapPagesData?.pages || [], [heatmapPagesData]);
-  const auditPageOptions = useMemo(() => siteAuditPagesData?.pages || [], [siteAuditPagesData]);
-  const selectedAuditPage = useMemo(() => (
-    auditPageOptions.find((page) => (page.path || '/') === selectedHeatmapPath) || auditPageOptions[0] || null
-  ), [auditPageOptions, selectedHeatmapPath]);
-  const selectedScreenshot = useMemo(() => {
-    const screenshots = Array.isArray(selectedAuditPage?.screenshots) ? selectedAuditPage.screenshots : [];
-    return screenshots.find((item) => item.deviceType === selectedHeatmapDevice) || screenshots[0] || null;
-  }, [selectedAuditPage, selectedHeatmapDevice]);
   const [websiteSchemaLoading, setWebsiteSchemaLoading] = useState(false);
   const [websiteSchemaSaving, setWebsiteSchemaSaving] = useState(false);
   const [websiteSchemaError, setWebsiteSchemaError] = useState(null);
@@ -2111,26 +2036,16 @@ const DashboardApp = ({
   });
   const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
   const websiteManagerSchemaUsesStagedAdapter = Boolean(WEBSITE_MANAGER_SCHEMA_URL);
-  const analyticsEndpointsConfigured = Boolean(
-    GA4_DASHBOARD_URL && GOOGLE_ADS_DASHBOARD_URL && META_ADS_DASHBOARD_URL && REPUTATION_DASHBOARD_URL
-  );
-  const analyticsUsesRenderAdapter = useMemo(
-    () => [GA4_DASHBOARD_URL, GOOGLE_ADS_DASHBOARD_URL, META_ADS_DASHBOARD_URL, REPUTATION_DASHBOARD_URL].every(isRenderAdapterUrl),
-    []
-  );
   const shouldLoadReportingOverview = ['dashboard', 'property info', 'reports', 'recommendations'].includes(activeTab);
   const shouldLoadWebsiteManagerContent = activeTab === 'website manager';
-  const shouldLoadWebsiteExperienceData = activeTab === 'reports' || activeTab === 'audit';
-  const shouldLoadWebsiteExperienceConfig = shouldLoadWebsiteManagerContent || shouldLoadWebsiteExperienceData;
-  const shouldLoadChannelAnalytics = activeTab === 'reports' || activeTab === 'analytics';
+  const shouldLoadWebsiteExperienceConfig = shouldLoadWebsiteManagerContent || activeTab === 'reports' || activeTab === 'audit';
+  const shouldLoadChannelAnalytics = activeTab === 'reports';
   const shouldLoadReputationData = activeTab === 'reports' || activeTab === 'reputation';
   const shouldLoadReportingTabSummary = Boolean(reportingTabSummaryUrl)
     && !reportingTabSummaryBypass
-    && ['reports', 'analytics', 'audit', 'reputation'].includes(activeTab);
+    && ['reports', 'reputation'].includes(activeTab);
   const reportingTabSummarySections = useMemo(() => {
-    if (activeTab === 'reports') return 'analytics,reputation,heatmap,audit,reports';
-    if (activeTab === 'analytics') return 'analytics';
-    if (activeTab === 'audit') return 'heatmap,audit';
+    if (activeTab === 'reports') return 'analytics,reputation,reports';
     if (activeTab === 'reputation') return 'reputation';
     return '';
   }, [activeTab]);
@@ -2192,7 +2107,6 @@ const DashboardApp = ({
   }, [ticketDraft.propertyId, ticketUsers]);
   const canEditReportingLayout = !isClientReportMode && currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
-  const canViewAuditCommandCenter = currentPropertyPermissionSet.has(TAB_PERMISSIONS.audit);
   const canManageUsers = currentPropertyPermissionSet.has(TAB_PERMISSIONS.admin);
   const canUseAllProperties = canManageUsers && availableProperties.length > 1;
   const propertyScopedSelectionId = isAllPropertiesSelected ? null : selectedPropertyId;
@@ -2426,14 +2340,6 @@ const DashboardApp = ({
     );
   }, [activeTab, customRange, dateRange, excludedMarketingSpendKeys, isClientReportMode, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
 
-  useEffect(() => {
-    setAuditFindingWorkflowState(readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
-  }, [auditFindingWorkflowStorageKey]);
-
-  useEffect(() => {
-    writeAuditFindingWorkflowState(auditFindingWorkflowStorageKey, auditFindingWorkflowState);
-  }, [auditFindingWorkflowState, auditFindingWorkflowStorageKey]);
-
   const hydrateAdminDraftFromUser = (user) => {
     if (!user) return null;
     return {
@@ -2500,36 +2406,6 @@ const DashboardApp = ({
     if (!canManageUsers || activeTab !== 'admin') return;
     loadAdminAccess();
   }, [activeTab, canManageUsers, loadAdminAccess]);
-
-  const loadPortfolioAudit = useCallback(async () => {
-    if (!SITE_AUDIT_PORTFOLIO_URL) {
-      setPortfolioAuditProperties([]);
-      setPortfolioAuditError('Portfolio audit endpoint is not configured.');
-      return;
-    }
-
-    setPortfolioAuditLoading(true);
-    setPortfolioAuditError(null);
-
-    try {
-      const response = await authFetch(SITE_AUDIT_PORTFOLIO_URL);
-      const payload = await response.json();
-      if (!response.ok || payload?.status === 'error') {
-        throw new Error(payload?.error || `Portfolio audit load failed: ${response.status}`);
-      }
-      setPortfolioAuditProperties(Array.isArray(payload.properties) ? payload.properties : []);
-    } catch (error) {
-      setPortfolioAuditProperties([]);
-      setPortfolioAuditError(error.message || 'Unable to load portfolio audit data.');
-    } finally {
-      setPortfolioAuditLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!canViewAuditCommandCenter || activeTab !== 'audit') return;
-    loadPortfolioAudit();
-  }, [activeTab, canViewAuditCommandCenter, loadPortfolioAudit]);
 
   useEffect(() => {
     setTaskDraft((current) => {
@@ -3651,7 +3527,7 @@ const DashboardApp = ({
 
   useEffect(() => {
     setReportingTabSummaryBypass(false);
-  }, [activeTab, propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
+  }, [activeTab, propertyScopedSelectionId, rangeDates]);
 
   useEffect(() => {
     if (!shouldLoadReportingTabSummary) {
@@ -3664,19 +3540,11 @@ const DashboardApp = ({
       setMetaAdsData(null);
       setLocalFalconData(null);
       setReputationData(null);
-      setHeatmapPagesData(null);
-      setHeatmapSummaryData(null);
-      setHeatmapTrackerHealthData(null);
-      setSiteAuditPagesData(null);
-      setSiteAuditSummaryData(null);
       return;
     }
 
     const includeAnalytics = reportingTabSummarySections.includes('analytics');
     const includeReputation = reportingTabSummarySections.includes('reputation');
-    const includeHeatmap = reportingTabSummarySections.includes('heatmap');
-    const includeAudit = reportingTabSummarySections.includes('audit');
-    const includeWebsiteExperience = includeHeatmap || includeAudit;
     const controller = new AbortController();
 
     const applySummaryEntry = (entry, setData, setError, fallbackMessage) => {
@@ -3704,17 +3572,6 @@ const DashboardApp = ({
         setReputationLoading(true);
         setReputationError(null);
       }
-      if (includeWebsiteExperience) {
-        setHeatmapPanelError(null);
-      }
-      if (includeHeatmap) {
-        setHeatmapPagesLoading(true);
-        setHeatmapSummaryLoading(true);
-        setHeatmapTrackerHealthLoading(true);
-      }
-      if (includeAudit) {
-        setSiteAuditLoading(true);
-      }
 
       try {
         const params = new URLSearchParams({
@@ -3723,9 +3580,6 @@ const DashboardApp = ({
           start_date: formatDateInputValue(rangeDates.start),
           end_date: formatDateInputValue(rangeDates.end),
         });
-        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
-        if (selectedHeatmapPath) params.set('path', selectedHeatmapPath);
-        if (selectedHeatmapDevice) params.set('device_type', selectedHeatmapDevice);
 
         const response = await authFetch(`${reportingTabSummaryUrl}?${params.toString()}`, {
           signal: controller.signal,
@@ -3751,33 +3605,6 @@ const DashboardApp = ({
             applySummaryEntry(payload.reputation, setReputationData, setReputationError, 'No cached reputation summary is available yet.');
           }
         }
-
-        const panelErrors = [];
-        if (includeHeatmap) {
-          const heatmap = payload.heatmap || {};
-          const heatmapPagesPayload = heatmap.pages?.payload || null;
-          const heatmapSummaryPayload = heatmap.summary?.payload || null;
-          const trackerPayload = heatmap.trackerHealth?.payload || null;
-          setHeatmapPagesData(heatmapPagesPayload);
-          setHeatmapSummaryData(heatmapSummaryPayload);
-          setHeatmapTrackerHealthData(trackerPayload);
-          const returnedPath = heatmap.selectedPath || payload.filters?.path || '';
-          if (!selectedHeatmapPath && returnedPath) {
-            setSelectedHeatmapPath(returnedPath);
-          }
-          if (heatmap.error) panelErrors.push(heatmap.error);
-        }
-
-        if (includeAudit) {
-          const audit = payload.audit || {};
-          setSiteAuditPagesData(audit.pages?.payload || null);
-          setSiteAuditSummaryData(audit.summary?.payload || null);
-          if (audit.error) panelErrors.push(audit.error);
-        }
-
-        if (includeWebsiteExperience) {
-          setHeatmapPanelError(panelErrors.length ? `Partial data loaded: ${panelErrors.join(' ')}` : null);
-        }
       } catch (error) {
         if (error.name === 'AbortError') return;
         console.error('Reporting tab summary fetch failed', error);
@@ -3791,9 +3618,6 @@ const DashboardApp = ({
         if (includeReputation) {
           setReputationError(error.message || 'Unable to load reputation summary.');
         }
-        if (includeWebsiteExperience) {
-          setHeatmapPanelError(error.message || 'Unable to load website experience summary.');
-        }
       } finally {
         if (!controller.signal.aborted) {
           if (includeAnalytics) {
@@ -3805,14 +3629,6 @@ const DashboardApp = ({
           if (includeReputation) {
             setReputationLoading(false);
           }
-          if (includeHeatmap) {
-            setHeatmapPagesLoading(false);
-            setHeatmapSummaryLoading(false);
-            setHeatmapTrackerHealthLoading(false);
-          }
-          if (includeAudit) {
-            setSiteAuditLoading(false);
-          }
         }
       }
     };
@@ -3820,249 +3636,13 @@ const DashboardApp = ({
     loadReportingTabSummary();
     return () => controller.abort();
   }, [
-    heatmapSiteDraft.siteKey,
     propertyScopedSelectionId,
     rangeDates,
     reportingTabSummarySections,
     reportingTabSummaryUrl,
-    selectedHeatmapDevice,
-    selectedHeatmapPath,
     selectedProperty?.opiniionSkip,
     shouldLoadReportingTabSummary,
   ]);
-
-  useEffect(() => {
-    if (!shouldLoadWebsiteExperienceData) {
-      setHeatmapPagesLoading(false);
-      setSiteAuditLoading(false);
-      return;
-    }
-
-    if (shouldLoadReportingTabSummary) {
-      return;
-    }
-
-    if (!propertyScopedSelectionId || !HEATMAP_PAGES_URL || !SITE_AUDIT_PAGES_URL || !SITE_AUDIT_SUMMARY_URL) {
-      setHeatmapPagesData(null);
-      setSiteAuditPagesData(null);
-      setSiteAuditSummaryData(null);
-      setHeatmapPanelError(propertyScopedSelectionId ? 'Heatmap and audit endpoints are not fully configured.' : null);
-      setHeatmapPagesLoading(false);
-      setSiteAuditLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const loadHeatmapPanelData = async () => {
-      setHeatmapPagesLoading(true);
-      setSiteAuditLoading(true);
-      setHeatmapPanelError(null);
-      try {
-        const params = new URLSearchParams({
-          property_id: propertyScopedSelectionId,
-          start_date: formatDateInputValue(rangeDates.start),
-          end_date: formatDateInputValue(rangeDates.end),
-        });
-        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
-
-        const fetchPanelPayload = async (label, url) => {
-          const response = await authFetch(url, { signal: controller.signal });
-          const payload = await response.json();
-          if (!response.ok || payload?.status === 'error') {
-            throw new Error(payload?.error || `${label} fetch failed: ${response.status}`);
-          }
-          return payload;
-        };
-        const [pagesResult, auditPagesResult, auditSummaryResult] = await Promise.allSettled([
-          fetchPanelPayload('Heatmap pages', `${HEATMAP_PAGES_URL}?${params.toString()}`),
-          fetchPanelPayload('Audit pages', `${SITE_AUDIT_PAGES_URL}?${params.toString()}`),
-          fetchPanelPayload('Audit summary', `${SITE_AUDIT_SUMMARY_URL}?${params.toString()}`),
-        ]);
-        const partialErrors = [];
-        if (pagesResult.status === 'fulfilled') setHeatmapPagesData(pagesResult.value);
-        else {
-          setHeatmapPagesData(null);
-          partialErrors.push(pagesResult.reason?.message || 'Heatmap pages unavailable.');
-        }
-        if (auditPagesResult.status === 'fulfilled') setSiteAuditPagesData(auditPagesResult.value);
-        else {
-          setSiteAuditPagesData(null);
-          partialErrors.push(auditPagesResult.reason?.message || 'Audit pages unavailable.');
-        }
-        if (auditSummaryResult.status === 'fulfilled') setSiteAuditSummaryData(auditSummaryResult.value);
-        else {
-          setSiteAuditSummaryData(null);
-          partialErrors.push(auditSummaryResult.reason?.message || 'Audit summary unavailable.');
-        }
-        setHeatmapPanelError(partialErrors.length ? `Partial data loaded: ${partialErrors.join(' ')}` : null);
-      } catch (error) {
-        if (error.name === 'AbortError') return;
-        console.error('Heatmap/audit panel fetch failed', error);
-        setHeatmapPagesData(null);
-        setSiteAuditPagesData(null);
-        setSiteAuditSummaryData(null);
-        setHeatmapPanelError(error.message || 'Unable to load heatmap and audit data.');
-      } finally {
-        if (!controller.signal.aborted) {
-          setHeatmapPagesLoading(false);
-          setSiteAuditLoading(false);
-        }
-      }
-    };
-
-    loadHeatmapPanelData();
-    return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, heatmapSiteDraft.siteKey, shouldLoadReportingTabSummary, shouldLoadWebsiteExperienceData]);
-
-  useEffect(() => {
-    const pages = heatmapPagesData?.pages || [];
-    if (!selectedHeatmapPath && pages.length > 0) {
-      setSelectedHeatmapPath(pages[0].path || pages[0].canonicalPath || '/');
-    }
-    if (selectedHeatmapPath && pages.length > 0 && !pages.some((page) => (page.path || page.canonicalPath || '/') === selectedHeatmapPath)) {
-      setSelectedHeatmapPath(pages[0].path || pages[0].canonicalPath || '/');
-    }
-  }, [heatmapPagesData, selectedHeatmapPath]);
-
-  useEffect(() => {
-    if (!shouldLoadWebsiteExperienceData) {
-      setHeatmapSummaryLoading(false);
-      return;
-    }
-
-    if (shouldLoadReportingTabSummary) {
-      return;
-    }
-
-    if (!propertyScopedSelectionId || !HEATMAP_SUMMARY_URL || !selectedHeatmapPath) {
-      setHeatmapSummaryData(null);
-      setHeatmapSummaryLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const loadHeatmapSummary = async () => {
-      setHeatmapSummaryLoading(true);
-      setHeatmapPanelError(null);
-      try {
-        const params = new URLSearchParams({
-          property_id: propertyScopedSelectionId,
-          path: selectedHeatmapPath,
-          device_type: selectedHeatmapDevice,
-          start_date: formatDateInputValue(rangeDates.start),
-          end_date: formatDateInputValue(rangeDates.end),
-        });
-        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
-        const response = await authFetch(`${HEATMAP_SUMMARY_URL}?${params.toString()}`, { signal: controller.signal });
-        const payload = await response.json();
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Heatmap summary fetch failed: ${response.status}`);
-        }
-        setHeatmapSummaryData(payload);
-      } catch (error) {
-        if (error.name === 'AbortError') return;
-        console.error('Heatmap summary fetch failed', error);
-        setHeatmapSummaryData(null);
-        setHeatmapPanelError(error.message || 'Unable to load heatmap summary.');
-      } finally {
-        if (!controller.signal.aborted) setHeatmapSummaryLoading(false);
-      }
-    };
-
-    loadHeatmapSummary();
-    return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadReportingTabSummary, shouldLoadWebsiteExperienceData]);
-
-  useEffect(() => {
-    if (!shouldLoadWebsiteExperienceData) {
-      setHeatmapTrackerHealthLoading(false);
-      return;
-    }
-
-    if (shouldLoadReportingTabSummary) {
-      return;
-    }
-
-    if (!propertyScopedSelectionId || !HEATMAP_TRACKER_HEALTH_URL || !selectedHeatmapPath) {
-      setHeatmapTrackerHealthData(null);
-      setHeatmapTrackerHealthLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const loadTrackerHealth = async () => {
-      setHeatmapTrackerHealthLoading(true);
-      try {
-        const params = new URLSearchParams({
-          property_id: propertyScopedSelectionId,
-          path: selectedHeatmapPath,
-          device_type: selectedHeatmapDevice,
-          start_date: formatDateInputValue(rangeDates.start),
-          end_date: formatDateInputValue(rangeDates.end),
-        });
-        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
-        const response = await authFetch(`${HEATMAP_TRACKER_HEALTH_URL}?${params.toString()}`, { signal: controller.signal });
-        const payload = await response.json();
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Tracker health fetch failed: ${response.status}`);
-        }
-        setHeatmapTrackerHealthData(payload);
-      } catch (error) {
-        if (error.name === 'AbortError') return;
-        console.error('Tracker health fetch failed', error);
-        setHeatmapTrackerHealthData(null);
-      } finally {
-        if (!controller.signal.aborted) setHeatmapTrackerHealthLoading(false);
-      }
-    };
-
-    loadTrackerHealth();
-    return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadReportingTabSummary, shouldLoadWebsiteExperienceData]);
-
-  useEffect(() => {
-    if (!shouldLoadWebsiteExperienceData) {
-      setScreenshotPreviewLoading(false);
-      return;
-    }
-
-    if (!selectedScreenshot?.id || !SITE_AUDIT_SCREENSHOT_PREVIEW_URL) {
-      setScreenshotPreviewUrl('');
-      setScreenshotPreviewError(null);
-      setScreenshotPreviewLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const loadScreenshotPreview = async () => {
-      setScreenshotPreviewLoading(true);
-      setScreenshotPreviewError(null);
-      try {
-        const params = new URLSearchParams({
-          screenshot_id: selectedScreenshot.id,
-          expires_in: '900',
-        });
-        const response = await authFetch(`${SITE_AUDIT_SCREENSHOT_PREVIEW_URL}?${params.toString()}`, {
-          signal: controller.signal,
-        });
-        const payload = await response.json();
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Screenshot preview fetch failed: ${response.status}`);
-        }
-        setScreenshotPreviewUrl(payload.url || '');
-      } catch (error) {
-        if (error.name === 'AbortError') return;
-        console.error('Screenshot preview fetch failed', error);
-        setScreenshotPreviewUrl('');
-        setScreenshotPreviewError(error.message || 'Unable to load screenshot preview.');
-      } finally {
-        if (!controller.signal.aborted) setScreenshotPreviewLoading(false);
-      }
-    };
-
-    loadScreenshotPreview();
-    return () => controller.abort();
-  }, [selectedScreenshot?.id, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
     setWebsiteSchemaHistory(readWebsiteSchemaHistory(propertyScopedSelectionId));
@@ -5102,15 +4682,6 @@ const DashboardApp = ({
       className: 'reports-chip reports-chip--error'
     };
   }, [reportingDataSource, reportingUsesStagedOverview]);
-  const analyticsSourceBadge = useMemo(() => {
-    if (analyticsUsesRenderAdapter) {
-      return { label: 'Data source: Staged Render', className: 'analytics-chip analytics-chip--staged' };
-    }
-    if (analyticsEndpointsConfigured) {
-      return { label: 'Data source: External endpoints', className: 'analytics-chip analytics-chip--fallback' };
-    }
-    return { label: 'Data source: Endpoint unavailable', className: 'analytics-chip analytics-chip--error' };
-  }, [analyticsEndpointsConfigured, analyticsUsesRenderAdapter]);
   const websitePlatformMeta = useMemo(
     () => getWebsitePlatformMeta(websiteManagerDraft.platform),
     [websiteManagerDraft.platform]
@@ -5348,14 +4919,6 @@ const DashboardApp = ({
         ...current.featureFlags,
         [field]: value
       }
-    }));
-  };
-
-  const updateHeatmapLayer = (field, value) => {
-    setHeatmapLayersTouched(true);
-    setHeatmapLayers((current) => ({
-      ...current,
-      [field]: value
     }));
   };
 
@@ -5954,45 +5517,6 @@ const DashboardApp = ({
     }
   };
 
-  const runSiteAudit = async () => {
-    if (!selectedPropertyId) {
-      setHeatmapPanelError('No property is currently available for this account.');
-      return;
-    }
-    if (!SITE_AUDIT_RUN_URL) {
-      setHeatmapPanelError('Site audit run endpoint is not configured.');
-      return;
-    }
-
-    setSiteAuditRunning(true);
-    setHeatmapPanelError(null);
-    setSiteAuditNotice(null);
-    try {
-      const params = new URLSearchParams({ property_id: selectedPropertyId });
-      if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
-      const response = await authFetch(`${SITE_AUDIT_RUN_URL}?${params.toString()}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ property_id: selectedPropertyId, siteKey: heatmapSiteDraft.siteKey || undefined, includeAi: true, background: true }),
-      });
-      const payload = await response.json();
-      if (!response.ok || payload?.status === 'error') {
-        throw new Error(payload?.error || `Site audit run failed: ${response.status}`);
-      }
-      if (payload?.status === 'queued') {
-        setSiteAuditNotice(payload.message || 'Site audit queued for background processing.');
-        if (payload.audit) setSiteAuditSummaryData({ status: 'ok', audit: payload.audit });
-      } else {
-        setSiteAuditSummaryData(payload);
-      }
-    } catch (error) {
-      console.error('Site audit run failed', error);
-      setHeatmapPanelError(error.message || 'Unable to run the site audit.');
-    } finally {
-      setSiteAuditRunning(false);
-    }
-  };
-
   const reputationOverview = reputationData?.overview || {};
   const reputationAverageRating = reputationOverview.averageRating ?? null;
   const reputationReviewCount = reputationOverview.reviewCount ?? null;
@@ -6002,48 +5526,14 @@ const DashboardApp = ({
   const reputationWindow = reputationData?.window || null;
 
   const ga4AcquisitionChannels = ga4Data?.Acquisition?.channels || [];
-  const ga4TopSources = ga4Data?.Acquisition?.topSources || [];
-  const ga4TrafficByMonth = ga4Data?.Acquisition?.trafficByMonth || [];
-  const ga4TrafficBySessionSource = ga4Data?.Acquisition?.trafficBySessionSource || [];
-  const ga4LlmTraffic = ga4Data?.Acquisition?.llmTraffic || [];
-  const ga4ConversionEvents = ga4Data?.Conversion?.events || [];
-  const ga4LandingPages = ga4Data?.Conversion?.landingPages || [];
-  const ga4DeviceBreakdown = ga4Data?.Conversion?.deviceBreakdown || [];
-  const ga4ConversionByMedium = ga4Data?.Conversion?.conversionByMedium || [];
-  const ga4ConversionsByDay = ga4Data?.Conversion?.conversionsByDay || [];
-  const ga4OrganicConversionBreakdown = ga4Data?.Conversion?.organicConversionBreakdown || [];
-  const ga4Cities = ga4Data?.Geo?.cities || [];
-  const ga4TopPages = ga4Data?.Diagnostic?.topPages || [];
   const ga4ApplyPage = ga4Data?.Diagnostic?.applyPage || null;
-  const ga4PathExploration = ga4Data?.Diagnostic?.pathExploration || null;
-  const ga4DevicesDetailed = ga4Data?.Diagnostic?.devicesDetailed || [];
-  const ga4PagePerformance = ga4Data?.Diagnostic?.pagePerformance || [];
-  const ga4CoverageGaps = ga4Data?.CoverageGaps || null;
   const ga4Sessions = ga4Data?.Acquisition?.totals?.current?.sessions ?? null;
   const ga4NewUsers = ga4Data?.Acquisition?.totals?.current?.newUsers ?? null;
   const ga4EventTotal = ga4Data?.Conversion?.totals?.currentEventCount ?? null;
   const googleAdsOverview = googleAdsData?.Overview?.current || null;
-  const googleAdsOverviewDelta = googleAdsData?.Overview?.delta || null;
   const googleAdsCampaigns = googleAdsData?.Campaigns || [];
-  const googleAdsKeywords = googleAdsData?.Keywords || [];
-  const googleAdsConversionActions = googleAdsData?.ConversionActions?.items || [];
-  const googleAdsConversionActionNote = googleAdsData?.ConversionActions?.repeatRateNote || null;
-  const googleAdsBrandSplit = googleAdsData?.BrandVsNonBrand || null;
-  const googleAdsAds = googleAdsData?.Ads?.topAds || [];
-  const googleAdsDailyPerformance = googleAdsData?.Ads?.dailyPerformance || [];
-  const googleAdsCoverage = googleAdsData?.Coverage || null;
   const metaAdsOverview = metaAdsData?.Overview?.current || null;
-  const metaAdsOverviewDelta = metaAdsData?.Overview?.delta || null;
   const metaAdsCampaigns = metaAdsData?.Campaigns || [];
-  const metaAdsAdSets = metaAdsData?.AdSets?.items || [];
-  const metaAdsPlacements = metaAdsData?.Placements?.items || [];
-  const metaAdsTopAds = metaAdsData?.Ads?.topAds || [];
-  const metaAdsDailyPerformance = metaAdsData?.Ads?.dailyPerformance || [];
-  const metaAdsCoverage = metaAdsData?.Coverage || null;
-  const metaAdsScoping = metaAdsData?.Scoping || null;
-  const metaAdsAttribution = metaAdsData?.Attribution || null;
-  const metaAdsKeyMetrics = metaAdsOverview?.keyMetrics || {};
-  const googleAdsTopAd = googleAdsAds[0] || null;
   const ga4StatusMessage = normalizeAnalyticsError(ga4Error);
   const googleAdsStatusMessage = normalizeAnalyticsError(googleAdsError);
   const metaAdsStatusMessage = normalizeAnalyticsError(metaAdsError);
@@ -6064,36 +5554,6 @@ const DashboardApp = ({
   const localFalconMapImageUrl = localFalconOverview?.image || localFalconLatestReport?.image || localFalconLatestScan?.raw?.image;
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
   const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
-  const heatmapTotals = heatmapSummaryData?.totals || {};
-  useEffect(() => {
-    setHeatmapLayersTouched(false);
-    setHighlightedHeatmapTarget(null);
-  }, [rangeDates, selectedHeatmapDevice, selectedHeatmapPath, selectedPropertyId]);
-  useEffect(() => {
-    if (heatmapLayersTouched || heatmapSummaryLoading || !heatmapSummaryData) return;
-    const clickCount = Number(heatmapTotals.clicks || 0) + Number(heatmapTotals.ctaClicks || 0);
-    const scrollCount = Number(heatmapTotals.scrolls || 0);
-    const maxScrollDepth = Number(heatmapTotals.maxScrollDepthPct || 0);
-    if (clickCount > 0) {
-      setHeatmapLayers({ click: true, cursor: false, scroll: false, engagement: false });
-      return;
-    }
-    if (scrollCount > 0 || maxScrollDepth > 0) {
-      setHeatmapLayers({ click: false, cursor: false, scroll: true, engagement: false });
-      return;
-    }
-    setHeatmapLayers({ click: false, cursor: false, scroll: false, engagement: false });
-  }, [heatmapLayersTouched, heatmapSummaryData, heatmapSummaryLoading, heatmapTotals.clicks, heatmapTotals.ctaClicks, heatmapTotals.scrolls, heatmapTotals.maxScrollDepthPct]);
-  const updateAuditFindingWorkflow = useCallback((findingKey, status) => {
-    if (!findingKey || !AUDIT_FINDING_WORKFLOW_STATUS_IDS.includes(status)) return;
-    setAuditFindingWorkflowState((current) => ({
-      ...current,
-      [findingKey]: {
-        status,
-        updatedAt: new Date().toISOString(),
-      },
-    }));
-  }, []);
   const redListPortfolioRows = useMemo(() => (
     redListPortfolioSummaries
       .map((summary) => {
@@ -6151,7 +5611,6 @@ const DashboardApp = ({
     }),
     [redListPortfolioRows]
   );
-  const metaAdsTopPreview = metaAdsTopAds[0] || null;
   const showLoader = loading || invoiceLoading || roiLoading;
 
   const renderPropertyInfo = () => (
@@ -6242,67 +5701,17 @@ const DashboardApp = ({
           CHART_TOOLTIP_LABEL_STYLE,
           CHART_TOOLTIP_STYLE,
           MeasuredChart,
-          analyticsSourceBadge,
           formatCurrency,
+          formatDateInputValue,
           formatNumber,
           formatPercent,
           formatSignedPercent,
-          ga4AcquisitionChannels,
-          ga4ApplyPage,
-          ga4Blocked,
-          ga4Cities,
-          ga4ConversionByMedium,
-          ga4ConversionEvents,
-          ga4CoverageGaps,
-          ga4DeviceBreakdown,
-          ga4DevicesDetailed,
-          ga4EventTotal,
-          ga4LandingPages,
-          ga4LlmTraffic,
-          ga4Loading,
-          ga4NewUsers,
-          ga4OrganicConversionBreakdown,
-          ga4PagePerformance,
-          ga4PathExploration,
-          ga4Sessions,
-          ga4StatusMessage,
-          ga4TopPages,
-          ga4TopSources,
-          ga4TrafficByMonth,
-          ga4TrafficBySessionSource,
-          ga4ConversionsByDay,
           getDeltaTone,
-          googleAdsAds,
-          googleAdsBrandSplit,
-          googleAdsCampaigns,
-          googleAdsConversionActionNote,
-          googleAdsConversionActions,
-          googleAdsCoverage,
-          googleAdsDailyPerformance,
-          googleAdsError,
-          googleAdsKeywords,
-          googleAdsLoading,
-          googleAdsOverview,
-          googleAdsOverviewDelta,
-          googleAdsTopAd,
-          metaAdsAdSets,
-          metaAdsAttribution,
           metaAdsAttributionMode,
-          metaAdsCampaigns,
-          metaAdsCoverage,
-          metaAdsDailyPerformance,
-          metaAdsError,
-          metaAdsKeyMetrics,
-          metaAdsLoading,
-          metaAdsOverview,
-          metaAdsOverviewDelta,
-          metaAdsPlacements,
-          metaAdsScoping,
-          metaAdsTopAds,
-          metaAdsTopPreview,
           rangeDates,
           renderMetricValue,
           selectedProperty,
+          selectedPropertyId,
           selectedPropertyLabel,
           setMetaAdsAttributionMode,
           shortenLabel,
@@ -6418,14 +5827,9 @@ const DashboardApp = ({
           AUDIT_TABLE_FILTERS,
           AuditScoreSparkline,
           HEATMAP_DEVICE_OPTIONS,
-          auditFindingWorkflowState,
-          auditPageOptions,
-          auditPortfolioFilter,
-          auditRegionFilter,
-          auditReviewTab,
-          auditTableFilter,
-          auditTableSort,
+          auditFindingWorkflowStorageKey,
           formatAuditScoreChange,
+          formatDateInputValue,
           formatNumber,
           getAuditFindingKey,
           getAuditFindingWorkflowLabel,
@@ -6434,32 +5838,14 @@ const DashboardApp = ({
           getAuditRubricStatusLabel,
           getDeltaTone,
           getSnapshotTimestampLabel,
+          heatmapSiteKey: heatmapSiteDraft.siteKey,
           normalizeAuditRubricStatus,
-          portfolioAuditError,
-          portfolioAuditLoading,
-          portfolioAuditProperties,
           propertyMatchesAuditFilter,
+          rangeDates,
           renderMetricValue,
-          runSiteAudit,
-          screenshotPreviewUrl,
-          selectedHeatmapDevice,
-          selectedHeatmapPath,
           selectedPropertyId,
           selectedPropertyLabel,
-          selectedScreenshot,
-          setAuditPortfolioFilter,
-          setAuditRegionFilter,
-          setAuditReviewTab,
-          setAuditTableFilter,
-          setAuditTableSort,
-          setSelectedHeatmapDevice,
-          setSelectedHeatmapPath,
           setSelectedPropertyId,
-          siteAuditSummaryData,
-          siteAuditLoading,
-          siteAuditNotice,
-          siteAuditRunning,
-          updateAuditFindingWorkflow,
         }}
       />
     </React.Suspense>
@@ -6496,6 +5882,7 @@ const DashboardApp = ({
           costPerLead,
           costPerLease,
           formatCurrency,
+          formatDateInputValue,
           formatDurationMs,
           formatNumber,
           formatPercent,
@@ -6516,17 +5903,7 @@ const DashboardApp = ({
           googleAdsLoading,
           googleAdsOverview,
           googleAdsStatusMessage,
-          heatmapClickSignalTab,
-          heatmapLayers,
-          heatmapPagesData,
-          heatmapPageOptions,
-          heatmapPanelError,
-          heatmapSummaryData,
-          heatmapSummaryLoading,
-          heatmapTotals,
-          heatmapTrackerHealthData,
-          heatmapTrackerHealthLoading,
-          highlightedHeatmapTarget,
+          heatmapSiteKey: heatmapSiteDraft.siteKey,
           invoiceLoading,
           isClientReportMode,
           isConventionalLeadDeficitPanel,
@@ -6571,25 +5948,9 @@ const DashboardApp = ({
           roiPipelineStatusLoading,
           roiSourceBreakdown,
           roiTotals,
-          runSiteAudit,
-          screenshotPreviewError,
-          screenshotPreviewLoading,
-          screenshotPreviewUrl,
-          selectedAuditPage,
-          selectedHeatmapDevice,
-          selectedHeatmapPath,
           selectedPropertyId,
           selectedPropertyLabel,
-          selectedScreenshot,
-          setHeatmapClickSignalTab,
-          setHighlightedHeatmapTarget,
-          setSelectedHeatmapDevice,
-          setSelectedHeatmapPath,
           shortenLabel,
-          siteAuditSummaryData,
-          siteAuditLoading,
-          siteAuditNotice,
-          siteAuditRunning,
           studentLeadDeficitMetrics,
           toggleMarketingSpendLine,
           totalApplications,
@@ -6598,7 +5959,6 @@ const DashboardApp = ({
           totalLeases,
           totalPerformanceMarketingCost,
           unattributedLeaseCount,
-          updateHeatmapLayer,
         }}
       />
     </React.Suspense>

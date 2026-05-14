@@ -1,4 +1,24 @@
 import React from 'react';
+import { SITE_AUDIT_PORTFOLIO_URL } from './apiConfig';
+import { authFetch } from './lib/authFetch';
+import useWebsiteExperienceData from './useWebsiteExperienceData';
+
+const readAuditFindingWorkflowState = (storageKey) => {
+  if (typeof window === 'undefined' || !storageKey) return {};
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeAuditFindingWorkflowState = (storageKey, state) => {
+  if (typeof window === 'undefined' || !storageKey) return;
+  window.localStorage.setItem(storageKey, JSON.stringify(state && typeof state === 'object' ? state : {}));
+};
 
 export default function AuditView(props) {
   const {
@@ -10,14 +30,9 @@ export default function AuditView(props) {
     AUDIT_TABLE_FILTERS,
     AuditScoreSparkline,
     HEATMAP_DEVICE_OPTIONS,
-    auditFindingWorkflowState,
-    auditPageOptions,
-    auditPortfolioFilter,
-    auditRegionFilter,
-    auditReviewTab,
-    auditTableFilter,
-    auditTableSort,
+    auditFindingWorkflowStorageKey,
     formatAuditScoreChange,
+    formatDateInputValue,
     formatNumber,
     getAuditFindingKey,
     getAuditFindingWorkflowLabel,
@@ -26,33 +41,106 @@ export default function AuditView(props) {
     getAuditRubricStatusLabel,
     getDeltaTone,
     getSnapshotTimestampLabel,
-    portfolioAuditError,
-    portfolioAuditLoading,
-    portfolioAuditProperties,
+    heatmapSiteKey,
     propertyMatchesAuditFilter,
     normalizeAuditRubricStatus,
+    rangeDates,
     renderMetricValue,
+    selectedPropertyId,
+    selectedPropertyLabel,
+    setSelectedPropertyId,
+  } = props;
+  const [portfolioAuditLoading, setPortfolioAuditLoading] = React.useState(false);
+  const [portfolioAuditError, setPortfolioAuditError] = React.useState(null);
+  const [portfolioAuditProperties, setPortfolioAuditProperties] = React.useState([]);
+  const [auditTableFilter, setAuditTableFilter] = React.useState('all');
+  const [auditPortfolioFilter, setAuditPortfolioFilter] = React.useState('all');
+  const [auditRegionFilter, setAuditRegionFilter] = React.useState('all');
+  const [auditTableSort, setAuditTableSort] = React.useState({ key: 'propertyRiskScore', direction: 'desc' });
+  const [auditReviewTab, setAuditReviewTab] = React.useState('overview');
+  const [auditFindingWorkflowState, setAuditFindingWorkflowState] = React.useState(() => readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
+  const auditFindingWorkflowStatusIds = React.useMemo(
+    () => AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => status.id),
+    [AUDIT_FINDING_WORKFLOW_STATUSES]
+  );
+  const {
+    auditPageOptions,
     runSiteAudit,
     screenshotPreviewUrl,
     selectedHeatmapDevice,
     selectedHeatmapPath,
-    selectedPropertyId,
-    selectedPropertyLabel,
     selectedScreenshot,
-    setAuditPortfolioFilter,
-    setAuditRegionFilter,
-    setAuditReviewTab,
-    setAuditTableFilter,
-    setAuditTableSort,
     setSelectedHeatmapDevice,
     setSelectedHeatmapPath,
-    setSelectedPropertyId,
     siteAuditSummaryData,
     siteAuditLoading,
     siteAuditNotice,
     siteAuditRunning,
-    updateAuditFindingWorkflow,
-  } = props;
+  } = useWebsiteExperienceData({
+    enabled: true,
+    formatDateInputValue,
+    heatmapSiteKey,
+    rangeDates,
+    selectedPropertyId,
+    selectedPropertyLabel,
+  });
+
+  React.useEffect(() => {
+    setAuditFindingWorkflowState(readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
+  }, [auditFindingWorkflowStorageKey]);
+
+  React.useEffect(() => {
+    writeAuditFindingWorkflowState(auditFindingWorkflowStorageKey, auditFindingWorkflowState);
+  }, [auditFindingWorkflowState, auditFindingWorkflowStorageKey]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadPortfolioAudit = async () => {
+      if (!SITE_AUDIT_PORTFOLIO_URL) {
+        setPortfolioAuditProperties([]);
+        setPortfolioAuditError('Portfolio audit endpoint is not configured.');
+        return;
+      }
+
+      setPortfolioAuditLoading(true);
+      setPortfolioAuditError(null);
+
+      try {
+        const response = await authFetch(SITE_AUDIT_PORTFOLIO_URL);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Portfolio audit load failed: ${response.status}`);
+        }
+        if (!cancelled) {
+          setPortfolioAuditProperties(Array.isArray(payload.properties) ? payload.properties : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPortfolioAuditProperties([]);
+          setPortfolioAuditError(error.message || 'Unable to load portfolio audit data.');
+        }
+      } finally {
+        if (!cancelled) setPortfolioAuditLoading(false);
+      }
+    };
+
+    loadPortfolioAudit();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateAuditFindingWorkflow = React.useCallback((findingKey, status) => {
+    if (!findingKey || !auditFindingWorkflowStatusIds.includes(status)) return;
+    setAuditFindingWorkflowState((current) => ({
+      ...current,
+      [findingKey]: {
+        status,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  }, [auditFindingWorkflowStatusIds]);
 
   const latestAudit = siteAuditSummaryData?.audit || null;
   const latestAuditRawData = latestAudit?.raw_data || latestAudit?.rawData || {};
