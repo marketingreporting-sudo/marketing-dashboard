@@ -1,4 +1,33 @@
 import React from 'react';
+import { CALL_PREP_SUMMARY_URL, RENDER_API_BASE_URL } from './apiConfig';
+import { authFetch } from './lib/authFetch';
+
+const CALL_PREP_METRIC_ROWS = [
+  { key: 'leads', label: 'Lead Volume', format: 'number' },
+  { key: 'applications', label: 'Applications', format: 'number' },
+  { key: 'leases', label: 'Leases', format: 'number' },
+  { key: 'leadToAppRate', label: 'Lead to App', format: 'percent' },
+  { key: 'leadToLeaseRate', label: 'Lead to Lease', format: 'percent' },
+  { key: 'appToLeaseRate', label: 'App to Lease', format: 'percent' },
+  { key: 'totalMarketingSpend', label: 'Marketing Spend', format: 'currency' },
+  { key: 'costPerLead', label: 'Cost per Lead', format: 'currency' },
+  { key: 'costPerLease', label: 'Cost per Lease', format: 'currency' },
+];
+
+const resolveRenderApiRoute = (path, fallbackUrl = '') => {
+  if (RENDER_API_BASE_URL) return `${RENDER_API_BASE_URL}${path}`;
+  return fallbackUrl;
+};
+
+const getCallPrepWindowRange = (days, offsetDays = 0) => {
+  const end = new Date();
+  end.setDate(end.getDate() - offsetDays);
+  end.setHours(23, 59, 59, 999);
+  const start = new Date(end);
+  start.setDate(end.getDate() - days + 1);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+};
 
 const getCallPrepMetricValue = (metrics, key) => {
   if (!metrics) return null;
@@ -26,35 +55,16 @@ const formatCallPrepValue = ({ value, type = 'number', formatPercent, formatCurr
 };
 
 export default function CallPrepView({
+  availableProperties,
   selectedProperty,
   selectedPropertyLabel,
   selectedPropertyId,
   isAllPropertiesSelected,
-  callPrepLoading,
-  callPrepError,
-  callPrepSections,
-  callPrepMetricsLoading,
-  callPrepPortfolioLoading,
-  callPrepSixtyDayRange,
-  callPrepRecentTasks,
-  callPrepTasksLoading,
-  callPrepTasksError,
-  callPrepSpendError,
-  callPrepSpendLoading,
-  callPrepSummary,
-  callPrepBudgetedMonthly,
-  callPrepActiveBudgetItems,
-  callPrepActualMarketingSpendLast30,
-  callPrepMarketingBudgetVarianceLast30,
-  callPrepSpendRows,
-  marketingBudgetLoading,
   recommendationsData,
   recommendationsError,
   recommendationsLoading,
   generateRecommendations,
-  metricRows,
   taskStatuses,
-  buildTaskTalkingPoint,
   formatDateInputValue,
   formatReadableDate,
   formatNumber,
@@ -67,7 +77,135 @@ export default function CallPrepView({
   normalizeAnalyticsError,
   parseCurrency,
 }) {
+  const callPrepSummaryUrl = React.useMemo(
+    () => resolveRenderApiRoute('/api/reporting/call-prep-summary', CALL_PREP_SUMMARY_URL),
+    []
+  );
+  const [callPrepLoading, setCallPrepLoading] = React.useState(false);
+  const [callPrepError, setCallPrepError] = React.useState(null);
+  const [callPrepSummary, setCallPrepSummary] = React.useState(null);
+  const callPrepSixtyDayRange = React.useMemo(() => getCallPrepWindowRange(60), []);
+  const propertyIdsKey = React.useMemo(() => (
+    (availableProperties || []).map((property) => property.propertyId).filter(Boolean).join(',')
+  ), [availableProperties]);
   const recommendations = Array.isArray(recommendationsData?.recommendations) ? recommendationsData.recommendations : [];
+  const callPrepSections = React.useMemo(() => (
+    Array.isArray(callPrepSummary?.periods)
+      ? callPrepSummary.periods.map((period) => {
+        const days = Number(period.days);
+        return {
+          ...period,
+          days,
+          currentRange: {
+            start: period.currentRange?.startDate || period.currentRange?.start,
+            end: period.currentRange?.endDate || period.currentRange?.end,
+          },
+          priorRange: {
+            start: period.priorRange?.startDate || period.priorRange?.start,
+            end: period.priorRange?.endDate || period.priorRange?.end,
+          },
+          analytics: period.analytics || callPrepSummary.analyticsByPeriod?.[String(days)] || callPrepSummary.analyticsByPeriod?.[days] || callPrepSummary.analytics || {},
+          sourceBreakdown: period.sourceBreakdown || period.current?.sourceBreakdown || [],
+        };
+      })
+      : []
+  ), [callPrepSummary]);
+  const callPrepRecentTasks = React.useMemo(() => (
+    Array.isArray(callPrepSummary?.recentTasks?.items) ? callPrepSummary.recentTasks.items : []
+  ), [callPrepSummary]);
+  const callPrepSpendRows = React.useMemo(() => (
+    Array.isArray(callPrepSummary?.activeSpend?.glRows)
+      ? callPrepSummary.activeSpend.glRows.map((row) => ({
+        ...row,
+        month: new Date(row.month || row.monthStart || row.activityDate || row.date || Date.now()),
+      }))
+      : []
+  ), [callPrepSummary]);
+  const callPrepActiveBudgetItems = React.useMemo(() => (
+    Array.isArray(callPrepSummary?.activeSpend?.budget?.activeItems)
+      ? callPrepSummary.activeSpend.budget.activeItems.map((item) => ({
+        ...item,
+        itemName: item.itemName || item.item_name,
+      }))
+      : []
+  ), [callPrepSummary]);
+  const callPrepBudgetedMonthly = Number(callPrepSummary?.activeSpend?.budget?.activeApprovedMonthly || 0);
+  const callPrepActualMarketingSpendLast30 = Number(callPrepSummary?.activeSpend?.actual?.last30 || 0);
+  const callPrepMarketingBudgetVarianceLast30 = callPrepSummary?.activeSpend?.actual?.budgetLessActual
+    ?? (callPrepBudgetedMonthly - callPrepActualMarketingSpendLast30);
+  const callPrepTasksLoading = callPrepLoading && !callPrepSummary && callPrepRecentTasks.length === 0;
+  const callPrepTasksError = callPrepSummary?.recentTasks?.error || null;
+  const callPrepSpendError = callPrepSummary?.activeSpend?.budget?.error || null;
+  const callPrepSpendLoading = callPrepLoading && !callPrepSummary;
+  const callPrepMetricsLoading = callPrepLoading && !callPrepSummary;
+  const callPrepPortfolioLoading = callPrepLoading && !callPrepSummary;
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadCallPrepSummary = async () => {
+      if (!selectedPropertyId || isAllPropertiesSelected) {
+        setCallPrepSummary(null);
+        setCallPrepError('Choose a single property to build call prep.');
+        setCallPrepLoading(false);
+        return;
+      }
+      if (!callPrepSummaryUrl) {
+        setCallPrepSummary(null);
+        setCallPrepError('Call prep reporting endpoint is not configured.');
+        setCallPrepLoading(false);
+        return;
+      }
+
+      setCallPrepLoading(true);
+      setCallPrepError(null);
+      setCallPrepSummary(null);
+
+      const propertyIds = propertyIdsKey.split(',').filter(Boolean);
+      const params = new URLSearchParams({
+        property_id: selectedPropertyId,
+        property_ids: JSON.stringify(propertyIds),
+        start_date: formatDateInputValue(callPrepSixtyDayRange.start),
+        end_date: formatDateInputValue(callPrepSixtyDayRange.end),
+      });
+
+      try {
+        const response = await authFetch(`${callPrepSummaryUrl}?${params.toString()}`);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || payload?.message || `Call prep summary failed: ${response.status}`);
+        }
+        if (!cancelled) setCallPrepSummary(payload);
+      } catch (error) {
+        if (cancelled) return;
+        console.error('Call prep summary load failed', error);
+        setCallPrepSummary(null);
+        setCallPrepError(error.message || 'Unable to load call prep data.');
+      } finally {
+        if (!cancelled) setCallPrepLoading(false);
+      }
+    };
+
+    loadCallPrepSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [callPrepSixtyDayRange, callPrepSummaryUrl, formatDateInputValue, isAllPropertiesSelected, propertyIdsKey, selectedPropertyId]);
+
+  const buildTaskTalkingPoint = React.useCallback((task) => {
+    const status = taskStatuses.find((item) => item.id === task.status)?.label || 'In Review';
+    const summary = task.description || task.notes || task.title;
+    if (task.status === 'complete') {
+      return `${task.title} has been completed. Client-ready note: ${summary}`;
+    }
+    if (task.status === 'approved') {
+      return `${task.title} is approved and ready to discuss as an active or recently approved change. Client-ready note: ${summary}`;
+    }
+    if (task.status === 'in_progress') {
+      return `${task.title} is currently in progress. Client-ready note: ${summary}`;
+    }
+    return `${task.title} is currently ${status.toLowerCase()}. Client-ready note: ${summary}`;
+  }, [taskStatuses]);
 
   const renderMetricTable = (section) => (
     <div className="call-prep-table-wrap">
@@ -81,7 +219,7 @@ export default function CallPrepView({
           </tr>
         </thead>
         <tbody>
-          {metricRows.map((row) => {
+          {CALL_PREP_METRIC_ROWS.map((row) => {
             const currentValue = getCallPrepMetricValue(section.current, row.key);
             const delta = section.delta && Object.prototype.hasOwnProperty.call(section.delta, row.key)
               ? section.delta[row.key]
@@ -296,7 +434,7 @@ export default function CallPrepView({
           <div className="reports-panel__grid reports-panel__grid--three call-prep-budget-summary">
             <div className="reports-stat">
               <span>Budgeted spend now</span>
-              <strong>{renderMetricValue(callPrepSpendLoading || (marketingBudgetLoading && !callPrepSummary), formatCurrency(callPrepBudgetedMonthly))}</strong>
+              <strong>{renderMetricValue(callPrepSpendLoading, formatCurrency(callPrepBudgetedMonthly))}</strong>
               <small>{formatNumber(callPrepActiveBudgetItems.length)} Active status item{callPrepActiveBudgetItems.length === 1 ? '' : 's'}</small>
             </div>
             <div className="reports-stat">
@@ -306,7 +444,7 @@ export default function CallPrepView({
             </div>
             <div className="reports-stat">
               <span>Budget less actual</span>
-              <strong>{renderMetricValue(callPrepSpendLoading || (marketingBudgetLoading && !callPrepSummary), formatCurrency(callPrepMarketingBudgetVarianceLast30))}</strong>
+              <strong>{renderMetricValue(callPrepSpendLoading, formatCurrency(callPrepMarketingBudgetVarianceLast30))}</strong>
               <small>{callPrepMarketingBudgetVarianceLast30 >= 0 ? 'Under approved monthly budget' : 'Over approved monthly budget'}</small>
             </div>
           </div>
@@ -331,7 +469,7 @@ export default function CallPrepView({
               ))}
               {callPrepActiveBudgetItems.length === 0 && (
                 <div className="reports-empty">
-                  {callPrepSpendLoading || (marketingBudgetLoading && !callPrepSummary) ? 'Loading active budget items...' : 'No Active status marketing budget items were found for this property.'}
+                  {callPrepSpendLoading ? 'Loading active budget items...' : 'No Active status marketing budget items were found for this property.'}
                 </div>
               )}
             </div>

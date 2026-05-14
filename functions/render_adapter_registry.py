@@ -274,6 +274,12 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Read a ready-to-render Supabase call prep summary payload.",
     ),
     HttpEndpointSpec(
+        route="/api/reporting/tab-summary",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="staging_supabase_tab_summary_only",
+        purpose="Read compact, tab-ready reporting summaries for analytics, audit, heatmaps, and report cards.",
+    ),
+    HttpEndpointSpec(
         route="/api/admin/website-manager",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="staging_supabase_website_manager_only",

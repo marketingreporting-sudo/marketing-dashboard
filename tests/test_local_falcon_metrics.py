@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "functions"))
 
-import render_runtime
+import render_local_falcon_metrics as local_falcon
 
 
 class LocalFalconMetricTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class LocalFalconMetricTests(unittest.TestCase):
             {"keyword": "ignored missing value"},
         ]
 
-        self.assertEqual(render_runtime._average_local_falcon_metric(rows, "solv"), 30.0)
+        self.assertEqual(local_falcon.average_local_falcon_metric(rows, "solv"), 30.0)
 
     def test_trend_metrics_are_derived_from_scan_detail_points(self):
         reports = [
@@ -41,7 +41,7 @@ class LocalFalconMetricTests(unittest.TestCase):
             },
         }
 
-        rows = render_runtime._normalize_local_falcon_trends(reports, details)
+        rows = local_falcon.normalize_local_falcon_trends(reports, details)
 
         self.assertEqual([row["date"] for row in rows], ["2026-05-07", "2026-05-14"])
         self.assertEqual(rows[0]["arp"], 7.0)

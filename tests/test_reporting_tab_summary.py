@@ -1,0 +1,114 @@
+from pathlib import Path
+import sys
+import unittest
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "functions"))
+
+import render_supabase_analytics as analytics  # noqa: E402
+import render_supabase_heatmaps as heatmaps  # noqa: E402
+import render_supabase_reporting as reporting  # noqa: E402
+
+
+class ReportingTabSummaryTests(unittest.TestCase):
+    def test_summary_returns_compact_analytics_and_report_cards(self):
+        def cached_summary(property_id, analytics_kind):
+            self.assertEqual(property_id, "10")
+            if analytics_kind == "ga4":
+                return {
+                    "Acquisition": {
+                        "totals": {"current": {"sessions": 123, "newUsers": 45, "engagementRate": 0.61}},
+                        "channels": [{"channel": "Organic Search", "sessions": 70}],
+                    },
+                    "Conversion": {"totals": {"currentEventCount": 12}},
+                }
+            if analytics_kind == "google_ads":
+                return {
+                    "Overview": {"current": {"clicks": 50, "cost": 321.5, "conversions": 6}},
+                    "Campaigns": [{"name": "Brand", "clicks": 20}],
+                }
+            if analytics_kind == "meta_ads":
+                return {
+                    "Overview": {"current": {"clicks": 25, "spend": 99.5, "results": 4, "resultLabel": "Leads"}},
+                    "Campaigns": [{"name": "Traffic", "clicks": 12}],
+                }
+            if analytics_kind == "local_falcon":
+                return {"Overview": {"averageRankPosition": 4.2, "shareOfLocalVoice": 0.18}}
+            raise AssertionError(f"Unexpected analytics kind {analytics_kind}")
+
+        with mock.patch.object(analytics, "get_cached_analytics_summary", side_effect=cached_summary):
+            payload = reporting.get_property_reporting_tab_summary(
+                "10",
+                "2026-05-01",
+                "2026-05-14",
+                sections=["analytics", "reports"],
+            )
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["analytics"]["ga4"]["overview"]["sessions"], 123)
+        self.assertEqual(payload["analytics"]["googleAds"]["overview"]["cost"], 321.5)
+        self.assertIsNone(payload["reputation"])
+        cards = {card["id"]: card for card in payload["reports"]["dashboardCards"]}
+        self.assertEqual(cards["ga4"]["metrics"][0]["value"], 123)
+        self.assertEqual(cards["google-ads"]["metrics"][1]["value"], 321.5)
+        self.assertEqual(cards["local-falcon"]["metrics"][0]["value"], 4.2)
+
+    def test_summary_hydrates_heatmap_and_audit_sections(self):
+        with mock.patch.object(heatmaps, "get_heatmap_pages_summary", return_value={
+            "status": "ok",
+            "pages": [{"path": "/floorplans", "events": 20}],
+        }) as pages_mock, mock.patch.object(heatmaps, "get_heatmap_summary", return_value={
+            "status": "ok",
+            "totals": {"sessions": 9, "clicks": 3},
+            "topTargets": [{"label": "Apply", "count": 2}],
+        }) as summary_mock, mock.patch.object(heatmaps, "get_heatmap_tracker_health_summary", return_value={
+            "status": "ok",
+            "health": {"status": "healthy"},
+        }), mock.patch.object(heatmaps, "get_site_audit_pages_summary", return_value={
+            "status": "ok",
+            "pages": [{"path": "/floorplans"}],
+        }), mock.patch.object(heatmaps, "get_site_audit_summary", return_value={
+            "status": "ok",
+            "audit": {"overallScore": 88, "issues": ["Update pricing"], "recommendations": ["Verify specials"]},
+        }):
+            payload = reporting.get_property_reporting_tab_summary(
+                "10",
+                "2026-05-01",
+                "2026-05-14",
+                site_key="site-1",
+                device_type="desktop",
+                sections="heatmap,audit,reports",
+                access_token="token",
+            )
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["heatmap"]["selectedPath"], "/floorplans")
+        self.assertEqual(payload["heatmap"]["overview"]["totals"]["sessions"], 9)
+        self.assertEqual(payload["audit"]["overview"]["issueCount"], 1)
+        summary_kwargs = summary_mock.call_args.kwargs
+        self.assertEqual(summary_kwargs["path"], "/floorplans")
+        self.assertEqual(summary_kwargs["device_type"], "desktop")
+        pages_kwargs = pages_mock.call_args.kwargs
+        self.assertEqual(pages_kwargs["site_key"], "site-1")
+        self.assertEqual(pages_kwargs["access_token"], "token")
+
+    def test_summary_keeps_partial_errors_inside_sections(self):
+        with mock.patch.object(analytics, "get_cached_analytics_summary", return_value={
+            "status": "error",
+            "error": "No cached GA4 snapshot found.",
+        }):
+            payload = reporting.get_property_reporting_tab_summary(
+                "10",
+                "2026-05-01",
+                "2026-05-14",
+                sections="ga4",
+            )
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["analytics"]["ga4"]["status"], "error")
+        self.assertIn("No cached GA4", payload["analytics"]["ga4"]["error"])
+        self.assertGreaterEqual(len(payload["errors"]), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

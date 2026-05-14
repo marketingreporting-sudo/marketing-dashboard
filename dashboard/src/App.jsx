@@ -2,7 +2,6 @@ import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react'
 import {
   ADMIN_ACCESS_USERS_URL,
   ADMIN_TICKET_ASSIGNMENTS_URL,
-  CALL_PREP_SUMMARY_URL,
   CLIENT_REPORT_BASE_DOMAIN,
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
@@ -17,7 +16,7 @@ import {
   RECOMMENDATIONS_BASE_URL,
   RECOMMENDATIONS_GENERATE_URL,
   RENDER_API_BASE_URL,
-  REPORTING_LAYOUT_URL,
+  REPORTING_TAB_SUMMARY_URL,
   REPUTATION_DASHBOARD_URL,
   ROI_PIPELINE_STATUS_URL,
   SITE_AUDIT_PORTFOLIO_URL,
@@ -85,13 +84,13 @@ import {
   Trash2,
   Save,
   AlertTriangle,
-  Upload,
-  ExternalLink
 } from 'lucide-react';
 const AnalyticsView = React.lazy(() => import('./AnalyticsView.jsx'));
 const AuditView = React.lazy(() => import('./AuditView.jsx'));
 const DashboardView = React.lazy(() => import('./DashboardView.jsx'));
 const CallPrepView = React.lazy(() => import('./CallPrepView.jsx'));
+const PropertyInfoView = React.lazy(() => import('./PropertyInfoView.jsx'));
+const ReputationView = React.lazy(() => import('./ReputationView.jsx'));
 const ReportsView = React.lazy(() => import('./ReportsView.jsx'));
 
 const PERFORMANCE_MARKETING_GL_CODES = new Set(['5300-0030', '5300-0210']);
@@ -121,7 +120,6 @@ const ALL_MARKETING_DESCRIPTIONS = [
 const APPLICATION_EVENT_TYPE_IDS = new Set([12]);
 const LEASE_EVENT_TYPE_IDS = new Set([13]);
 const STATUS_CHANGE_EVENT_TYPE_ID = 21;
-const REPORTING_LAYOUT_STORAGE_KEY = 'reportingLayoutAdminEnabled';
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dashboardSidebarCollapsed';
 const ALL_PROPERTIES_OPTION = '__all__';
 const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
@@ -161,18 +159,6 @@ const buildSetPasswordLink = (authLinkPayload, type) => {
   url.searchParams.set('type', type);
   return url.toString();
 };
-const REPORTING_PANEL_LIBRARY = [
-  { id: 'roi', title: 'ROAS Metrics', eyebrow: 'Revenue Efficiency' },
-  { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
-  { id: 'entrata', title: 'Entrata Funnel', eyebrow: 'Leads to Leases' },
-  { id: 'heatmaps-audit', title: 'Heatmaps + Site Audit', eyebrow: 'Website Experience' },
-  { id: 'google-ads', title: 'Google Ads', eyebrow: 'Paid Search' },
-  { id: 'ga4', title: 'Google Analytics', eyebrow: 'Behavior + Demand' },
-  { id: 'opiniion', title: 'Opiniion', eyebrow: 'Resident Sentiment' },
-  { id: 'local-falcon', title: 'Local Falcon', eyebrow: 'Local SEO' },
-  { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
-];
-const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
 const HEATMAP_DEVICE_OPTIONS = ['desktop', 'mobile', 'tablet'];
 const AUDIT_TABLE_FILTERS = [
   { id: 'all', label: 'All' },
@@ -284,22 +270,6 @@ const MARKETING_BUDGET_SELECT_COLUMNS = [
   'created_by',
   'updated_by'
 ].join(', ');
-const CALL_PREP_PERIODS = [
-  { days: 7, label: 'Last 7 Days', shortLabel: '7D' },
-  { days: 30, label: 'Last 30 Days', shortLabel: '30D' },
-  { days: 60, label: 'Last 60 Days', shortLabel: '60D' },
-];
-const CALL_PREP_METRIC_ROWS = [
-  { key: 'leads', label: 'Lead Volume', format: 'number' },
-  { key: 'applications', label: 'Applications', format: 'number' },
-  { key: 'leases', label: 'Leases', format: 'number' },
-  { key: 'leadToAppRate', label: 'Lead to App', format: 'percent' },
-  { key: 'leadToLeaseRate', label: 'Lead to Lease', format: 'percent' },
-  { key: 'appToLeaseRate', label: 'App to Lease', format: 'percent' },
-  { key: 'totalMarketingSpend', label: 'Marketing Spend', format: 'currency' },
-  { key: 'costPerLead', label: 'Cost per Lead', format: 'currency' },
-  { key: 'costPerLease', label: 'Cost per Lease', format: 'currency' },
-];
 const WEBSITE_SCHEMA_FIELD_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const WEBSITE_SCHEMA_FIELD_TYPES = [
   { value: 'text', label: 'Text' },
@@ -1000,22 +970,6 @@ const countInclusiveDays = (start, end) => {
   return Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
 };
 
-const normalizeReportingLayoutRecord = (value) => {
-  const order = Array.isArray(value?.panelOrder) ? value.panelOrder.map((item) => String(item)) : [];
-  const hidden = Array.isArray(value?.hiddenPanelIds) ? value.hiddenPanelIds.map((item) => String(item)) : [];
-
-  const uniqueOrder = order.filter((panelId, index) => REPORTING_PANEL_IDS.includes(panelId) && order.indexOf(panelId) === index);
-  const normalizedOrder = [
-    ...uniqueOrder,
-    ...REPORTING_PANEL_IDS.filter((panelId) => !uniqueOrder.includes(panelId))
-  ];
-
-  return {
-    panelOrder: normalizedOrder,
-    hiddenPanelIds: hidden.filter((panelId, index) => REPORTING_PANEL_IDS.includes(panelId) && hidden.indexOf(panelId) === index)
-  };
-};
-
 const getInvoiceAmount = (invoice) => {
   const detailAmounts = [invoice.debit, invoice.credit]
     .map((value) => parseCurrency(value))
@@ -1163,12 +1117,6 @@ const getLeadKey = (lead) => {
   if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
   return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
 };
-
-const hasApplicationIdentifier = (record) => (
-  record?.application_id != null ||
-  record?.applicationId != null ||
-  record?.applicationID != null
-);
 
 const getAvailabilityStatus = (unit) => {
   const attrs = unit?.['@attributes'] || {};
@@ -1537,253 +1485,12 @@ const getCallPrepWindowRange = (days, offsetDays = 0) => {
   return { start, end };
 };
 
-const getPriorWindowRange = ({ start }, days) => {
-  const end = new Date(start);
-  end.setDate(start.getDate() - 1);
-  end.setHours(23, 59, 59, 999);
-  const priorStart = new Date(end);
-  priorStart.setDate(end.getDate() - days + 1);
-  priorStart.setHours(0, 0, 0, 0);
-  return { start: priorStart, end };
-};
-
 const getItemPropertyId = (item) => String(item?._propertyId ?? item?.property_id ?? item?.propertyId ?? '');
-
-const itemMatchesProperty = (item, propertyId) => {
-  if (!propertyId) return true;
-  return getItemPropertyId(item) === String(propertyId);
-};
-
-const getCallPrepInvoiceKey = (invoice) => getScopedStableKey(getItemPropertyId(invoice), getInvoiceKey(invoice));
 
 const getCallPrepDate = (value) => {
   const parsed = value instanceof Date ? value : parseEntrataDate(value);
   return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 };
-
-const percentChange = (current, previous) => {
-  const currentValue = Number(current || 0);
-  const previousValue = Number(previous || 0);
-  if (previousValue === 0) return currentValue === 0 ? 0 : null;
-  return (currentValue - previousValue) / previousValue;
-};
-
-const safeRate = (numerator, denominator) => {
-  const denominatorValue = Number(denominator || 0);
-  if (denominatorValue <= 0) return null;
-  return Number(numerator || 0) / denominatorValue;
-};
-
-const averageNumbers = (values) => {
-  const numericValues = values.map((value) => Number(value)).filter(Number.isFinite);
-  if (numericValues.length === 0) return null;
-  return numericValues.reduce((total, value) => total + value, 0) / numericValues.length;
-};
-
-const getCallPrepMetricValue = (metrics, key) => {
-  if (!metrics) return null;
-  if (key === 'leadToAppRate') return metrics.leadToAppRate;
-  if (key === 'leadToLeaseRate') return metrics.leadToLeaseRate;
-  if (key === 'appToLeaseRate') return metrics.appToLeaseRate;
-  if (key === 'performanceMarketingSpend') return metrics.performanceMarketingSpend;
-  if (key === 'totalMarketingSpend') return metrics.totalMarketingSpend;
-  if (key === 'costPerLead') return metrics.costPerLead;
-  if (key === 'costPerLease') return metrics.costPerLease;
-  return metrics[key];
-};
-
-const buildCallPrepMetrics = (payload, range, propertyId = null, excludedMarketingSpendKeySet = null) => {
-  const leadItemsForWindow = (payload?.lead_items || []).filter((lead) => (
-    itemMatchesProperty(lead, propertyId) &&
-    isInDateRange(getCallPrepDate(lead._date || lead.activity_date || lead.date), range.start, range.end)
-  ));
-  const canonicalLeads = new Map();
-  leadItemsForWindow.forEach((lead) => {
-    const key = getLeadKey(lead);
-    const current = canonicalLeads.get(key);
-    if (!current || String(lead._date || '') < String(current._date || '9999-12-31')) {
-      canonicalLeads.set(key, lead);
-    }
-  });
-  const leads = Array.from(canonicalLeads.values());
-
-  const applicationRecords = new Map();
-  const leaseRecords = new Map();
-  (payload?.event_items || []).forEach((event) => {
-    if (!itemMatchesProperty(event, propertyId)) return;
-    const eventDate = getTrueEventOccurredDate(event);
-    if (!isInDateRange(eventDate, range.start, range.end)) return;
-    if (isStartedApplicationEvent(event)) {
-      const key = getCompletedApplicationRecordKey(event);
-      const existing = applicationRecords.get(key);
-      if (!existing || eventDate < existing.date) applicationRecords.set(key, { date: eventDate, item: event });
-    }
-    if (isApprovedNewLeaseEvent(event)) {
-      const key = getApprovedLeaseRecordKey(event);
-      const existing = leaseRecords.get(key);
-      if (!existing || eventDate < existing.date) leaseRecords.set(key, { date: eventDate, item: event });
-    }
-  });
-  (payload?.lease_items || []).forEach((lease) => {
-    if (!itemMatchesProperty(lease, propertyId)) return;
-    const approvalDate = getCallPrepDate(getLeaseApprovalDate(lease));
-    if (!isInDateRange(approvalDate, range.start, range.end)) return;
-    const key = getApprovedLeaseRecordKey(lease);
-    const existing = leaseRecords.get(key);
-    if (!existing || approvalDate < existing.date) leaseRecords.set(key, { date: approvalDate, item: lease });
-  });
-  if (applicationRecords.size === 0) {
-    [...leadItemsForWindow, ...(payload?.lease_items || [])].forEach((record) => {
-      if (!hasApplicationIdentifier(record) || !itemMatchesProperty(record, propertyId)) return;
-      const applicationDate = getCallPrepDate(
-        findNestedValue(record, EVENT_OCCURRED_DATE_KEYS) ||
-        record._date ||
-        record.activity_date ||
-        getLeaseApprovalDate(record)
-      );
-      if (!isInDateRange(applicationDate, range.start, range.end)) return;
-      const key = getCompletedApplicationRecordKey(record);
-      const existing = applicationRecords.get(key);
-      if (!existing || applicationDate < existing.date) applicationRecords.set(key, { date: applicationDate, item: record });
-    });
-  }
-
-  const uniqueInvoices = new Map();
-  (payload?.invoice_items || []).forEach((invoice) => {
-    if (!itemMatchesProperty(invoice, propertyId)) return;
-    const key = getCallPrepInvoiceKey(invoice);
-    const existing = uniqueInvoices.get(key);
-    if (!existing) {
-      uniqueInvoices.set(key, invoice);
-      return;
-    }
-    const effectiveDate = getInvoiceEffectiveDate(invoice);
-    const existingDate = getInvoiceEffectiveDate(existing);
-    if (effectiveDate && existingDate && effectiveDate < existingDate) {
-      uniqueInvoices.set(key, invoice);
-    }
-  });
-  const invoices = Array.from(uniqueInvoices.values());
-  const marketingInvoices = invoices.filter((invoice) => (
-    hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS) &&
-    !isMarketingSpendLineExcluded(getInvoiceBreakdownLabel(invoice), excludedMarketingSpendKeySet)
-  ));
-  const performanceInvoices = invoices.filter((invoice) => (
-    hasInvoiceClassification(invoice, PERFORMANCE_MARKETING_GL_CODES, PERFORMANCE_MARKETING_DESCRIPTIONS) &&
-    !isMarketingSpendLineExcluded(getInvoiceBreakdownLabel(invoice), excludedMarketingSpendKeySet)
-  ));
-  const totalMarketingSpend = marketingInvoices.reduce((total, invoice) => (
-    total + getAllocatedInvoiceAmountInRange(invoice, range.start, range.end)
-  ), 0);
-  const performanceMarketingSpend = performanceInvoices.reduce((total, invoice) => (
-    total + getAllocatedInvoiceAmountInRange(invoice, range.start, range.end)
-  ), 0);
-
-  const leadCount = leads.length;
-  const applicationCount = applicationRecords.size;
-  const leaseCount = leaseRecords.size;
-  const sourceMap = new Map();
-  leads.forEach((lead) => {
-    const source = lead.leadSource || lead.internetListingService || 'Unknown';
-    sourceMap.set(source, (sourceMap.get(source) || 0) + 1);
-  });
-
-  return {
-    leads: leadCount,
-    applications: applicationCount,
-    leases: leaseCount,
-    leadToAppRate: safeRate(applicationCount, leadCount),
-    leadToLeaseRate: safeRate(leaseCount, leadCount),
-    appToLeaseRate: safeRate(leaseCount, applicationCount),
-    totalMarketingSpend,
-    performanceMarketingSpend,
-    costPerLead: leadCount > 0 && totalMarketingSpend > 0 ? totalMarketingSpend / leadCount : null,
-    costPerLease: leaseCount > 0 && totalMarketingSpend > 0 ? totalMarketingSpend / leaseCount : null,
-    sourceBreakdown: Array.from(sourceMap.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([source, count]) => ({
-        source,
-        leads: count,
-        share: safeRate(count, leadCount),
-      })),
-  };
-};
-
-const buildCallPrepPortfolioAverage = (payload, range, selectedPropertyId, propertyIds, excludedMarketingSpendKeySet = null) => {
-  const comparisonIds = propertyIds
-    .map((propertyId) => String(propertyId))
-    .filter((propertyId) => propertyId && propertyId !== String(selectedPropertyId));
-  if (comparisonIds.length === 0) return null;
-  const metricsByProperty = comparisonIds.map((propertyId) => buildCallPrepMetrics(payload, range, propertyId, excludedMarketingSpendKeySet));
-  const averageMetric = (key) => averageNumbers(metricsByProperty.map((metrics) => getCallPrepMetricValue(metrics, key)));
-  return {
-    propertyCount: comparisonIds.length,
-    leads: averageMetric('leads'),
-    applications: averageMetric('applications'),
-    leases: averageMetric('leases'),
-    leadToAppRate: averageMetric('leadToAppRate'),
-    leadToLeaseRate: averageMetric('leadToLeaseRate'),
-    appToLeaseRate: averageMetric('appToLeaseRate'),
-    totalMarketingSpend: averageMetric('totalMarketingSpend'),
-    performanceMarketingSpend: averageMetric('performanceMarketingSpend'),
-    costPerLead: averageMetric('costPerLead'),
-    costPerLease: averageMetric('costPerLease'),
-  };
-};
-
-const buildCallPrepSpendRows = (payload, range, propertyId, excludedMarketingSpendKeySet = null) => {
-  const grouped = new Map();
-  const invoices = payload?.invoice_items || [];
-  invoices.forEach((invoice) => {
-    if (!itemMatchesProperty(invoice, propertyId)) return;
-    if (!hasInvoiceClassification(invoice, ALL_MARKETING_GL_CODES, ALL_MARKETING_DESCRIPTIONS)) return;
-    const allocation = getInvoiceAllocationMonth(invoice);
-    if (!allocation || allocation.monthEnd < range.start || allocation.monthStart > range.end) return;
-    const label = getInvoiceBreakdownLabel(invoice);
-    if (isMarketingSpendLineExcluded(label, excludedMarketingSpendKeySet)) return;
-    const key = `${formatDateInputValue(allocation.monthStart)}:${label}`;
-    const current = grouped.get(key) || {
-      key,
-      month: allocation.monthStart,
-      label,
-      glCodes: getInvoiceGlCodes(invoice).join(', '),
-      amount: 0,
-      allocatedInWindow: 0,
-    };
-    current.amount += getInvoiceAmount(invoice);
-    current.allocatedInWindow += getAllocatedInvoiceAmountInRange(invoice, range.start, range.end);
-    grouped.set(key, current);
-  });
-  return Array.from(grouped.values())
-    .sort((a, b) => b.month.getTime() - a.month.getTime() || b.amount - a.amount)
-    .slice(0, 12);
-};
-
-const taskTouchedInRange = (task, range) => {
-  const dates = [
-    task.createdAt,
-    task.updatedAt,
-    task.dueDate,
-  ].map(getCallPrepDate).filter(Boolean);
-  return dates.some((date) => isInDateRange(date, range.start, range.end));
-};
-
-const buildTaskTalkingPoint = (task) => {
-  const status = TASK_STATUSES.find((item) => item.id === task.status)?.label || 'In Review';
-  const summary = task.description || task.notes || task.title;
-  if (task.status === 'complete') {
-    return `${task.title} has been completed. Client-ready note: ${summary}`;
-  }
-  if (task.status === 'approved') {
-    return `${task.title} is approved and ready to discuss as an active or recently approved change. Client-ready note: ${summary}`;
-  }
-  if (task.status === 'in_progress') {
-    return `${task.title} is currently in progress. Client-ready note: ${summary}`;
-  }
-  return `${task.title} is currently ${status.toLowerCase()}. Client-ready note: ${summary}`;
-};
-
 
 const getCompletedApplicationRecordKey = (record) => {
   const candidates = [
@@ -2284,16 +1991,6 @@ const DashboardApp = ({
   const [websiteSchemaDraft, setWebsiteSchemaDraft] = useState(WEBSITE_MANAGER_DEFAULT_SCHEMA);
   const [expandedWebsiteSchemaGroups, setExpandedWebsiteSchemaGroups] = useState(() => new Set());
   const [websiteSchemaHistory, setWebsiteSchemaHistory] = useState([]);
-  const [reportingLayoutLoading, setReportingLayoutLoading] = useState(true);
-  const [reportingLayoutSaving, setReportingLayoutSaving] = useState(false);
-  const [reportingLayoutError, setReportingLayoutError] = useState(null);
-  const [reportingLayoutNotice, setReportingLayoutNotice] = useState(null);
-  const [reportingLayoutDoc, setReportingLayoutDoc] = useState(() => normalizeReportingLayoutRecord(null));
-  const [reportingLayoutDraft, setReportingLayoutDraft] = useState(() => normalizeReportingLayoutRecord(null));
-  const [reportingAdminEnabled, setReportingAdminEnabled] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(REPORTING_LAYOUT_STORAGE_KEY) === 'true';
-  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true';
@@ -2322,8 +2019,9 @@ const DashboardApp = ({
   const [parentDocs, setParentDocs] = useState([]);
   const [roiDailyItems, setRoiDailyItems] = useState([]);
   const reportingOverviewUrl = resolveRenderApiRoute('/api/reporting/property-overview', PROPERTY_REPORTING_OVERVIEW_URL);
-  const callPrepSummaryUrl = resolveRenderApiRoute('/api/reporting/call-prep-summary', CALL_PREP_SUMMARY_URL);
+  const reportingTabSummaryUrl = resolveRenderApiRoute('/api/reporting/tab-summary', REPORTING_TAB_SUMMARY_URL);
   const reportingUsesStagedOverview = Boolean(reportingOverviewUrl);
+  const [reportingTabSummaryBypass, setReportingTabSummaryBypass] = useState(false);
   const [reportingDataSource, setReportingDataSource] = useState(() => (
     reportingUsesStagedOverview ? 'loading' : 'error'
   ));
@@ -2369,19 +2067,12 @@ const DashboardApp = ({
   const [actualMarketingSpendItems, setActualMarketingSpendItems] = useState([]);
   const [actualMarketingSpendLoading, setActualMarketingSpendLoading] = useState(false);
   const [actualMarketingSpendError, setActualMarketingSpendError] = useState(null);
-  const [callPrepLoading, setCallPrepLoading] = useState(false);
-  const [callPrepError, setCallPrepError] = useState(null);
-  const [callPrepSummary, setCallPrepSummary] = useState(null);
-  const [callPrepOverview, setCallPrepOverview] = useState(null);
-  const [callPrepPortfolioOverview, setCallPrepPortfolioOverview] = useState(null);
-  const [callPrepAnalyticsByPeriod, setCallPrepAnalyticsByPeriod] = useState({});
   const [adminAccessLoading, setAdminAccessLoading] = useState(false);
   const [adminAccessError, setAdminAccessError] = useState(null);
   const [adminAccessNotice, setAdminAccessNotice] = useState(null);
   const [adminInviteLink, setAdminInviteLink] = useState('');
   const [adminPasswordResetLink, setAdminPasswordResetLink] = useState('');
   const [adminCopiedLinkType, setAdminCopiedLinkType] = useState('');
-  const [copiedClientReportLink, setCopiedClientReportLink] = useState(false);
   const [adminActiveSection, setAdminActiveSection] = useState('users');
   const [redListActiveSection, setRedListActiveSection] = useState('student');
   const [adminUserSearch, setAdminUserSearch] = useState('');
@@ -2420,7 +2111,6 @@ const DashboardApp = ({
   });
   const websiteManagerUsesStagedAdapter = Boolean(WEBSITE_MANAGER_URL);
   const websiteManagerSchemaUsesStagedAdapter = Boolean(WEBSITE_MANAGER_SCHEMA_URL);
-  const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
   const analyticsEndpointsConfigured = Boolean(
     GA4_DASHBOARD_URL && GOOGLE_ADS_DASHBOARD_URL && META_ADS_DASHBOARD_URL && REPUTATION_DASHBOARD_URL
   );
@@ -2432,9 +2122,18 @@ const DashboardApp = ({
   const shouldLoadWebsiteManagerContent = activeTab === 'website manager';
   const shouldLoadWebsiteExperienceData = activeTab === 'reports' || activeTab === 'audit';
   const shouldLoadWebsiteExperienceConfig = shouldLoadWebsiteManagerContent || shouldLoadWebsiteExperienceData;
-  const shouldLoadReportingLayout = activeTab === 'reports';
   const shouldLoadChannelAnalytics = activeTab === 'reports' || activeTab === 'analytics';
   const shouldLoadReputationData = activeTab === 'reports' || activeTab === 'reputation';
+  const shouldLoadReportingTabSummary = Boolean(reportingTabSummaryUrl)
+    && !reportingTabSummaryBypass
+    && ['reports', 'analytics', 'audit', 'reputation'].includes(activeTab);
+  const reportingTabSummarySections = useMemo(() => {
+    if (activeTab === 'reports') return 'analytics,reputation,heatmap,audit,reports';
+    if (activeTab === 'analytics') return 'analytics';
+    if (activeTab === 'audit') return 'heatmap,audit';
+    if (activeTab === 'reputation') return 'reputation';
+    return '';
+  }, [activeTab]);
   const isAllPropertiesSelected = selectedPropertyId === ALL_PROPERTIES_OPTION;
   const allPropertiesSupportedTabs = useMemo(() => new Set(['dashboard', 'red-list']), []);
   const selectedProperty = useMemo(() => {
@@ -2491,10 +2190,6 @@ const DashboardApp = ({
     if (!ticketDraft.propertyId) return ticketUsers;
     return ticketUsers.filter((user) => user.globalRole === 'admin' || user.propertyIds?.includes(ticketDraft.propertyId));
   }, [ticketDraft.propertyId, ticketUsers]);
-  const availablePropertyIdsKey = useMemo(
-    () => availableProperties.map((property) => property.propertyId).join(','),
-    [availableProperties]
-  );
   const canEditReportingLayout = !isClientReportMode && currentPropertyPermissionSet.has(REPORTING_LAYOUT_EDIT_PERMISSION);
   const canEditWebsiteManager = currentPropertyPermissionSet.has(WEBSITE_MANAGER_EDIT_PERMISSION);
   const canViewAuditCommandCenter = currentPropertyPermissionSet.has(TAB_PERMISSIONS.audit);
@@ -2739,12 +2434,6 @@ const DashboardApp = ({
     writeAuditFindingWorkflowState(auditFindingWorkflowStorageKey, auditFindingWorkflowState);
   }, [auditFindingWorkflowState, auditFindingWorkflowStorageKey]);
 
-  useEffect(() => {
-    if (!canEditReportingLayout && reportingAdminEnabled) {
-      setReportingAdminEnabled(false);
-    }
-  }, [canEditReportingLayout, reportingAdminEnabled]);
-
   const hydrateAdminDraftFromUser = (user) => {
     if (!user) return null;
     return {
@@ -2896,12 +2585,9 @@ const DashboardApp = ({
   }, [currentUser, propertyScopedSelectionId]);
 
   useEffect(() => {
-    const needsCallPrepFallbackBudget = activeTab === 'call prep' && (
-      !callPrepSummaryUrl || (!callPrepSummary && callPrepOverview)
-    );
-    if (activeTab !== 'property info' && !needsCallPrepFallbackBudget) return;
+    if (activeTab !== 'property info') return;
     loadMarketingBudgetItems();
-  }, [activeTab, callPrepOverview, callPrepSummary, callPrepSummaryUrl, loadMarketingBudgetItems]);
+  }, [activeTab, loadMarketingBudgetItems]);
 
   const loadActualMarketingSpendItems = useCallback(async () => {
     if (!propertyScopedSelectionId) {
@@ -2986,12 +2672,8 @@ const DashboardApp = ({
   useEffect(() => {
     if (activeTab === 'tasks') {
       loadTasks('mine');
-      return;
     }
-    if (activeTab === 'call prep' && (!callPrepSummaryUrl || (!callPrepSummary && callPrepOverview))) {
-      loadTasks('property');
-    }
-  }, [activeTab, callPrepOverview, callPrepSummary, callPrepSummaryUrl, loadTasks]);
+  }, [activeTab, loadTasks]);
 
   const loadTickets = useCallback(async () => {
     if (!TICKETS_BASE_URL || !TICKET_OPTIONS_URL) {
@@ -3041,219 +2723,6 @@ const DashboardApp = ({
     if (activeTab !== 'tickets') return;
     loadTickets();
   }, [activeTab, loadTickets]);
-
-  useEffect(() => {
-    if (activeTab !== 'call prep') return;
-
-    let cancelled = false;
-
-    const loadCallPrepData = async () => {
-      if (!propertyScopedSelectionId || isAllPropertiesSelected) {
-        setCallPrepSummary(null);
-        setCallPrepOverview(null);
-        setCallPrepPortfolioOverview(null);
-        setCallPrepAnalyticsByPeriod({});
-        setCallPrepError('Choose a single property to build call prep.');
-        setCallPrepLoading(false);
-        return;
-      }
-      if (!callPrepSummaryUrl && !reportingOverviewUrl) {
-        setCallPrepSummary(null);
-        setCallPrepOverview(null);
-        setCallPrepPortfolioOverview(null);
-        setCallPrepAnalyticsByPeriod({});
-        setCallPrepError('Call prep reporting endpoint is not configured.');
-        setCallPrepLoading(false);
-        return;
-      }
-
-      setCallPrepLoading(true);
-      setCallPrepError(null);
-      setCallPrepSummary(null);
-      setCallPrepOverview(null);
-      setCallPrepPortfolioOverview(null);
-      setCallPrepAnalyticsByPeriod({});
-
-      const sixtyDayRange = getCallPrepWindowRange(60);
-      const priorSixtyDayRange = getPriorWindowRange(sixtyDayRange, 60);
-      const overviewStart = formatDateInputValue(priorSixtyDayRange.start);
-      const overviewEnd = formatDateInputValue(sixtyDayRange.end);
-      const propertyIds = availablePropertyIdsKey.split(',').filter(Boolean);
-      const callPrepGa4Url = resolveRenderApiRoute('/api/analytics/ga4', GA4_DASHBOARD_URL);
-      const callPrepGoogleAdsUrl = resolveRenderApiRoute('/api/analytics/google-ads', GOOGLE_ADS_DASHBOARD_URL);
-
-      const fetchJson = async (url, label) => {
-        if (!url) {
-          throw new Error(`${label} endpoint is not configured.`);
-        }
-        let response;
-        try {
-          response = await authFetch(url);
-        } catch {
-          throw new Error(`${label} could not be reached.`);
-        }
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || payload?.message || `${label} failed: ${response.status}`);
-        }
-        return payload;
-      };
-
-      try {
-        if (callPrepSummaryUrl) {
-          try {
-            const summaryParams = new URLSearchParams({
-              property_id: propertyScopedSelectionId,
-              property_ids: JSON.stringify(propertyIds),
-              start_date: overviewStart,
-              end_date: overviewEnd,
-            });
-            const summary = await fetchJson(
-              `${callPrepSummaryUrl}?${summaryParams.toString()}`,
-              'Call prep summary'
-            );
-
-            if (cancelled) return;
-            setCallPrepSummary(summary);
-            const analyticsByPeriod = summary?.analyticsByPeriod || (
-              summary?.analytics
-                ? Object.fromEntries(CALL_PREP_PERIODS.map((period) => [period.days, summary.analytics]))
-                : Object.fromEntries((summary?.periods || []).map((period) => [period.days, period.analytics || {}]))
-            );
-            setCallPrepAnalyticsByPeriod(analyticsByPeriod);
-            return;
-          } catch (summaryError) {
-            if (!reportingOverviewUrl) throw summaryError;
-            console.warn('Call prep summary failed, falling back to reporting overview', summaryError);
-          }
-        }
-
-        const propertyParams = new URLSearchParams({
-          property_id: propertyScopedSelectionId,
-          start_date: overviewStart,
-          end_date: overviewEnd,
-          call_prep_only: '1',
-        });
-        const portfolioParams = new URLSearchParams({
-          property_id: 'all',
-          property_ids: JSON.stringify(propertyIds),
-          start_date: overviewStart,
-          end_date: overviewEnd,
-          call_prep_only: '1',
-        });
-
-        const portfolioOverviewPromise = fetchJson(
-          `${reportingOverviewUrl}?${portfolioParams.toString()}`,
-          'Call prep portfolio overview'
-        ).catch(() => null);
-        const propertyOverview = await fetchJson(
-          `${reportingOverviewUrl}?${propertyParams.toString()}`,
-          'Call prep property overview'
-        );
-
-        if (cancelled) return;
-        setCallPrepOverview(propertyOverview);
-
-        const portfolioOverview = await portfolioOverviewPromise;
-        if (cancelled) return;
-        setCallPrepPortfolioOverview(portfolioOverview);
-
-        const sharedAnalyticsEntry = {
-          googleAds: null,
-          googleAdsError: selectedProperty?.googleAdsId ? null : 'No Google Ads customer ID is configured.',
-          ga4: null,
-          ga4Error: selectedProperty?.googleAnalyticsId ? null : 'No GA4 property ID is configured.',
-        };
-
-        const analyticsRequests = [];
-
-        if (selectedProperty?.googleAdsId && callPrepGoogleAdsUrl) {
-          const params = new URLSearchParams({
-            property_id: propertyScopedSelectionId,
-            google_ads_customer_id: selectedProperty.googleAdsId,
-            property_name: selectedProperty?.name || '',
-            start_date: overviewStart,
-            end_date: overviewEnd,
-            cache_only: '1',
-          });
-          analyticsRequests.push((async () => {
-            try {
-              sharedAnalyticsEntry.googleAds = await fetchJson(`${callPrepGoogleAdsUrl}?${params.toString()}`, 'Call prep Google Ads');
-              sharedAnalyticsEntry.googleAdsError = null;
-            } catch (error) {
-              if (googleAdsData) {
-                sharedAnalyticsEntry.googleAds = googleAdsData;
-                sharedAnalyticsEntry.googleAdsError = null;
-              } else {
-                sharedAnalyticsEntry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
-              }
-            }
-          })());
-        }
-
-        if (selectedProperty?.googleAnalyticsId && callPrepGa4Url) {
-          const params = new URLSearchParams({
-            property_id: propertyScopedSelectionId,
-            ga4_property_id: selectedProperty.googleAnalyticsId,
-            start_date: overviewStart,
-            end_date: overviewEnd,
-            cache_only: '1',
-          });
-          analyticsRequests.push((async () => {
-            try {
-              sharedAnalyticsEntry.ga4 = await fetchJson(`${callPrepGa4Url}?${params.toString()}`, 'Call prep GA4');
-              sharedAnalyticsEntry.ga4Error = null;
-            } catch (error) {
-              if (ga4Data) {
-                sharedAnalyticsEntry.ga4 = ga4Data;
-                sharedAnalyticsEntry.ga4Error = null;
-              } else {
-                sharedAnalyticsEntry.ga4Error = error.message || 'Unable to load GA4 metrics.';
-              }
-            }
-          })());
-        }
-
-        await Promise.all(analyticsRequests);
-
-        const analyticsEntries = CALL_PREP_PERIODS.map((period) => [
-          period.days,
-          { ...sharedAnalyticsEntry },
-        ]);
-
-        if (!cancelled) {
-          setCallPrepAnalyticsByPeriod(Object.fromEntries(analyticsEntries));
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error('Call prep load failed', error);
-        setCallPrepError(error.message || 'Unable to load call prep data.');
-        setCallPrepSummary(null);
-        setCallPrepOverview(null);
-        setCallPrepPortfolioOverview(null);
-        setCallPrepAnalyticsByPeriod({});
-      } finally {
-        if (!cancelled) setCallPrepLoading(false);
-      }
-    };
-
-    loadCallPrepData();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeTab,
-    availablePropertyIdsKey,
-    callPrepSummaryUrl,
-    ga4Data,
-    googleAdsData,
-    isAllPropertiesSelected,
-    propertyScopedSelectionId,
-    reportingOverviewUrl,
-    selectedProperty?.googleAdsId,
-    selectedProperty?.googleAnalyticsId,
-    selectedProperty?.name,
-  ]);
 
   const updateTaskDraft = (field, value) => {
     setTasksError(null);
@@ -4181,9 +3650,195 @@ const DashboardApp = ({
   }, [propertyScopedSelectionId, selectedProperty?.name, shouldLoadWebsiteExperienceConfig, websiteManagerDoc.websiteUrl]);
 
   useEffect(() => {
+    setReportingTabSummaryBypass(false);
+  }, [activeTab, propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey]);
+
+  useEffect(() => {
+    if (!shouldLoadReportingTabSummary) {
+      return;
+    }
+
+    if (!propertyScopedSelectionId) {
+      setGa4Data(null);
+      setGoogleAdsData(null);
+      setMetaAdsData(null);
+      setLocalFalconData(null);
+      setReputationData(null);
+      setHeatmapPagesData(null);
+      setHeatmapSummaryData(null);
+      setHeatmapTrackerHealthData(null);
+      setSiteAuditPagesData(null);
+      setSiteAuditSummaryData(null);
+      return;
+    }
+
+    const includeAnalytics = reportingTabSummarySections.includes('analytics');
+    const includeReputation = reportingTabSummarySections.includes('reputation');
+    const includeHeatmap = reportingTabSummarySections.includes('heatmap');
+    const includeAudit = reportingTabSummarySections.includes('audit');
+    const includeWebsiteExperience = includeHeatmap || includeAudit;
+    const controller = new AbortController();
+
+    const applySummaryEntry = (entry, setData, setError, fallbackMessage) => {
+      if (entry?.status === 'ok' && entry.payload) {
+        setData(entry.payload);
+        setError(null);
+        return;
+      }
+      setData(null);
+      setError(entry?.error || fallbackMessage);
+    };
+
+    const loadReportingTabSummary = async () => {
+      if (includeAnalytics) {
+        setGa4Loading(true);
+        setGoogleAdsLoading(true);
+        setMetaAdsLoading(true);
+        setLocalFalconLoading(true);
+        setGa4Error(null);
+        setGoogleAdsError(null);
+        setMetaAdsError(null);
+        setLocalFalconError(null);
+      }
+      if (includeReputation) {
+        setReputationLoading(true);
+        setReputationError(null);
+      }
+      if (includeWebsiteExperience) {
+        setHeatmapPanelError(null);
+      }
+      if (includeHeatmap) {
+        setHeatmapPagesLoading(true);
+        setHeatmapSummaryLoading(true);
+        setHeatmapTrackerHealthLoading(true);
+      }
+      if (includeAudit) {
+        setSiteAuditLoading(true);
+      }
+
+      try {
+        const params = new URLSearchParams({
+          property_id: propertyScopedSelectionId,
+          sections: reportingTabSummarySections,
+          start_date: formatDateInputValue(rangeDates.start),
+          end_date: formatDateInputValue(rangeDates.end),
+        });
+        if (heatmapSiteDraft.siteKey) params.set('site_key', heatmapSiteDraft.siteKey);
+        if (selectedHeatmapPath) params.set('path', selectedHeatmapPath);
+        if (selectedHeatmapDevice) params.set('device_type', selectedHeatmapDevice);
+
+        const response = await authFetch(`${reportingTabSummaryUrl}?${params.toString()}`, {
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Reporting summary fetch failed: ${response.status}`);
+        }
+
+        if (includeAnalytics) {
+          const analytics = payload.analytics || {};
+          applySummaryEntry(analytics.ga4, setGa4Data, setGa4Error, 'No cached GA4 summary is available yet.');
+          applySummaryEntry(analytics.googleAds, setGoogleAdsData, setGoogleAdsError, 'No cached Google Ads summary is available yet.');
+          applySummaryEntry(analytics.metaAds, setMetaAdsData, setMetaAdsError, 'No cached Meta Ads summary is available yet.');
+          applySummaryEntry(analytics.localFalcon, setLocalFalconData, setLocalFalconError, 'No cached Local Falcon summary is available yet.');
+        }
+
+        if (includeReputation) {
+          if (selectedProperty?.opiniionSkip) {
+            setReputationData(null);
+            setReputationError('This property is intentionally excluded from Opiniion mapping.');
+          } else {
+            applySummaryEntry(payload.reputation, setReputationData, setReputationError, 'No cached reputation summary is available yet.');
+          }
+        }
+
+        const panelErrors = [];
+        if (includeHeatmap) {
+          const heatmap = payload.heatmap || {};
+          const heatmapPagesPayload = heatmap.pages?.payload || null;
+          const heatmapSummaryPayload = heatmap.summary?.payload || null;
+          const trackerPayload = heatmap.trackerHealth?.payload || null;
+          setHeatmapPagesData(heatmapPagesPayload);
+          setHeatmapSummaryData(heatmapSummaryPayload);
+          setHeatmapTrackerHealthData(trackerPayload);
+          const returnedPath = heatmap.selectedPath || payload.filters?.path || '';
+          if (!selectedHeatmapPath && returnedPath) {
+            setSelectedHeatmapPath(returnedPath);
+          }
+          if (heatmap.error) panelErrors.push(heatmap.error);
+        }
+
+        if (includeAudit) {
+          const audit = payload.audit || {};
+          setSiteAuditPagesData(audit.pages?.payload || null);
+          setSiteAuditSummaryData(audit.summary?.payload || null);
+          if (audit.error) panelErrors.push(audit.error);
+        }
+
+        if (includeWebsiteExperience) {
+          setHeatmapPanelError(panelErrors.length ? `Partial data loaded: ${panelErrors.join(' ')}` : null);
+        }
+      } catch (error) {
+        if (error.name === 'AbortError') return;
+        console.error('Reporting tab summary fetch failed', error);
+        setReportingTabSummaryBypass(true);
+        if (includeAnalytics) {
+          setGa4Error(error.message || 'Unable to load analytics summary.');
+          setGoogleAdsError(error.message || 'Unable to load paid search summary.');
+          setMetaAdsError(error.message || 'Unable to load paid social summary.');
+          setLocalFalconError(error.message || 'Unable to load local SEO summary.');
+        }
+        if (includeReputation) {
+          setReputationError(error.message || 'Unable to load reputation summary.');
+        }
+        if (includeWebsiteExperience) {
+          setHeatmapPanelError(error.message || 'Unable to load website experience summary.');
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          if (includeAnalytics) {
+            setGa4Loading(false);
+            setGoogleAdsLoading(false);
+            setMetaAdsLoading(false);
+            setLocalFalconLoading(false);
+          }
+          if (includeReputation) {
+            setReputationLoading(false);
+          }
+          if (includeHeatmap) {
+            setHeatmapPagesLoading(false);
+            setHeatmapSummaryLoading(false);
+            setHeatmapTrackerHealthLoading(false);
+          }
+          if (includeAudit) {
+            setSiteAuditLoading(false);
+          }
+        }
+      }
+    };
+
+    loadReportingTabSummary();
+    return () => controller.abort();
+  }, [
+    heatmapSiteDraft.siteKey,
+    propertyScopedSelectionId,
+    rangeDates,
+    reportingTabSummarySections,
+    reportingTabSummaryUrl,
+    selectedHeatmapDevice,
+    selectedHeatmapPath,
+    selectedProperty?.opiniionSkip,
+    shouldLoadReportingTabSummary,
+  ]);
+
+  useEffect(() => {
     if (!shouldLoadWebsiteExperienceData) {
       setHeatmapPagesLoading(false);
       setSiteAuditLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4257,7 +3912,7 @@ const DashboardApp = ({
 
     loadHeatmapPanelData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, heatmapSiteDraft.siteKey, shouldLoadWebsiteExperienceData]);
+  }, [propertyScopedSelectionId, rangeDates, heatmapSiteDraft.siteKey, shouldLoadReportingTabSummary, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
     const pages = heatmapPagesData?.pages || [];
@@ -4272,6 +3927,10 @@ const DashboardApp = ({
   useEffect(() => {
     if (!shouldLoadWebsiteExperienceData) {
       setHeatmapSummaryLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4312,11 +3971,15 @@ const DashboardApp = ({
 
     loadHeatmapSummary();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadWebsiteExperienceData]);
+  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadReportingTabSummary, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
     if (!shouldLoadWebsiteExperienceData) {
       setHeatmapTrackerHealthLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4355,7 +4018,7 @@ const DashboardApp = ({
 
     loadTrackerHealth();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadWebsiteExperienceData]);
+  }, [propertyScopedSelectionId, rangeDates, selectedHeatmapDevice, selectedHeatmapPath, heatmapSiteDraft.siteKey, shouldLoadReportingTabSummary, shouldLoadWebsiteExperienceData]);
 
   useEffect(() => {
     if (!shouldLoadWebsiteExperienceData) {
@@ -4467,75 +4130,8 @@ const DashboardApp = ({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(REPORTING_LAYOUT_STORAGE_KEY, reportingAdminEnabled ? 'true' : 'false');
-  }, [reportingAdminEnabled]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
     window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? 'true' : 'false');
   }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadReportingLayout = async () => {
-      if (!shouldLoadReportingLayout) {
-        setReportingLayoutLoading(false);
-        return;
-      }
-
-      if (!propertyScopedSelectionId) {
-        const fallback = normalizeReportingLayoutRecord(null);
-        setReportingLayoutDoc(fallback);
-        setReportingLayoutDraft(fallback);
-        setReportingLayoutError('No property is currently available for this account.');
-        setReportingLayoutLoading(false);
-        return;
-      }
-
-      if (!reportingLayoutUsesStagedAdapter) {
-        const fallback = normalizeReportingLayoutRecord(null);
-        setReportingLayoutDoc(fallback);
-        setReportingLayoutDraft(fallback);
-        setReportingLayoutError('Reporting layout endpoint is not configured.');
-        setReportingLayoutLoading(false);
-        return;
-      }
-
-      setReportingLayoutLoading(true);
-      setReportingLayoutError(null);
-      setReportingLayoutNotice(null);
-
-      try {
-        const params = new URLSearchParams({ property_id: propertyScopedSelectionId });
-        const response = await authFetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
-        const payload = await response.json();
-        if (!response.ok || payload?.status === 'error') {
-          throw new Error(payload?.error || `Reporting layout fetch failed: ${response.status}`);
-        }
-
-        if (cancelled) return;
-
-        const normalized = normalizeReportingLayoutRecord(payload.record);
-        setReportingLayoutDoc(normalized);
-        setReportingLayoutDraft(normalized);
-        setReportingLayoutLoading(false);
-      } catch (error) {
-        console.error('Reporting layout staged fetch failed', error);
-        if (cancelled) return;
-        const fallback = normalizeReportingLayoutRecord(null);
-        setReportingLayoutDoc(fallback);
-        setReportingLayoutDraft(fallback);
-        setReportingLayoutError('Unable to load the saved reporting layout from the staged adapter.');
-        setReportingLayoutLoading(false);
-      }
-    };
-
-    loadReportingLayout();
-    return () => {
-      cancelled = true;
-    };
-  }, [propertyScopedSelectionId, reportingLayoutUsesStagedAdapter, shouldLoadReportingLayout]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4578,6 +4174,10 @@ const DashboardApp = ({
   useEffect(() => {
     if (!shouldLoadChannelAnalytics) {
       setGa4Loading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4632,11 +4232,15 @@ const DashboardApp = ({
 
     loadGa4Data();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics, shouldLoadReportingTabSummary]);
 
   useEffect(() => {
     if (!shouldLoadChannelAnalytics) {
       setGoogleAdsLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4692,11 +4296,15 @@ const DashboardApp = ({
 
     loadGoogleAdsData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics, shouldLoadReportingTabSummary]);
 
   useEffect(() => {
     if (!shouldLoadChannelAnalytics) {
       setMetaAdsLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4759,11 +4367,15 @@ const DashboardApp = ({
 
     loadMetaAdsData();
     return () => controller.abort();
-  }, [metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
+  }, [metaAdsAttributionMode, propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics, shouldLoadReportingTabSummary]);
 
   useEffect(() => {
     if (!shouldLoadReputationData) {
       setReputationLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4822,11 +4434,15 @@ const DashboardApp = ({
 
     loadReputationData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadReputationData]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadReputationData, shouldLoadReportingTabSummary]);
 
   useEffect(() => {
     if (!shouldLoadChannelAnalytics) {
       setLocalFalconLoading(false);
+      return;
+    }
+
+    if (shouldLoadReportingTabSummary) {
       return;
     }
 
@@ -4889,7 +4505,7 @@ const DashboardApp = ({
 
     loadLocalFalconData();
     return () => controller.abort();
-  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics]);
+  }, [propertyScopedSelectionId, rangeDates, selectedProperty, shouldLoadChannelAnalytics, shouldLoadReportingTabSummary]);
 
   // ──────────────── COMPUTED METRICS ────────────────
   
@@ -5684,18 +5300,6 @@ const DashboardApp = ({
     canEditWebsiteManager &&
     Boolean(websiteManagerDraft.websiteUrl && websiteManagerDraft.wordpressSiteKey)
   ), [websiteManagerDraft.websiteUrl, websiteManagerDraft.wordpressSiteKey, websiteManagerEditable, canEditWebsiteManager]);
-  const reportingLayoutDirty = useMemo(
-    () => JSON.stringify(reportingLayoutDraft) !== JSON.stringify(reportingLayoutDoc),
-    [reportingLayoutDraft, reportingLayoutDoc]
-  );
-  const activeReportingPanels = useMemo(() => {
-    const hiddenIds = new Set(reportingLayoutDraft.hiddenPanelIds);
-    return reportingLayoutDraft.panelOrder
-      .map((panelId) => REPORTING_PANEL_LIBRARY.find((panel) => panel.id === panelId))
-      .filter(Boolean)
-      .filter((panel) => !hiddenIds.has(panel.id));
-  }, [reportingLayoutDraft]);
-
   const updateWebsiteManagerField = useCallback((field, value) => {
     setWebsiteManagerNotice(null);
     setWebsiteManagerError(null);
@@ -6389,106 +5993,6 @@ const DashboardApp = ({
     }
   };
 
-  const toggleReportingAdminMode = () => {
-    if (!canEditReportingLayout) {
-      setReportingLayoutError('Your current role can view reports, but cannot change reporting layout.');
-      return;
-    }
-    setReportingLayoutNotice(null);
-    setReportingLayoutError(null);
-    setReportingAdminEnabled((current) => !current);
-  };
-
-  const moveReportingPanel = (panelId, direction) => {
-    setReportingLayoutNotice(null);
-    setReportingLayoutError(null);
-    setReportingLayoutDraft((current) => {
-      const currentIndex = current.panelOrder.indexOf(panelId);
-      if (currentIndex === -1) return current;
-      const nextIndex = currentIndex + direction;
-      if (nextIndex < 0 || nextIndex >= current.panelOrder.length) return current;
-      const nextOrder = [...current.panelOrder];
-      const [moved] = nextOrder.splice(currentIndex, 1);
-      nextOrder.splice(nextIndex, 0, moved);
-      return {
-        ...current,
-        panelOrder: nextOrder
-      };
-    });
-  };
-
-  const toggleReportingPanelVisibility = (panelId) => {
-    setReportingLayoutNotice(null);
-    setReportingLayoutError(null);
-    setReportingLayoutDraft((current) => {
-      const hidden = new Set(current.hiddenPanelIds);
-      if (hidden.has(panelId)) hidden.delete(panelId);
-      else hidden.add(panelId);
-      return {
-        ...current,
-        hiddenPanelIds: REPORTING_PANEL_IDS.filter((id) => hidden.has(id))
-      };
-    });
-  };
-
-  const resetReportingLayoutDraft = () => {
-    setReportingLayoutDraft(reportingLayoutDoc);
-    setReportingLayoutNotice('Unsaved reporting layout changes were discarded.');
-    setReportingLayoutError(null);
-  };
-
-  const saveReportingLayoutDraft = async () => {
-    if (!selectedPropertyId) {
-      setReportingLayoutError('No property is currently available for this account.');
-      return;
-    }
-    if (!canEditReportingLayout) {
-      setReportingLayoutError('Your current role can view reporting, but cannot change panel layout.');
-      return;
-    }
-
-    setReportingLayoutSaving(true);
-    setReportingLayoutError(null);
-    setReportingLayoutNotice(null);
-
-    try {
-      if (!reportingLayoutUsesStagedAdapter) {
-        throw new Error('Reporting layout endpoint is not configured.');
-      }
-      const normalizedDraft = normalizeReportingLayoutRecord(reportingLayoutDraft);
-      const response = await authFetch(REPORTING_LAYOUT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          property_id: selectedPropertyId,
-          propertyId: selectedPropertyId,
-          propertyName: selectedProperty?.name || '',
-          ...normalizedDraft,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok || payload?.status === 'error') {
-        throw new Error(payload?.error || `Reporting layout save failed: ${response.status}`);
-      }
-      const savedRecord = normalizeReportingLayoutRecord(payload.record);
-      setReportingLayoutDoc(savedRecord);
-      setReportingLayoutDraft(savedRecord);
-      setReportingLayoutNotice('Reporting layout saved for this property.');
-    } catch (error) {
-      console.error('Reporting layout save failed', error);
-      setReportingLayoutError(error.message || 'Unable to save the reporting layout.');
-    } finally {
-      setReportingLayoutSaving(false);
-    }
-  };
-
-  const scrollToReportingPanel = (panelId) => {
-    const target = document.getElementById(`reporting-panel-${panelId}`);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
-
   const reputationOverview = reputationData?.overview || {};
   const reputationAverageRating = reputationOverview.averageRating ?? null;
   const reputationReviewCount = reputationOverview.reviewCount ?? null;
@@ -6560,122 +6064,6 @@ const DashboardApp = ({
   const localFalconMapImageUrl = localFalconOverview?.image || localFalconLatestReport?.image || localFalconLatestScan?.raw?.image;
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
   const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
-  const callPrepSections = useMemo(() => (
-    Array.isArray(callPrepSummary?.periods) && callPrepSummary.periods.length > 0
-      ? callPrepSummary.periods.map((period) => {
-        const fallbackCurrentRange = getCallPrepWindowRange(period.days);
-        const currentStart = parseLocalDateInputValue(period.currentRange?.startDate) || fallbackCurrentRange.start;
-        const currentEnd = parseLocalDateInputValue(period.currentRange?.endDate) || fallbackCurrentRange.end;
-        const fallbackPriorRange = getPriorWindowRange({ start: currentStart }, period.days);
-        return {
-          ...period,
-          shortLabel: period.shortLabel || `${period.days}D`,
-          currentRange: {
-            start: currentStart,
-            end: currentEnd,
-          },
-          priorRange: {
-            start: parseLocalDateInputValue(period.priorRange?.startDate) || fallbackPriorRange.start,
-            end: parseLocalDateInputValue(period.priorRange?.endDate) || fallbackPriorRange.end,
-          },
-          current: period.current || {},
-          prior: period.prior || {},
-          delta: period.delta || {},
-          portfolioAverage: period.portfolioAverage || null,
-          sourceBreakdown: Array.isArray(period.sourceBreakdown)
-            ? period.sourceBreakdown
-            : period.current?.sourceBreakdown || [],
-          analytics: period.analytics || callPrepAnalyticsByPeriod[period.days] || callPrepSummary?.analytics || {},
-        };
-      })
-      : CALL_PREP_PERIODS.map((period) => {
-      const currentRange = getCallPrepWindowRange(period.days);
-      const priorRange = getPriorWindowRange(currentRange, period.days);
-      const current = buildCallPrepMetrics(callPrepOverview, currentRange, propertyScopedSelectionId, excludedMarketingSpendKeySet);
-      const prior = buildCallPrepMetrics(callPrepOverview, priorRange, propertyScopedSelectionId, excludedMarketingSpendKeySet);
-      const portfolioAverage = buildCallPrepPortfolioAverage(
-        callPrepPortfolioOverview,
-        currentRange,
-        propertyScopedSelectionId,
-        availableProperties.map((property) => property.propertyId),
-        excludedMarketingSpendKeySet
-      );
-      return {
-        ...period,
-        currentRange,
-        priorRange,
-        current,
-        prior,
-        delta: Object.fromEntries(CALL_PREP_METRIC_ROWS.map((row) => [
-          row.key,
-          percentChange(getCallPrepMetricValue(current, row.key), getCallPrepMetricValue(prior, row.key)),
-        ])),
-        portfolioAverage,
-        sourceBreakdown: current.sourceBreakdown || [],
-        analytics: callPrepAnalyticsByPeriod[period.days] || {},
-      };
-    })
-  ), [availableProperties, callPrepAnalyticsByPeriod, callPrepOverview, callPrepPortfolioOverview, callPrepSummary, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
-  const callPrepSixtyDayRange = useMemo(() => getCallPrepWindowRange(60), []);
-  const callPrepRecentTasks = useMemo(() => {
-    if (Array.isArray(callPrepSummary?.recentTasks?.items)) {
-      return callPrepSummary.recentTasks.items;
-    }
-    if (callPrepSummaryUrl && !callPrepOverview) return [];
-    return tasks
-      .filter((task) => task.propertyId === propertyScopedSelectionId)
-      .filter((task) => taskTouchedInRange(task, callPrepSixtyDayRange))
-      .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
-      .slice(0, 8);
-  }, [callPrepOverview, callPrepSummary, callPrepSixtyDayRange, callPrepSummaryUrl, propertyScopedSelectionId, tasks]);
-  const callPrepSpendRows = useMemo(() => (
-    Array.isArray(callPrepSummary?.activeSpend?.glRows)
-      ? callPrepSummary.activeSpend.glRows.map((row) => ({
-        ...row,
-        month: parseLocalDateInputValue(row.month) || new Date(),
-      }))
-      : buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId, excludedMarketingSpendKeySet)
-  ), [callPrepOverview, callPrepSixtyDayRange, callPrepSummary, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
-  const callPrepActiveBudgetItems = useMemo(() => {
-    if (Array.isArray(callPrepSummary?.activeSpend?.budget?.activeItems)) {
-      return callPrepSummary.activeSpend.budget.activeItems.map((item) => ({
-        ...item,
-        monthlyAmount: item.monthlyAmount == null ? '' : String(item.monthlyAmount),
-      }));
-    }
-    if (callPrepSummaryUrl && !callPrepOverview) return [];
-    return activeMarketingBudgetItems;
-  }, [activeMarketingBudgetItems, callPrepOverview, callPrepSummary, callPrepSummaryUrl]);
-  const callPrepActualSpendFromOverview = useMemo(() => {
-    if (!callPrepOverview) return null;
-    const metrics = buildCallPrepMetrics(
-      callPrepOverview,
-      actualMarketingSpendWindow,
-      propertyScopedSelectionId,
-      excludedMarketingSpendKeySet
-    );
-    return {
-      last30: metrics.totalMarketingSpend,
-      performanceMarketingLast30: metrics.performanceMarketingSpend,
-    };
-  }, [actualMarketingSpendWindow, callPrepOverview, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
-  const callPrepBudgetedMonthly = callPrepSummary?.activeSpend?.budget?.activeApprovedMonthly
-    ?? (callPrepSummaryUrl && !callPrepOverview ? 0 : activeApprovedMarketingBudget);
-  const callPrepActualMarketingSpendLast30 = callPrepSummary?.activeSpend?.actual?.last30
-    ?? callPrepActualSpendFromOverview?.last30
-    ?? actualMarketingSpendLast30;
-  const callPrepMarketingBudgetVarianceLast30 = callPrepSummary?.activeSpend?.actual?.budgetLessActual
-    ?? (Number.isFinite(Number(callPrepActualMarketingSpendLast30))
-      ? callPrepBudgetedMonthly - callPrepActualMarketingSpendLast30
-      : marketingBudgetVarianceLast30);
-  const callPrepTasksLoading = (callPrepLoading || tasksLoading) && !callPrepSummary && callPrepRecentTasks.length === 0;
-  const callPrepTasksError = callPrepSummary?.recentTasks?.error
-    || (callPrepSummary || (callPrepSummaryUrl && !callPrepOverview) ? null : tasksError);
-  const callPrepSpendError = callPrepSummary?.activeSpend?.budget?.error
-    || (callPrepSummary || (callPrepSummaryUrl && !callPrepOverview) ? null : marketingBudgetError);
-  const callPrepSpendLoading = callPrepLoading && !callPrepSummary && !callPrepOverview;
-  const callPrepMetricsLoading = callPrepLoading && !callPrepOverview && !callPrepSummary;
-  const callPrepPortfolioLoading = callPrepLoading && !callPrepPortfolioOverview && !callPrepSummary;
   const heatmapTotals = heatmapSummaryData?.totals || {};
   useEffect(() => {
     setHeatmapLayersTouched(false);
@@ -6830,52 +6218,6 @@ const DashboardApp = ({
     </React.Suspense>
   );
 
-  const formatPipelineTimestamp = (value) => {
-    if (!value) return '—';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return String(value);
-    return parsed.toLocaleString();
-  };
-
-  const renderPipelineStatusCard = (title, status) => {
-    const progress = status?.progress || {};
-    const phase = status?.phase || 'unknown';
-    const isComplete = Boolean(status?.completed);
-    const isActive = Boolean(status?.active);
-
-    const progressRows = [];
-    if (progress.raw_days_total) {
-      progressRows.push(`Raw days: ${progress.raw_days_processed}/${progress.raw_days_total}`);
-    }
-    if (progress.attribution_properties_total) {
-      progressRows.push(`Attribution props: ${progress.attribution_properties_processed}/${progress.attribution_properties_total}`);
-    }
-    if (progress.aggregate_properties_total) {
-      progressRows.push(`Aggregate props: ${progress.aggregate_properties_processed}/${progress.aggregate_properties_total}`);
-    }
-
-    return (
-      <div className="card span-2" style={{ background: 'var(--panel-soft)', color: 'var(--white)' }}>
-        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>{title}</div>
-        {roiPipelineStatusLoading ? (
-          <div style={{ marginTop: '1rem', opacity: 0.6 }}>Loading pipeline status…</div>
-        ) : !status ? (
-          <div style={{ marginTop: '1rem', opacity: 0.6 }}>No pipeline status available.</div>
-        ) : (
-          <div style={{ marginTop: '0.85rem', display: 'grid', gap: '0.45rem', fontSize: '0.88rem' }}>
-            <div><strong>Status:</strong> {isComplete ? 'Completed' : isActive ? 'Active' : 'Idle'}</div>
-            <div><strong>Phase:</strong> {phase}</div>
-            <div><strong>Window:</strong> {status.report_start_date || '—'} to {status.report_end_date || '—'}</div>
-            <div><strong>Last update:</strong> {formatPipelineTimestamp(status.last_processed_at)}</div>
-            {progressRows.map((row) => (
-              <div key={row}>{row}</div>
-            ))}
-            <div style={{ opacity: 0.75 }}><strong>Summary:</strong> {status.last_summary || '—'}</div>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const renderAnalytics = () => (
     <React.Suspense fallback={<div className="reports-empty">Loading analytics view...</div>}>
@@ -6972,35 +6314,16 @@ const DashboardApp = ({
   const renderCallPrep = () => (
     <React.Suspense fallback={<div className="reports-empty">Loading call prep view...</div>}>
       <CallPrepView
+        availableProperties={availableProperties}
         selectedProperty={selectedProperty}
         selectedPropertyLabel={selectedPropertyLabel}
         selectedPropertyId={selectedPropertyId}
         isAllPropertiesSelected={isAllPropertiesSelected}
-        callPrepLoading={callPrepLoading}
-        callPrepError={callPrepError}
-        callPrepSections={callPrepSections}
-        callPrepMetricsLoading={callPrepMetricsLoading}
-        callPrepPortfolioLoading={callPrepPortfolioLoading}
-        callPrepSixtyDayRange={callPrepSixtyDayRange}
-        callPrepRecentTasks={callPrepRecentTasks}
-        callPrepTasksLoading={callPrepTasksLoading}
-        callPrepTasksError={callPrepTasksError}
-        callPrepSpendError={callPrepSpendError}
-        callPrepSpendLoading={callPrepSpendLoading}
-        callPrepSummary={callPrepSummary}
-        callPrepBudgetedMonthly={callPrepBudgetedMonthly}
-        callPrepActiveBudgetItems={callPrepActiveBudgetItems}
-        callPrepActualMarketingSpendLast30={callPrepActualMarketingSpendLast30}
-        callPrepMarketingBudgetVarianceLast30={callPrepMarketingBudgetVarianceLast30}
-        callPrepSpendRows={callPrepSpendRows}
-        marketingBudgetLoading={marketingBudgetLoading}
         recommendationsData={recommendationsData}
         recommendationsError={recommendationsError}
         recommendationsLoading={recommendationsLoading}
         generateRecommendations={generateRecommendations}
-        metricRows={CALL_PREP_METRIC_ROWS}
         taskStatuses={TASK_STATUSES}
-        buildTaskTalkingPoint={buildTaskTalkingPoint}
         formatDateInputValue={formatDateInputValue}
         formatReadableDate={formatReadableDate}
         formatNumber={formatNumber}
@@ -7160,9 +6483,7 @@ const DashboardApp = ({
           HEATMAP_DEVICE_OPTIONS,
           MeasuredChart,
           MiniMetricLoader,
-          REPORTING_PANEL_LIBRARY,
           activeRedListStatus,
-          activeReportingPanels,
           adjustedMarketingSpend,
           applicationConversion,
           applicationToLeaseConversion,
@@ -7172,8 +6493,6 @@ const DashboardApp = ({
           canEditReportingLayout,
           clientReportLink,
           conventionalLeadDeficitMetrics,
-          copiedClientReportLink,
-          copyClientReportLink,
           costPerLead,
           costPerLease,
           formatCurrency,
@@ -7235,18 +6554,9 @@ const DashboardApp = ({
           metaAdsLoading,
           metaAdsOverview,
           metaAdsStatusMessage,
-          moveReportingPanel,
           rangeDates,
           redListSummary,
           renderMetricValue,
-          renderPipelineStatusCard,
-          reportingAdminEnabled,
-          reportingLayoutDirty,
-          reportingLayoutDraft,
-          reportingLayoutError,
-          reportingLayoutLoading,
-          reportingLayoutNotice,
-          reportingLayoutSaving,
           reportingSourceBadge,
           reputationAverageRating,
           reputationLoading,
@@ -7256,17 +6566,15 @@ const DashboardApp = ({
           reputationStatusMessage,
           reputationSummary,
           reputationWindow,
-          resetReportingLayoutDraft,
           roiLoading,
           roiPipelineStatus,
+          roiPipelineStatusLoading,
           roiSourceBreakdown,
           roiTotals,
           runSiteAudit,
-          saveReportingLayoutDraft,
           screenshotPreviewError,
           screenshotPreviewLoading,
           screenshotPreviewUrl,
-          scrollToReportingPanel,
           selectedAuditPage,
           selectedHeatmapDevice,
           selectedHeatmapPath,
@@ -7284,8 +6592,6 @@ const DashboardApp = ({
           siteAuditRunning,
           studentLeadDeficitMetrics,
           toggleMarketingSpendLine,
-          toggleReportingAdminMode,
-          toggleReportingPanelVisibility,
           totalApplications,
           totalBlendedMarketingSpend,
           totalLeads,
@@ -9150,18 +8456,6 @@ const DashboardApp = ({
       }, 1800);
     } catch {
       setAdminAccessError('Unable to copy the link. Select the link text and copy it manually.');
-    }
-  };
-
-  const copyClientReportLink = async () => {
-    if (!clientReportLink) return;
-
-    try {
-      await navigator.clipboard.writeText(clientReportLink);
-      setCopiedClientReportLink(true);
-      window.setTimeout(() => setCopiedClientReportLink(false), 1800);
-    } catch {
-      setReportingLayoutError('Unable to copy the client report link. Select the link text and copy it manually.');
     }
   };
 

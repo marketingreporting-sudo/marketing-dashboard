@@ -10,6 +10,7 @@ ANALYTICS_SNAPSHOT_TYPES = {
     "ga4": "ga4_dashboard",
     "google_ads": "google_ads_dashboard",
     "meta_ads": "meta_ads_dashboard",
+    "local_falcon": "local_falcon_dashboard",
     "reputation": "reputation_dashboard",
 }
 

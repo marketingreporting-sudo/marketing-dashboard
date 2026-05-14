@@ -2029,6 +2029,537 @@ def get_property_call_prep_summary(
     }
 
 
+_REPORTING_TAB_SUMMARY_SECTIONS = {"analytics", "reputation", "heatmap", "audit", "reports"}
+
+
+def _normalize_reporting_tab_sections(sections: Any) -> set[str]:
+    if sections is None or sections == "":
+        return set(_REPORTING_TAB_SUMMARY_SECTIONS)
+    if isinstance(sections, str):
+        raw_sections = re.split(r"[\s,]+", sections)
+    elif isinstance(sections, (list, tuple, set)):
+        raw_sections = [str(section) for section in sections]
+    else:
+        raw_sections = [str(sections)]
+
+    normalized = {
+        str(section).strip().lower().replace("_", "-")
+        for section in raw_sections
+        if str(section).strip()
+    }
+    aliases = {
+        "ga4": "analytics",
+        "google-ads": "analytics",
+        "meta-ads": "analytics",
+        "local-falcon": "analytics",
+        "opiniion": "reputation",
+        "reviews": "reputation",
+        "heatmaps": "heatmap",
+        "website-experience": "heatmap",
+        "site-audit": "audit",
+        "report-cards": "reports",
+        "dashboard-cards": "reports",
+    }
+    resolved = {aliases.get(section, section) for section in normalized}
+    valid = resolved & _REPORTING_TAB_SUMMARY_SECTIONS
+    return valid or set(_REPORTING_TAB_SUMMARY_SECTIONS)
+
+
+def _tab_section_error(label: str, error: Exception | str) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "label": label,
+        "error": str(error),
+        "payload": None,
+        "overview": None,
+    }
+
+
+def _load_tab_section(label: str, loader: Any) -> dict[str, Any]:
+    try:
+        payload = loader()
+    except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+        return _tab_section_error(label, error)
+    except Exception as error:
+        return _tab_section_error(label, error)
+
+    if not isinstance(payload, dict):
+        return _tab_section_error(label, "Summary loader returned an invalid payload.")
+    if payload.get("status") == "error":
+        return _tab_section_error(label, payload.get("error") or payload.get("message") or f"{label} unavailable.")
+    return {
+        "status": "ok",
+        "label": label,
+        "error": None,
+        "payload": payload,
+        "overview": None,
+    }
+
+
+def _safe_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _get_path_value(value: dict[str, Any] | None, path: tuple[str, ...], default: Any = None) -> Any:
+    current: Any = value
+    for key in path:
+        if not isinstance(current, dict):
+            return default
+        current = current.get(key)
+    return default if current is None else current
+
+
+def _analytics_overview(kind: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
+        return {}
+    if kind == "ga4":
+        current = _get_path_value(payload, ("Acquisition", "totals", "current"), {}) or {}
+        conversion_totals = _get_path_value(payload, ("Conversion", "totals"), {}) or {}
+        return {
+            "sessions": current.get("sessions"),
+            "newUsers": current.get("newUsers"),
+            "engagementRate": current.get("engagementRate"),
+            "keyEvents": conversion_totals.get("currentEventCount"),
+            "topChannels": _safe_list(_get_path_value(payload, ("Acquisition", "channels"), []))[:5],
+            "topSources": _safe_list(_get_path_value(payload, ("Acquisition", "topSources"), []))[:5],
+            "topPages": _safe_list(_get_path_value(payload, ("Diagnostic", "topPages"), []))[:5],
+        }
+    if kind == "google_ads":
+        current = _get_path_value(payload, ("Overview", "current"), {}) or {}
+        return {
+            "impressions": current.get("impressions"),
+            "clicks": current.get("clicks"),
+            "cost": current.get("cost"),
+            "conversions": current.get("conversions"),
+            "ctr": current.get("ctr"),
+            "avgCpc": current.get("avgCpc"),
+            "searchImpressionShare": current.get("searchImpressionShare"),
+            "delta": _get_path_value(payload, ("Overview", "delta"), {}) or {},
+            "topCampaigns": _safe_list(payload.get("Campaigns"))[:5],
+            "conversionActions": _safe_list(_get_path_value(payload, ("ConversionActions", "items"), []))[:5],
+        }
+    if kind == "meta_ads":
+        current = _get_path_value(payload, ("Overview", "current"), {}) or {}
+        return {
+            "impressions": current.get("impressions"),
+            "clicks": current.get("clicks"),
+            "spend": current.get("spend"),
+            "results": current.get("results"),
+            "resultLabel": current.get("resultLabel"),
+            "ctr": current.get("ctr"),
+            "cpc": current.get("cpc"),
+            "cpm": current.get("cpm"),
+            "frequency": current.get("frequency"),
+            "delta": _get_path_value(payload, ("Overview", "delta"), {}) or {},
+            "topCampaigns": _safe_list(payload.get("Campaigns"))[:5],
+        }
+    if kind == "local_falcon":
+        overview = payload.get("Overview") if isinstance(payload.get("Overview"), dict) else {}
+        latest_scan = payload.get("LatestScan") if isinstance(payload.get("LatestScan"), dict) else {}
+        latest_report = _safe_list(payload.get("Reports"))[0] if _safe_list(payload.get("Reports")) else None
+        return {
+            "averageRankPosition": overview.get("averageRankPosition") or overview.get("arp"),
+            "averageTotalRankPosition": overview.get("averageTotalRankPosition") or overview.get("atrp"),
+            "shareOfLocalVoice": overview.get("shareOfLocalVoice") or overview.get("solv"),
+            "keywordCount": len(_safe_list(payload.get("Keywords"))),
+            "latestReport": latest_report,
+            "latestScan": latest_scan,
+        }
+    return {}
+
+
+def _reputation_overview(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
+        return {}
+    overview = payload.get("overview") if isinstance(payload.get("overview"), dict) else {}
+    return {
+        "averageRating": overview.get("averageRating"),
+        "reviewCount": overview.get("reviewCount"),
+        "responseRate": overview.get("responseRate"),
+        "sentimentScore": overview.get("sentimentScore"),
+        "window": payload.get("window"),
+        "summary": _safe_list(payload.get("summary"))[:5],
+    }
+
+
+def _heatmap_overview(
+    pages_payload: dict[str, Any] | None,
+    summary_payload: dict[str, Any] | None,
+    tracker_payload: dict[str, Any] | None,
+    selected_path: str | None,
+) -> dict[str, Any]:
+    totals = summary_payload.get("totals") if isinstance(summary_payload, dict) and isinstance(summary_payload.get("totals"), dict) else {}
+    pages = _safe_list(pages_payload.get("pages") if isinstance(pages_payload, dict) else [])
+    return {
+        "selectedPath": selected_path or "",
+        "pageCount": len(pages),
+        "topPages": pages[:8],
+        "totals": totals,
+        "topTargets": _safe_list(summary_payload.get("topTargets") if isinstance(summary_payload, dict) else [])[:8],
+        "tracker": tracker_payload.get("health") if isinstance(tracker_payload, dict) else None,
+    }
+
+
+def _audit_overview(pages_payload: dict[str, Any] | None, summary_payload: dict[str, Any] | None) -> dict[str, Any]:
+    pages = _safe_list(pages_payload.get("pages") if isinstance(pages_payload, dict) else [])
+    audit = summary_payload.get("audit") if isinstance(summary_payload, dict) and isinstance(summary_payload.get("audit"), dict) else None
+    if not audit:
+        return {
+            "pageCount": len(pages),
+            "auditedAt": None,
+            "score": None,
+            "issueCount": 0,
+            "recommendations": [],
+            "topPages": pages[:8],
+        }
+    issues = _safe_list(audit.get("issues"))
+    recommendations = _safe_list(audit.get("recommendations"))
+    audit_pages = _safe_list(audit.get("pages"))
+    page_issues = sum(len(_safe_list(page.get("issues"))) for page in audit_pages if isinstance(page, dict))
+    return {
+        "pageCount": len(pages),
+        "auditedAt": audit.get("audited_at") or audit.get("auditedAt"),
+        "score": audit.get("overall_score") or audit.get("overallScore") or audit.get("property_risk_score") or audit.get("propertyRiskScore"),
+        "riskTier": audit.get("risk_tier") or audit.get("riskTier"),
+        "issueCount": len(issues) or page_issues,
+        "recommendations": recommendations[:5],
+        "topPages": pages[:8],
+    }
+
+
+def _metric_value(label: str, value: Any, value_type: str = "number") -> dict[str, Any]:
+    return {"label": label, "value": value, "type": value_type}
+
+
+def _build_reporting_dashboard_cards(
+    analytics: dict[str, Any],
+    reputation: dict[str, Any] | None,
+    heatmap: dict[str, Any] | None,
+    audit: dict[str, Any] | None,
+) -> dict[str, Any]:
+    ga4 = analytics.get("ga4") or {}
+    google_ads = analytics.get("googleAds") or {}
+    meta_ads = analytics.get("metaAds") or {}
+    local_falcon = analytics.get("localFalcon") or {}
+    reputation_entry = reputation or {}
+    heatmap_entry = heatmap or {}
+    audit_entry = audit or {}
+
+    ga4_overview = ga4.get("overview") or {}
+    google_overview = google_ads.get("overview") or {}
+    meta_overview = meta_ads.get("overview") or {}
+    local_falcon_overview = local_falcon.get("overview") or {}
+    reputation_overview = reputation_entry.get("overview") or {}
+    heatmap_overview = heatmap_entry.get("overview") or {}
+    audit_overview = audit_entry.get("overview") or {}
+
+    cards = [
+        {
+            "id": "ga4",
+            "title": "GA4",
+            "status": ga4.get("status") or "not_requested",
+            "message": ga4.get("error"),
+            "metrics": [
+                _metric_value("Sessions", ga4_overview.get("sessions")),
+                _metric_value("New users", ga4_overview.get("newUsers")),
+                _metric_value("Key events", ga4_overview.get("keyEvents")),
+            ],
+        },
+        {
+            "id": "google-ads",
+            "title": "Google Ads",
+            "status": google_ads.get("status") or "not_requested",
+            "message": google_ads.get("error"),
+            "metrics": [
+                _metric_value("Clicks", google_overview.get("clicks")),
+                _metric_value("Spend", google_overview.get("cost"), "currency"),
+                _metric_value("Conversions", google_overview.get("conversions")),
+            ],
+        },
+        {
+            "id": "meta-ads",
+            "title": "Meta Ads",
+            "status": meta_ads.get("status") or "not_requested",
+            "message": meta_ads.get("error"),
+            "metrics": [
+                _metric_value("Clicks", meta_overview.get("clicks")),
+                _metric_value("Spend", meta_overview.get("spend"), "currency"),
+                _metric_value("Results", meta_overview.get("results")),
+            ],
+        },
+        {
+            "id": "reputation",
+            "title": "Reputation",
+            "status": reputation_entry.get("status") or "not_requested",
+            "message": reputation_entry.get("error"),
+            "metrics": [
+                _metric_value("Reviews", reputation_overview.get("reviewCount")),
+                _metric_value("Rating", reputation_overview.get("averageRating")),
+                _metric_value("Response rate", reputation_overview.get("responseRate"), "percent"),
+            ],
+        },
+        {
+            "id": "local-falcon",
+            "title": "Local Falcon",
+            "status": local_falcon.get("status") or "not_requested",
+            "message": local_falcon.get("error"),
+            "metrics": [
+                _metric_value("ARP", local_falcon_overview.get("averageRankPosition")),
+                _metric_value("ATRP", local_falcon_overview.get("averageTotalRankPosition")),
+                _metric_value("SoLV", local_falcon_overview.get("shareOfLocalVoice"), "percent"),
+            ],
+        },
+        {
+            "id": "heatmaps-audit",
+            "title": "Heatmaps and Audit",
+            "status": "ok" if heatmap_entry.get("status") == "ok" or audit_entry.get("status") == "ok" else (heatmap_entry.get("status") or audit_entry.get("status") or "not_requested"),
+            "message": heatmap_entry.get("error") or audit_entry.get("error"),
+            "metrics": [
+                _metric_value("Sessions", _get_path_value(heatmap_overview, ("totals", "sessions"))),
+                _metric_value("Clicks", _get_path_value(heatmap_overview, ("totals", "clicks"))),
+                _metric_value("Audit issues", audit_overview.get("issueCount")),
+            ],
+        },
+    ]
+
+    return {
+        "dashboardCards": cards,
+        "panelSummaries": {
+            "ga4": {
+                "sessions": ga4_overview.get("sessions"),
+                "keyEvents": ga4_overview.get("keyEvents"),
+                "message": ga4.get("error"),
+            },
+            "google-ads": {
+                "clicks": google_overview.get("clicks"),
+                "cost": google_overview.get("cost"),
+                "conversions": google_overview.get("conversions"),
+                "message": google_ads.get("error"),
+            },
+            "meta-ads": {
+                "clicks": meta_overview.get("clicks"),
+                "spend": meta_overview.get("spend"),
+                "results": meta_overview.get("results"),
+                "message": meta_ads.get("error"),
+            },
+            "reputation": {
+                "reviewCount": reputation_overview.get("reviewCount"),
+                "averageRating": reputation_overview.get("averageRating"),
+                "message": reputation_entry.get("error"),
+            },
+            "local-falcon": {
+                "averageRankPosition": local_falcon_overview.get("averageRankPosition"),
+                "shareOfLocalVoice": local_falcon_overview.get("shareOfLocalVoice"),
+                "message": local_falcon.get("error"),
+            },
+            "heatmaps-audit": {
+                "sessions": _get_path_value(heatmap_overview, ("totals", "sessions")),
+                "clicks": _get_path_value(heatmap_overview, ("totals", "clicks")),
+                "auditIssues": audit_overview.get("issueCount"),
+                "message": heatmap_entry.get("error") or audit_entry.get("error"),
+            },
+        },
+    }
+
+
+def _first_heatmap_path(pages_payload: dict[str, Any] | None) -> str:
+    pages = _safe_list(pages_payload.get("pages") if isinstance(pages_payload, dict) else [])
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        page_path = page.get("path") or page.get("canonicalPath") or page.get("canonical_path")
+        if page_path:
+            return str(page_path)
+    return ""
+
+
+def get_property_reporting_tab_summary(
+    property_id: str,
+    start_date_value: str | None = None,
+    end_date_value: str | None = None,
+    *,
+    site_key: str | None = None,
+    path: str | None = None,
+    device_type: str | None = None,
+    sections: Any = None,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    from render_supabase_analytics import get_cached_analytics_summary
+
+    selected_property_id = str(property_id)
+    end_date = _parse_iso_date(end_date_value) or datetime.now().date()
+    start_date = _parse_iso_date(start_date_value) or (end_date - timedelta(days=27))
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    requested_sections = _normalize_reporting_tab_sections(sections)
+    include_analytics = "analytics" in requested_sections
+    include_reputation = "reputation" in requested_sections
+    include_heatmap = "heatmap" in requested_sections
+    include_audit = "audit" in requested_sections
+    include_reports = "reports" in requested_sections
+
+    analytics: dict[str, Any] = {}
+    if include_analytics:
+        for key, kind, label in (
+            ("ga4", "ga4", "GA4"),
+            ("googleAds", "google_ads", "Google Ads"),
+            ("metaAds", "meta_ads", "Meta Ads"),
+            ("localFalcon", "local_falcon", "Local Falcon"),
+        ):
+            entry = _load_tab_section(label, lambda analytics_kind=kind: get_cached_analytics_summary(selected_property_id, analytics_kind))
+            entry["overview"] = _analytics_overview(kind, entry.get("payload"))
+            analytics[key] = entry
+
+    reputation: dict[str, Any] | None = None
+    if include_reputation:
+        reputation = _load_tab_section("Reputation", lambda: get_cached_analytics_summary(selected_property_id, "reputation"))
+        reputation["overview"] = _reputation_overview(reputation.get("payload"))
+
+    heatmap: dict[str, Any] | None = None
+    heatmap_pages_payload: dict[str, Any] | None = None
+    selected_path = str(path or "")
+    if include_heatmap:
+        from render_supabase_heatmaps import (
+            get_heatmap_pages_summary,
+            get_heatmap_summary,
+            get_heatmap_tracker_health_summary,
+        )
+
+        pages_entry = _load_tab_section(
+            "Heatmap pages",
+            lambda: get_heatmap_pages_summary(
+                selected_property_id,
+                start_date_value=start_date.isoformat(),
+                end_date_value=end_date.isoformat(),
+                site_key=site_key,
+                access_token=access_token,
+            ),
+        )
+        heatmap_pages_payload = pages_entry.get("payload")
+        selected_path = selected_path or _first_heatmap_path(heatmap_pages_payload)
+
+        summary_entry = (
+            _load_tab_section(
+                "Heatmap summary",
+                lambda: get_heatmap_summary(
+                    selected_property_id,
+                    start_date_value=start_date.isoformat(),
+                    end_date_value=end_date.isoformat(),
+                    site_key=site_key,
+                    path=selected_path,
+                    device_type=device_type,
+                    access_token=access_token,
+                ),
+            )
+            if selected_path
+            else _tab_section_error("Heatmap summary", "No tracked page path is available for this property.")
+        )
+        tracker_entry = (
+            _load_tab_section(
+                "Heatmap tracker health",
+                lambda: get_heatmap_tracker_health_summary(
+                    selected_property_id,
+                    start_date_value=start_date.isoformat(),
+                    end_date_value=end_date.isoformat(),
+                    site_key=site_key,
+                    path=selected_path,
+                    device_type=device_type,
+                    access_token=access_token,
+                ),
+            )
+            if selected_path
+            else _tab_section_error("Heatmap tracker health", "No tracked page path is available for this property.")
+        )
+        section_errors = [
+            entry.get("error")
+            for entry in (pages_entry, summary_entry, tracker_entry)
+            if entry.get("status") == "error" and entry.get("error")
+        ]
+        heatmap = {
+            "status": "ok" if not section_errors else ("partial" if pages_entry.get("status") == "ok" or summary_entry.get("status") == "ok" else "error"),
+            "error": " ".join(section_errors) if section_errors else None,
+            "selectedPath": selected_path,
+            "pages": pages_entry,
+            "summary": summary_entry,
+            "trackerHealth": tracker_entry,
+            "payload": summary_entry.get("payload"),
+            "overview": _heatmap_overview(
+                pages_entry.get("payload"),
+                summary_entry.get("payload"),
+                tracker_entry.get("payload"),
+                selected_path,
+            ),
+        }
+
+    audit: dict[str, Any] | None = None
+    if include_audit:
+        from render_supabase_heatmaps import get_site_audit_pages_summary, get_site_audit_summary
+
+        audit_pages_entry = _load_tab_section(
+            "Audit pages",
+            lambda: get_site_audit_pages_summary(
+                selected_property_id,
+                site_key=site_key,
+                access_token=access_token,
+            ),
+        )
+        audit_summary_entry = _load_tab_section(
+            "Audit summary",
+            lambda: get_site_audit_summary(
+                selected_property_id,
+                site_key=site_key,
+                access_token=access_token,
+            ),
+        )
+        section_errors = [
+            entry.get("error")
+            for entry in (audit_pages_entry, audit_summary_entry)
+            if entry.get("status") == "error" and entry.get("error")
+        ]
+        audit = {
+            "status": "ok" if not section_errors else ("partial" if audit_pages_entry.get("status") == "ok" or audit_summary_entry.get("status") == "ok" else "error"),
+            "error": " ".join(section_errors) if section_errors else None,
+            "pages": audit_pages_entry,
+            "summary": audit_summary_entry,
+            "payload": audit_summary_entry.get("payload"),
+            "overview": _audit_overview(audit_pages_entry.get("payload"), audit_summary_entry.get("payload")),
+        }
+
+    reports = (
+        _build_reporting_dashboard_cards(analytics, reputation, heatmap, audit)
+        if include_reports
+        else None
+    )
+    errors = []
+    for section in [*analytics.values(), reputation, heatmap, audit]:
+        if isinstance(section, dict) and section.get("error"):
+            errors.append({"section": section.get("label") or section.get("status") or "summary", "error": section.get("error")})
+
+    return {
+        "status": "ok",
+        "property_id": selected_property_id,
+        "range": {
+            "startDate": start_date.isoformat(),
+            "endDate": end_date.isoformat(),
+        },
+        "filters": {
+            "siteKey": site_key or "",
+            "path": selected_path or "",
+            "deviceType": device_type or "",
+            "sections": sorted(requested_sections),
+        },
+        "analytics": analytics,
+        "reputation": reputation,
+        "heatmap": heatmap,
+        "audit": audit,
+        "reports": reports,
+        "errors": errors,
+        "source": "supabase",
+        "staging_only": True,
+    }
+
+
 def get_multi_property_reporting_overview_summary(
     property_ids: list[str],
     start_date_value: str | None = None,

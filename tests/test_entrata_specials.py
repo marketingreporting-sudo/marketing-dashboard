@@ -1,10 +1,16 @@
+from pathlib import Path
 import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, "/Users/steele/Desktop/Data Analysis/functions")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "functions"))
 
-import main  # noqa: E402
+try:
+    import main  # noqa: E402
+except ModuleNotFoundError as error:
+    if error.name in {"firebase_functions", "firebase_admin", "google"}:
+        raise unittest.SkipTest("Firebase Functions runtime is not installed; skipping legacy main.py integration tests.") from error
+    raise
 
 
 class EntrataSpecialsTests(unittest.TestCase):

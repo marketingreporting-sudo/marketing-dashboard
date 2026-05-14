@@ -54,6 +54,7 @@ from render_supabase_reporting import (
     get_multi_property_reporting_overview_summary,
     get_property_call_prep_summary,
     get_property_reporting_overview_summary,
+    get_property_reporting_tab_summary,
 )
 from render_supabase_heatmaps import (
     collect_site_page_snapshot_payload,
@@ -1645,6 +1646,61 @@ def create_app() -> Flask:
                 start_date,
                 end_date,
                 access_token,
+            )
+            status_code = 200 if payload.get("status") != "error" else 503
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
+        except Exception as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 500
+
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/reporting/tab-summary", methods=["GET", "POST", "OPTIONS"])
+    def staged_reporting_tab_summary():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        start_date = request.args.get("start_date") or req_json.get("start_date")
+        end_date = request.args.get("end_date") or req_json.get("end_date")
+        site_key = request.args.get("site_key") or request.args.get("siteKey") or req_json.get("site_key") or req_json.get("siteKey")
+        path = request.args.get("path") or req_json.get("path")
+        device_type = request.args.get("device_type") or request.args.get("deviceType") or req_json.get("device_type") or req_json.get("deviceType")
+        sections = request.args.get("sections") or req_json.get("sections")
+        if isinstance(sections, str) and sections.strip().startswith("["):
+            try:
+                decoded_sections = json.loads(sections)
+                if isinstance(decoded_sections, list):
+                    sections = decoded_sections
+            except json.JSONDecodeError:
+                pass
+        if not property_id or str(property_id) == "all":
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required single-property parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            payload = get_property_reporting_tab_summary(
+                str(property_id),
+                start_date,
+                end_date,
+                site_key=site_key,
+                path=path,
+                device_type=device_type,
+                sections=sections,
+                access_token=access_token,
             )
             status_code = 200 if payload.get("status") != "error" else 503
         except RenderPermissionError as error:

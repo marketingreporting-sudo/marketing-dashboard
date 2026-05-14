@@ -4,6 +4,7 @@ import json
 import re
 import hashlib
 import os
+import shutil
 import tempfile
 import subprocess
 import sys
@@ -12,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 from urllib.request import Request, urlopen
 
 from render_supabase_sync_state import _fetch_json, _table_query_url
@@ -86,8 +87,11 @@ SITE_AUDIT_AI_MODEL = os.environ.get("SITE_AUDIT_OPENAI_MODEL", "gpt-4.1-mini")
 SITE_AUDIT_AI_MAX_PAGES = _env_int("SITE_AUDIT_AI_MAX_PAGES", 20, minimum=1, maximum=200)
 SITE_AUDIT_AI_MAX_SCREENSHOTS_PER_PAGE = _env_int("SITE_AUDIT_AI_MAX_SCREENSHOTS_PER_PAGE", 2, minimum=1, maximum=3)
 SITE_AUDIT_AI_TIMEOUT_SECONDS = _env_int("SITE_AUDIT_AI_TIMEOUT_SECONDS", 120, minimum=15, maximum=600)
-SITE_AUDIT_AI_PROMPT_VERSION = "redstone-site-audit-v1"
+SITE_AUDIT_AI_PROMPT_VERSION = "redstone-site-audit-evidence-v2"
 SITE_AUDIT_JOB_BATCH_LIMIT = _env_int("SITE_AUDIT_JOB_BATCH_LIMIT", 3, minimum=1, maximum=25)
+SITE_AUDIT_TECHNICAL_MAX_PAGES = _env_int("SITE_AUDIT_TECHNICAL_MAX_PAGES", 5, minimum=1, maximum=25)
+SITE_AUDIT_TECHNICAL_MAX_LINKS = _env_int("SITE_AUDIT_TECHNICAL_MAX_LINKS", 80, minimum=5, maximum=500)
+SITE_AUDIT_TECHNICAL_TIMEOUT_MS = _env_int("SITE_AUDIT_TECHNICAL_TIMEOUT_MS", 25_000, minimum=5_000, maximum=120_000)
 SCREENSHOT_PAGE_READY_TIMEOUT_MS = _env_int("SCREENSHOT_PAGE_READY_TIMEOUT_MS", 90_000, minimum=15_000, maximum=240_000)
 SCREENSHOT_SECURITY_CHALLENGE_RETRY_MS = _env_int(
     "SCREENSHOT_SECURITY_CHALLENGE_RETRY_MS",
@@ -149,10 +153,28 @@ SITE_AUDIT_AI_SCHEMA = {
                     "status": {"type": "string", "enum": ["pass", "warn", "fail", "not_verifiable"]},
                     "score": {"type": "number"},
                     "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                     "evidence": {"type": "string"},
+                    "evidence_source": {"type": "string"},
+                    "affected_page": {"type": "string"},
                     "recommendation": {"type": "string"},
+                    "manual_verification_needed": {"type": "boolean"},
+                    "manual_verification_note": {"type": "string"},
                 },
-                "required": ["key", "label", "status", "score", "severity", "evidence", "recommendation"],
+                "required": [
+                    "key",
+                    "label",
+                    "status",
+                    "score",
+                    "severity",
+                    "confidence",
+                    "evidence",
+                    "evidence_source",
+                    "affected_page",
+                    "recommendation",
+                    "manual_verification_needed",
+                    "manual_verification_note",
+                ],
             },
         },
         "issues": {
@@ -163,11 +185,27 @@ SITE_AUDIT_AI_SCHEMA = {
                 "properties": {
                     "rubric_key": {"type": "string"},
                     "severity": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                     "issue": {"type": "string"},
                     "evidence": {"type": "string"},
+                    "evidence_source": {"type": "string"},
+                    "affected_page": {"type": "string"},
                     "recommendation": {"type": "string"},
+                    "manual_verification_needed": {"type": "boolean"},
+                    "manual_verification_note": {"type": "string"},
                 },
-                "required": ["rubric_key", "severity", "issue", "evidence", "recommendation"],
+                "required": [
+                    "rubric_key",
+                    "severity",
+                    "confidence",
+                    "issue",
+                    "evidence",
+                    "evidence_source",
+                    "affected_page",
+                    "recommendation",
+                    "manual_verification_needed",
+                    "manual_verification_note",
+                ],
             },
         },
         "recommendations": {"type": "array", "items": {"type": "string"}},
@@ -4078,6 +4116,25 @@ def _get_special_title(special: dict[str, Any]) -> str:
     ) or "Untitled special"
 
 
+def _floorplan_name(plan: dict[str, Any]) -> str:
+    return _normalize_text(
+        _find_nested_value(
+            plan,
+            ("FloorplanName", "floorplanName", "Name", "name", "MarketingName", "marketingName", "Title", "title"),
+        ),
+        160,
+    )
+
+
+def _content_values_from_website_manager(row: dict[str, Any] | None) -> dict[str, str]:
+    content = row.get("content") if isinstance(row, dict) and isinstance(row.get("content"), dict) else {}
+    return {
+        str(key): _normalize_text(value, 500)
+        for key, value in content.items()
+        if not str(key).startswith("__")
+    }
+
+
 def _fetch_singleton_property_row(
     table_name: str,
     property_id: str,
@@ -4109,6 +4166,10 @@ def _get_entrata_site_audit_context(
         specials_row = _fetch_singleton_property_row("property_specials_current", property_id, access_token=access_token)
     except Exception as error:
         specials_row = {"error": str(error)}
+    try:
+        website_manager_row = _fetch_singleton_property_row("property_website_manager_current", property_id, access_token=access_token)
+    except Exception as error:
+        website_manager_row = {"error": str(error)}
 
     floorplans = [item for item in _ensure_list((pricing_row or {}).get("floorplans")) if isinstance(item, dict)]
     units = [item for item in _ensure_list((pricing_row or {}).get("units")) if isinstance(item, dict)]
@@ -4119,6 +4180,8 @@ def _get_entrata_site_audit_context(
     available_units = [unit for unit in units if _is_available_unit(unit)]
     special_items = _extract_special_items(specials_row or {})
     special_titles = [_get_special_title(item) for item in special_items]
+    floorplan_names = list(dict.fromkeys(_floorplan_name(plan) for plan in floorplans if _floorplan_name(plan)))[:30]
+    website_content = _content_values_from_website_manager(website_manager_row)
 
     min_price = min(priced_values) if priced_values else None
     max_price = max(priced_values) if priced_values else None
@@ -4137,6 +4200,7 @@ def _get_entrata_site_audit_context(
             "availableUnitCount": len(available_units),
             "minPrice": min_price,
             "maxPrice": max_price,
+            "floorplanNames": floorplan_names,
             "availabilityUrl": (pricing_row or {}).get("availability_url"),
             "snapshotHash": (pricing_row or {}).get("snapshot_hash"),
             "error": (pricing_row or {}).get("error"),
@@ -4153,7 +4217,319 @@ def _get_entrata_site_audit_context(
             "source": "website page snapshot CTA and Entrata funnel proxy",
             "expectedSignals": application_signals,
         },
+        "contactInfo": {
+            "hasSource": bool(website_content),
+            "websiteUrl": (website_manager_row or {}).get("website_url") if isinstance(website_manager_row, dict) else "",
+            "phone": next((value for key, value in website_content.items() if "phone" in key.lower() and value), ""),
+            "email": next((value for key, value in website_content.items() if "email" in key.lower() and value), ""),
+            "hours": next((value for key, value in website_content.items() if "hour" in key.lower() and value), ""),
+            "address": next((value for key, value in website_content.items() if "address" in key.lower() and value), ""),
+            "source": "property_website_manager_current",
+            "error": (website_manager_row or {}).get("error") if isinstance(website_manager_row, dict) else None,
+        },
     }
+
+
+def _site_audit_page_visible_text(page: dict[str, Any]) -> str:
+    headings = page.get("headings") if isinstance(page.get("headings"), list) else []
+    ctas = page.get("ctas") if isinstance(page.get("ctas"), list) else []
+    links = page.get("internalLinks") if isinstance(page.get("internalLinks"), list) else []
+    date_strings = page.get("promoDateStrings") if isinstance(page.get("promoDateStrings"), list) else []
+    pieces = [
+        page.get("title"),
+        page.get("metaDescription"),
+        page.get("path"),
+        page.get("url"),
+        *[
+            _normalize_text(item.get("text") or item.get("label") or item, 240)
+            for item in headings
+            if isinstance(item, (dict, str))
+        ],
+        *[
+            " ".join(
+                [
+                    _normalize_text(item.get("label"), 240),
+                    _normalize_text(item.get("href"), 500),
+                ]
+            )
+            if isinstance(item, dict)
+            else _normalize_text(item, 240)
+            for item in ctas
+            if isinstance(item, (dict, str))
+        ],
+        *[
+            " ".join(
+                [
+                    _normalize_text(item.get("label") or item.get("text"), 240),
+                    _normalize_text(item.get("href"), 500),
+                ]
+            )
+            if isinstance(item, dict)
+            else _normalize_text(item, 240)
+            for item in links
+            if isinstance(item, (dict, str))
+        ],
+        *[_normalize_text(item, 240) for item in date_strings],
+    ]
+    return re.sub(r"\s+", " ", " ".join(piece for piece in pieces if piece)).strip().lower()
+
+
+def _site_audit_money_values(text: str) -> list[float]:
+    values = []
+    for match in re.finditer(r"\$\s*([0-9][0-9,]{2,})", text or ""):
+        value = _to_float(match.group(1).replace(",", ""))
+        if value is not None:
+            values.append(value)
+    return values
+
+
+def _site_audit_price_matches(values: list[float], target: Any) -> bool:
+    target_value = _to_float(target)
+    if target_value is None:
+        return False
+    tolerance = max(150.0, target_value * 0.08)
+    return any(abs(value - target_value) <= tolerance for value in values)
+
+
+def _site_audit_link_is_usable(href: Any) -> bool:
+    value = _normalize_text(href, 1024).strip()
+    if not value or value in {"#", "/#"}:
+        return False
+    lowered = value.lower()
+    if lowered.startswith(("javascript:", "void(", "about:blank")):
+        return False
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.scheme not in {"http", "https", "mailto", "tel"}:
+        return False
+    if parsed.scheme in {"mailto", "tel"}:
+        return True
+    return bool(parsed.netloc or parsed.path or parsed.query)
+
+
+def _site_audit_apply_links(page: dict[str, Any]) -> list[dict[str, Any]]:
+    tokens = ("apply", "application", "lease now", "start application", "online leasing")
+    candidates = []
+    for source_key in ("ctas", "internalLinks"):
+        items = page.get(source_key) if isinstance(page.get(source_key), list) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            label = _normalize_text(item.get("label") or item.get("text"), 240)
+            href = _normalize_text(item.get("href"), 1024)
+            haystack = f"{label} {href}".lower()
+            if any(token in haystack for token in tokens):
+                candidates.append(
+                    {
+                        "source": source_key,
+                        "label": label,
+                        "href": href,
+                        "usable": _site_audit_link_is_usable(href),
+                    }
+                )
+    return candidates
+
+
+def _site_audit_phone_digits(value: Any) -> str:
+    return re.sub(r"\D+", "", _normalize_text(value, 80))
+
+
+def _site_audit_contact_value_visible(page_text: str, value: Any, *, kind: str) -> bool:
+    normalized = _normalize_text(value, 500).lower()
+    if not normalized:
+        return True
+    if kind == "phone":
+        phone_digits = _site_audit_phone_digits(normalized)
+        page_digits = _site_audit_phone_digits(page_text)
+        return bool(phone_digits and phone_digits[-7:] in page_digits)
+    if kind == "email":
+        return normalized in page_text
+    if kind == "address":
+        address_tokens = [token for token in re.split(r"[^a-z0-9]+", normalized) if len(token) >= 4]
+        return bool(address_tokens and sum(1 for token in address_tokens[:5] if token in page_text) >= min(2, len(address_tokens)))
+    if kind == "hours":
+        if normalized in page_text:
+            return True
+        hour_tokens = [token for token in re.split(r"[^a-z0-9]+", normalized) if token in {"mon", "monday", "fri", "friday", "sat", "saturday", "sun", "sunday", "am", "pm"}]
+        return bool(hour_tokens and sum(1 for token in hour_tokens if token in page_text) >= 2)
+    return normalized in page_text
+
+
+def _site_audit_reconciliation_finding(
+    *,
+    category: str,
+    rubric_key: str,
+    severity: str,
+    issue: str,
+    evidence: str,
+    recommendation: str,
+    path: str,
+    confidence: str = "High",
+) -> dict[str, Any]:
+    return {
+        "category": category,
+        "rubricKey": rubric_key,
+        "severity": severity,
+        "issue": _normalize_text(issue, 700),
+        "evidence": _normalize_text(evidence, 900),
+        "recommendation": _normalize_text(recommendation, 700),
+        "path": path or "",
+        "confidence": confidence,
+        "confidenceScore": round(_site_audit_confidence_score(confidence) * 100),
+        "source": "entrata_reconciliation",
+    }
+
+
+def _site_audit_entrata_reconciliation_findings(page: dict[str, Any], entrata_context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    entrata_context = entrata_context if isinstance(entrata_context, dict) else {}
+    pricing_context = entrata_context.get("pricing") if isinstance(entrata_context.get("pricing"), dict) else {}
+    specials_context = entrata_context.get("specials") if isinstance(entrata_context.get("specials"), dict) else {}
+    contact_context = entrata_context.get("contactInfo") if isinstance(entrata_context.get("contactInfo"), dict) else {}
+    page_path = _normalize_text(page.get("path") or page.get("url") or "/", 500).lower()
+    page_text = _site_audit_page_visible_text(page)
+    is_homepage = page.get("path") in {"/", "", None}
+    is_floorplan_page = any(token in page_path or token in page_text for token in ("floor", "availability", "pricing", "apartment"))
+    is_contact_page = any(token in page_path or token in page_text for token in ("contact", "hours", "location", "visit"))
+    findings: list[dict[str, Any]] = []
+
+    if pricing_context.get("hasSnapshot"):
+        min_price = _to_float(pricing_context.get("minPrice"))
+        max_price = _to_float(pricing_context.get("maxPrice"))
+        visible_prices = _site_audit_money_values(page_text)
+        if is_floorplan_page and min_price is not None:
+            if not visible_prices:
+                findings.append(
+                    _site_audit_reconciliation_finding(
+                        category="Pricing",
+                        rubric_key="pricing_accuracy",
+                        severity="high",
+                        issue="Entrata pricing exists, but website pricing is not visible in captured floor plan page metadata.",
+                        evidence=f"Entrata starting rent is ${int(min_price):,}; captured page text has no visible dollar pricing.",
+                        recommendation="Show current starting rent or price range on the floor plan / availability page.",
+                        path=page.get("path") or "/",
+                    )
+                )
+            elif not (_site_audit_price_matches(visible_prices, min_price) or _site_audit_price_matches(visible_prices, max_price)):
+                findings.append(
+                    _site_audit_reconciliation_finding(
+                        category="Pricing",
+                        rubric_key="pricing_accuracy",
+                        severity="high",
+                        issue="Website pricing does not appear to match Entrata pricing.",
+                        evidence=f"Entrata range is ${int(min_price):,}-{int(max_price or min_price):,}; visible page prices are {', '.join(f'${int(value):,}' for value in visible_prices[:5])}.",
+                        recommendation="Reconcile displayed rent ranges with the latest Entrata availability snapshot.",
+                        path=page.get("path") or "/",
+                    )
+                )
+        available_units = int(pricing_context.get("availableUnitCount") or 0)
+        if is_floorplan_page and available_units > 0 and not any(token in page_text for token in ("available", "availability", "unit", "units")):
+            findings.append(
+                _site_audit_reconciliation_finding(
+                    category="Availability",
+                    rubric_key="floor_plan_availability",
+                    severity="high",
+                    issue="Entrata has available units, but website availability is not visible.",
+                    evidence=f"Entrata reports {available_units} available unit{'s' if available_units != 1 else ''}; captured floor plan copy does not show availability language.",
+                    recommendation="Surface live availability count or availability status near floor plan CTAs.",
+                    path=page.get("path") or "/",
+                )
+            )
+        floorplan_names = [_normalize_text(name, 120).lower() for name in pricing_context.get("floorplanNames") or [] if _normalize_text(name, 120)]
+        if is_floorplan_page and floorplan_names:
+            matched_names = [name for name in floorplan_names if name and name in page_text]
+            if len(floorplan_names) >= 2 and not matched_names:
+                findings.append(
+                    _site_audit_reconciliation_finding(
+                        category="Availability",
+                        rubric_key="floor_plan_availability",
+                        severity="medium",
+                        issue="Entrata floor plan names are not visible in captured website metadata.",
+                        evidence=f"Entrata has {pricing_context.get('floorplanCount') or len(floorplan_names)} floor plans; none of the sampled floor plan names matched captured page text.",
+                        recommendation="Verify the floor plan page renders current Entrata floor plan names/counts and is crawlable after scripts load.",
+                        path=page.get("path") or "/",
+                        confidence="Medium",
+                    )
+                )
+            elif len(matched_names) < min(3, len(floorplan_names)):
+                findings.append(
+                    _site_audit_reconciliation_finding(
+                        category="Availability",
+                        rubric_key="floor_plan_availability",
+                        severity="low",
+                        issue="Only some Entrata floor plan names are visible in captured website metadata.",
+                        evidence=f"Matched {len(matched_names)} of {len(floorplan_names)} sampled Entrata floor plan names.",
+                        recommendation="Check whether floor plan cards are hidden behind filters, lazy loading, or an embedded widget that the audit cannot fully verify.",
+                        path=page.get("path") or "/",
+                        confidence="Medium",
+                    )
+                )
+
+    if specials_context.get("hasSnapshot") and int(specials_context.get("specialCount") or 0) > 0 and (is_homepage or is_floorplan_page or "special" in page_path):
+        special_titles = [_normalize_text(item, 180).lower() for item in specials_context.get("titles") or [] if _normalize_text(item, 180)]
+        has_title_match = any(title and title in page_text for title in special_titles)
+        has_generic_offer_copy = any(token in page_text for token in ("special", "offer", "free", "concession", "move-in", "move in"))
+        if not has_title_match and not has_generic_offer_copy:
+            findings.append(
+                _site_audit_reconciliation_finding(
+                    category="Specials",
+                    rubric_key="special_offers_current",
+                    severity="high",
+                    issue="Entrata has active specials, but website does not show matching offer copy.",
+                    evidence=f"Entrata active specials: {', '.join(special_titles[:3]) or specials_context.get('specialCount')}; captured page copy has no matching special or offer language.",
+                    recommendation="Align website offer copy with the active Entrata special and confirm the same promotion is visible above the fold where appropriate.",
+                    path=page.get("path") or "/",
+                )
+            )
+
+    if is_homepage or is_floorplan_page or any(token in page_path for token in ("apply", "application", "lease")):
+        apply_links = _site_audit_apply_links(page)
+        unusable_links = [item for item in apply_links if not item.get("usable")]
+        if not apply_links:
+            findings.append(
+                _site_audit_reconciliation_finding(
+                    category="Application",
+                    rubric_key="application_flow_visible",
+                    severity="high",
+                    issue="Apply link is not visible on a high-intent website page.",
+                    evidence="Captured CTA/link metadata does not include Apply Now, Start Application, Lease Now, or equivalent application language.",
+                    recommendation="Add a clear Apply Now / Start Application CTA on homepage and floor plan pages.",
+                    path=page.get("path") or "/",
+                    confidence="Medium",
+                )
+            )
+        elif unusable_links:
+            findings.append(
+                _site_audit_reconciliation_finding(
+                    category="Application",
+                    rubric_key="application_flow_visible",
+                    severity="high",
+                    issue="Apply link is present but does not appear usable.",
+                    evidence=f"Captured apply link href values include: {', '.join((item.get('href') or 'empty') for item in unusable_links[:3])}.",
+                    recommendation="Replace placeholder or JavaScript-only application links with a working Entrata application URL or verified routed flow.",
+                    path=page.get("path") or "/",
+                )
+            )
+
+    if contact_context.get("hasSource") and (is_homepage or is_contact_page):
+        missing_contact = []
+        for key, label in (("phone", "phone"), ("email", "email"), ("hours", "office hours"), ("address", "address")):
+            value = contact_context.get(key)
+            if value and not _site_audit_contact_value_visible(page_text, value, kind=key):
+                missing_contact.append(label)
+        if missing_contact:
+            findings.append(
+                _site_audit_reconciliation_finding(
+                    category="Website QA",
+                    rubric_key="contact_info_hours",
+                    severity="medium",
+                    issue="Contact info or office hours do not match known source-of-truth content.",
+                    evidence=f"Known {', '.join(missing_contact)} from {contact_context.get('source') or 'website manager'} was not visible in captured page metadata.",
+                    recommendation="Verify phone, address, email, and office hours against the property source of truth and update the website content.",
+                    path=page.get("path") or "/",
+                    confidence="Medium",
+                )
+            )
+
+    return findings
 
 
 def _site_audit_ai_is_configured() -> bool:
@@ -4171,7 +4547,12 @@ def _site_audit_ai_system_prompt() -> str:
         "If pricing, availability, application function, contact hours, or offer currency cannot be verified from "
         "the supplied evidence, mark that checklist item not_verifiable and explain exactly what would need to be "
         "checked manually. Score each checklist item from 0 to 100, and reserve scores below 70 for concrete "
-        "visible or data-backed problems. Produce concise, actionable recommendations.\n\n"
+        "visible or data-backed problems. Produce concise, actionable recommendations. "
+        "Make every issue evidence-first: include the rubric key, severity, confidence, exact evidence text, "
+        "the screenshot or page metadata source used, the affected page path, the recommended fix, and whether "
+        "manual verification is still needed. Use confidence=high only when a screenshot, page metadata, or "
+        "Entrata truth data directly supports the issue. Use manual_verification_needed=true whenever the evidence "
+        "shows a likely problem but cannot prove the full user flow, transaction, or live widget state.\n\n"
         f"Audit rubric:\n{rubric_lines}\n\n"
         "Calibration examples:\n"
         "- If Entrata has available units and pricing but the floor plans/pricing page screenshot does not show pricing "
@@ -4393,20 +4774,51 @@ def _call_openai_site_audit(content: list[dict[str, Any]]) -> dict[str, Any]:
         raise RuntimeError("OpenAI returned invalid audit JSON.") from error
 
 
+def _site_audit_ai_confidence(value: Any, *, fallback: str = "medium") -> str:
+    label = _normalize_text(value, 40).lower()
+    return label if label in {"low", "medium", "high"} else fallback
+
+
+def _site_audit_ai_manual_verification_needed(item: dict[str, Any], *, status: str = "") -> bool:
+    if isinstance(item.get("manual_verification_needed"), bool):
+        return bool(item.get("manual_verification_needed"))
+    if isinstance(item.get("manualVerificationNeeded"), bool):
+        return bool(item.get("manualVerificationNeeded"))
+    text = " ".join(
+        [
+            _normalize_text(item.get("manual_verification_note") or item.get("manualVerificationNote"), 300),
+            _normalize_text(item.get("evidence"), 500),
+            _normalize_text(item.get("recommendation"), 500),
+        ]
+    ).lower()
+    return status == "not_verifiable" or any(token in text for token in ("manual", "cannot verify", "not verifiable", "browser-flow", "flow qa"))
+
+
 def _normalize_ai_page_result(raw_result: dict[str, Any], page: dict[str, Any]) -> dict[str, Any]:
     checklist = []
     checklist_recommendations = []
+    page_path = _normalize_text(raw_result.get("path") or page.get("path") or "/", 500)
     for item in raw_result.get("checklist") if isinstance(raw_result.get("checklist"), list) else []:
         if not isinstance(item, dict):
             continue
+        status = _normalize_text(item.get("status"), 40) or "not_verifiable"
+        evidence_source = _normalize_text(item.get("evidence_source") or item.get("evidenceSource") or item.get("source"), 500)
+        manual_verification_needed = _site_audit_ai_manual_verification_needed(item, status=status)
         normalized_item = {
             "key": _normalize_text(item.get("key"), 80),
             "label": _normalize_text(item.get("label"), 180),
-            "status": _normalize_text(item.get("status"), 40) or "not_verifiable",
+            "status": status,
             "score": _clamp_score(item.get("score")),
             "severity": _normalize_text(item.get("severity"), 40) or "low",
-            "evidence": _normalize_text(item.get("evidence"), 500),
-            "recommendation": _normalize_text(item.get("recommendation"), 500),
+            "confidence": _site_audit_ai_confidence(item.get("confidence"), fallback="low" if status == "not_verifiable" else "medium"),
+            "evidence": _normalize_text(item.get("evidence"), 900),
+            "evidenceSource": evidence_source or "page metadata and/or supplied screenshot",
+            "affectedPage": _normalize_text(item.get("affected_page") or item.get("affectedPage") or page_path, 500),
+            "recommendation": _normalize_text(item.get("recommendation"), 700),
+            "manualVerificationNeeded": manual_verification_needed,
+            "manualVerificationNote": _normalize_text(item.get("manual_verification_note") or item.get("manualVerificationNote"), 500)
+            or ("Manual verification is needed to confirm the live user flow." if manual_verification_needed else ""),
+            "source": "openai_vision",
         }
         checklist.append(normalized_item)
         if normalized_item["recommendation"] and normalized_item["status"] != "pass":
@@ -4415,17 +4827,30 @@ def _normalize_ai_page_result(raw_result: dict[str, Any], page: dict[str, Any]) 
     for item in raw_result.get("issues") if isinstance(raw_result.get("issues"), list) else []:
         if not isinstance(item, dict):
             continue
+        rubric_key = _normalize_text(item.get("rubric_key") or item.get("rubricKey"), 80)
+        status = _normalize_text(item.get("status"), 40)
+        confidence = _site_audit_ai_confidence(item.get("confidence"), fallback="medium")
+        manual_verification_needed = _site_audit_ai_manual_verification_needed(item, status=status)
+        evidence_source = _normalize_text(item.get("evidence_source") or item.get("evidenceSource") or item.get("source"), 500)
         issues.append(
             {
-                "rubricKey": _normalize_text(item.get("rubric_key") or item.get("rubricKey"), 80),
+                "rubricKey": rubric_key,
                 "severity": _normalize_text(item.get("severity"), 40) or "medium",
+                "confidence": confidence.capitalize(),
+                "confidenceScore": round(_site_audit_confidence_score(confidence) * 100),
                 "issue": _normalize_text(item.get("issue"), 500),
-                "evidence": _normalize_text(item.get("evidence"), 500),
-                "recommendation": _normalize_text(item.get("recommendation"), 500),
+                "evidence": _normalize_text(item.get("evidence"), 900),
+                "evidenceSource": evidence_source or "page metadata and/or supplied screenshot",
+                "affectedPage": _normalize_text(item.get("affected_page") or item.get("affectedPage") or page_path, 500),
+                "recommendation": _normalize_text(item.get("recommendation"), 700),
+                "manualVerificationNeeded": manual_verification_needed,
+                "manualVerificationNote": _normalize_text(item.get("manual_verification_note") or item.get("manualVerificationNote"), 500)
+                or ("Manual verification is needed to confirm the live user flow." if manual_verification_needed else ""),
+                "source": "openai_vision",
             }
         )
     return {
-        "path": _normalize_text(raw_result.get("path") or page.get("path") or "/", 500),
+        "path": page_path,
         "score": _clamp_score(raw_result.get("score")),
         "summary": _normalize_text(raw_result.get("summary"), 700),
         "checklist": checklist,
@@ -4443,18 +4868,16 @@ def _normalize_ai_page_result(raw_result: dict[str, Any], page: dict[str, Any]) 
 
 
 def _merge_ai_page_audit_result(page_result: dict[str, Any], ai_result: dict[str, Any]) -> dict[str, Any]:
-    ai_issues = [
-        item.get("issue")
-        for item in ai_result.get("issues", [])
-        if isinstance(item, dict) and item.get("issue")
-    ]
+    structured_ai_issues = [item for item in ai_result.get("issues", []) if isinstance(item, dict) and item.get("issue")]
+    ai_issue_texts = [item.get("issue") for item in structured_ai_issues]
     ai_recommendations = ai_result.get("recommendations") if isinstance(ai_result.get("recommendations"), list) else []
     return {
         **page_result,
         "score": _clamp_score(ai_result.get("score")),
-        "issues": _dedupe_texts([*(page_result.get("issues") or []), *ai_issues], limit=30),
+        "issues": _dedupe_texts([*(page_result.get("issues") or []), *ai_issue_texts], limit=30),
         "recommendations": _dedupe_texts([*(page_result.get("recommendations") or []), *ai_recommendations], limit=30),
         "aiAudit": ai_result,
+        "aiIssues": structured_ai_issues,
         "aiScore": _clamp_score(ai_result.get("score")),
         "aiSummary": ai_result.get("summary") or "",
     }
@@ -4630,21 +5053,19 @@ def _audit_page(page: dict[str, Any], entrata_context: dict[str, Any] | None = N
     pricing_context = safe_entrata.get("pricing") if isinstance(safe_entrata.get("pricing"), dict) else {}
     specials_context = safe_entrata.get("specials") if isinstance(safe_entrata.get("specials"), dict) else {}
     page_path = _normalize_text(page.get("path") or page.get("url"), 500).lower()
-    page_text = " ".join(
-        [
-            title,
-            meta,
-            " ".join(_normalize_text(item.get("text") or item.get("label") or item, 180) for item in headings if isinstance(item, (dict, str))),
-            " ".join(_normalize_text(item.get("label") if isinstance(item, dict) else item, 180) for item in ctas),
-        ]
-    ).lower()
+    page_text = _site_audit_page_visible_text(page)
     is_floorplan_page = any(token in page_path or token in page_text for token in ("floor", "availability", "pricing", "apartment"))
     is_homepage = page.get("path") in {"/", "", None}
-    has_apply_cta = any(
-        token in _normalize_text(cta.get("label") if isinstance(cta, dict) else cta, 180).lower()
-        for cta in ctas
-        for token in ("apply", "application", "lease now")
-    )
+    apply_links = _site_audit_apply_links(page)
+    has_apply_cta = bool(apply_links)
+    reconciliation_findings = _site_audit_entrata_reconciliation_findings(page, safe_entrata)
+    for finding in reconciliation_findings:
+        issue_text = finding.get("issue")
+        recommendation_text = finding.get("recommendation")
+        if issue_text and issue_text not in issues:
+            issues.append(issue_text)
+        if recommendation_text and recommendation_text not in recommendations:
+            recommendations.append(recommendation_text)
     if has_apply_cta:
         recommendations.append("Use a browser-flow QA pass to confirm the application CTA completes successfully.")
     elif is_homepage or is_floorplan_page:
@@ -4729,6 +5150,7 @@ def _audit_page(page: dict[str, Any], entrata_context: dict[str, Any] | None = N
         "recommendations": recommendations,
         "staleDateStrings": stale_dates,
         "suspiciousLinks": suspicious_links[:10],
+        "reconciliationFindings": reconciliation_findings[:20],
         "hasMetaDescription": bool(meta),
         "hasH1": any(item.get("level") == "h1" for item in headings if isinstance(item, dict)),
         "ctaCount": len(ctas),
@@ -4737,6 +5159,941 @@ def _audit_page(page: dict[str, Any], entrata_context: dict[str, Any] | None = N
         "imageCount": image_count,
         "formCount": form_count,
     }
+
+
+def _site_audit_technical_finding(
+    *,
+    category: str,
+    rubric_key: str,
+    severity: str,
+    issue: str,
+    evidence: str,
+    recommendation: str,
+    path: str = "",
+    confidence: str = "High",
+) -> dict[str, Any]:
+    return {
+        "category": category,
+        "rubricKey": rubric_key,
+        "severity": severity,
+        "issue": _normalize_text(issue, 700),
+        "evidence": _normalize_text(evidence, 900),
+        "recommendation": _normalize_text(recommendation, 700),
+        "path": path or "",
+        "confidence": confidence,
+        "confidenceScore": round(_site_audit_confidence_score(confidence) * 100),
+        "source": "technical_check",
+    }
+
+
+def _site_audit_page_origin(page: dict[str, Any]) -> str:
+    parsed = urlparse(_normalize_text(page.get("url"), 2048))
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _site_audit_absolute_url(page: dict[str, Any], href: Any) -> str:
+    value = _normalize_text(href, 2048).strip()
+    if not value:
+        return ""
+    if value.startswith(("#", "javascript:", "mailto:", "tel:")):
+        return value
+    base_url = _normalize_text(page.get("url"), 2048)
+    if base_url:
+        return urljoin(base_url, value)
+    return value
+
+
+def _site_audit_same_origin(url: str, origin: str) -> bool:
+    parsed_url = urlparse(url)
+    parsed_origin = urlparse(origin)
+    return bool(parsed_url.scheme in {"http", "https"} and parsed_url.netloc and parsed_url.netloc.replace("www.", "") == parsed_origin.netloc.replace("www.", ""))
+
+
+def _site_audit_http_status(url: str, *, timeout_seconds: int = 10) -> dict[str, Any]:
+    headers = {
+        "User-Agent": SCREENSHOT_CAPTURE_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    last_error = ""
+    for method, extra_headers in (("HEAD", {}), ("GET", {"Range": "bytes=0-0"})):
+        try:
+            request = Request(url, headers={**headers, **extra_headers}, method=method)
+            with urlopen(request, timeout=timeout_seconds) as response:
+                return {
+                    "url": url,
+                    "status": int(getattr(response, "status", 0) or response.getcode() or 0),
+                    "method": method,
+                    "finalUrl": response.geturl(),
+                    "error": "",
+                }
+        except HTTPError as error:
+            if method == "HEAD" and int(error.code or 0) in {403, 405, 501}:
+                last_error = str(error)
+                continue
+            return {
+                "url": url,
+                "status": int(error.code or 0),
+                "method": method,
+                "finalUrl": url,
+                "error": str(error),
+            }
+        except Exception as error:
+            last_error = str(error)
+            if method == "HEAD":
+                continue
+    return {"url": url, "status": 0, "method": "GET", "finalUrl": url, "error": last_error or "request failed"}
+
+
+def _site_audit_internal_link_checks(pages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    checks: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for page in pages:
+        origin = _site_audit_page_origin(page)
+        if not origin:
+            continue
+        links = page.get("internalLinks") if isinstance(page.get("internalLinks"), list) else []
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            url = _site_audit_absolute_url(page, link.get("href") or link.get("url"))
+            if not url or url in seen or not _site_audit_same_origin(url, origin):
+                continue
+            seen.add(url)
+            check = _site_audit_http_status(url)
+            check["sourcePath"] = page.get("path") or ""
+            check["label"] = _normalize_text(link.get("label") or link.get("text"), 140)
+            checks.append(check)
+            if len(checks) >= SITE_AUDIT_TECHNICAL_MAX_LINKS:
+                break
+        if len(checks) >= SITE_AUDIT_TECHNICAL_MAX_LINKS:
+            break
+
+    broken = [item for item in checks if int(item.get("status") or 0) >= 400 or int(item.get("status") or 0) == 0]
+    if broken:
+        top = broken[0]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Broken links",
+                rubric_key="page_load_desktop_mobile",
+                severity="high" if any(int(item.get("status") or 0) >= 500 or int(item.get("status") or 0) == 0 for item in broken) else "medium",
+                issue=f"{len(broken)} internal link HTTP failure{'s' if len(broken) != 1 else ''} detected.",
+                evidence=f"Example: {top.get('url')} returned {top.get('status') or top.get('error')}.",
+                recommendation="Fix or redirect failed internal links before sending paid or organic traffic to these paths.",
+                path=top.get("sourcePath") or "",
+            )
+        )
+    return checks, findings
+
+
+def _site_audit_application_link_status_checks(pages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    checks: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for page in pages:
+        for item in _site_audit_apply_links(page):
+            href = _normalize_text(item.get("href"), 2048)
+            url = _site_audit_absolute_url(page, href)
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            parsed = urlparse(url)
+            if not item.get("usable") or parsed.scheme not in {"http", "https"}:
+                checks.append(
+                    {
+                        "url": url,
+                        "sourcePath": page.get("path") or "",
+                        "label": item.get("label") or "",
+                        "status": 0,
+                        "error": "placeholder, disabled, or non-HTTP application link",
+                    }
+                )
+                continue
+            check = _site_audit_http_status(url)
+            check["sourcePath"] = page.get("path") or ""
+            check["label"] = item.get("label") or ""
+            checks.append(check)
+            if len(checks) >= 25:
+                break
+        if len(checks) >= 25:
+            break
+    failed = [item for item in checks if int(item.get("status") or 0) >= 400 or int(item.get("status") or 0) == 0]
+    if failed:
+        top = failed[0]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Application",
+                rubric_key="application_flow_visible",
+                severity="high",
+                issue="Application link failed a live technical check.",
+                evidence=f"Example apply link {top.get('url')} returned {top.get('status') or top.get('error')}.",
+                recommendation="Verify the Apply / Start Application URL and redirect chain, especially Entrata handoff pages and any embedded leasing widgets.",
+                path=top.get("sourcePath") or "",
+            )
+        )
+    return checks, findings
+
+
+def _site_audit_known_page_paths(pages: list[dict[str, Any]]) -> set[str]:
+    paths = set()
+    for page in pages:
+        for value in (page.get("path"), urlparse(_normalize_text(page.get("url"), 2048)).path):
+            path = _normalize_text(value or "/", 1024)
+            if path:
+                paths.add(path.rstrip("/") or "/")
+    return paths
+
+
+def _site_audit_fetch_sitemap_urls(origin: str) -> dict[str, Any]:
+    sitemap_url = urljoin(origin.rstrip("/") + "/", "sitemap.xml")
+    try:
+        request = Request(
+            sitemap_url,
+            headers={
+                "User-Agent": SCREENSHOT_CAPTURE_USER_AGENT,
+                "Accept": "application/xml,text/xml,text/plain,*/*",
+            },
+        )
+        with urlopen(request, timeout=12) as response:
+            body = response.read(1_500_000).decode("utf-8", errors="ignore")
+            status = int(getattr(response, "status", 0) or response.getcode() or 0)
+    except HTTPError as error:
+        return {"status": "error", "sitemapUrl": sitemap_url, "httpStatus": int(error.code or 0), "urls": [], "error": str(error)}
+    except Exception as error:
+        return {"status": "error", "sitemapUrl": sitemap_url, "httpStatus": 0, "urls": [], "error": str(error)}
+    urls = []
+    for match in re.finditer(r"<loc>\s*([^<]+)\s*</loc>", body, flags=re.IGNORECASE):
+        url = match.group(1).strip()
+        if _site_audit_same_origin(url, origin):
+            urls.append(url)
+    return {
+        "status": "ok" if urls else "empty",
+        "sitemapUrl": sitemap_url,
+        "httpStatus": status,
+        "urls": list(dict.fromkeys(urls))[:500],
+        "error": "",
+    }
+
+
+def _site_audit_sitemap_discovery(pages: list[dict[str, Any]]) -> dict[str, Any]:
+    origins = list(dict.fromkeys(_site_audit_page_origin(page) for page in pages if _site_audit_page_origin(page)))
+    if not origins:
+        return {"status": "skipped", "reason": "No absolute page URLs available.", "findings": [], "sitemaps": []}
+    known_paths = _site_audit_known_page_paths(pages)
+    findings: list[dict[str, Any]] = []
+    sitemaps = []
+    discovered_missing: list[dict[str, Any]] = []
+    for origin in origins[:3]:
+        sitemap = _site_audit_fetch_sitemap_urls(origin)
+        sitemaps.append(sitemap)
+        if sitemap.get("status") == "error":
+            findings.append(
+                _site_audit_technical_finding(
+                    category="Website QA",
+                    rubric_key="seo_basics",
+                    severity="low",
+                    issue="Sitemap could not be fetched for page discovery.",
+                    evidence=f"{sitemap.get('sitemapUrl')} returned {sitemap.get('httpStatus') or sitemap.get('error')}.",
+                    recommendation="Publish a valid XML sitemap so audits and search engines can discover all important leasing pages.",
+                    confidence="Medium",
+                )
+            )
+            continue
+        for url in sitemap.get("urls") or []:
+            path = urlparse(url).path.rstrip("/") or "/"
+            if path not in known_paths:
+                discovered_missing.append({"url": url, "path": path})
+    if discovered_missing:
+        findings.append(
+            _site_audit_technical_finding(
+                category="Website QA",
+                rubric_key="seo_basics",
+                severity="medium",
+                issue="Sitemap includes pages that are not in the current audit snapshot set.",
+                evidence=f"{len(discovered_missing)} sitemap page{'s' if len(discovered_missing) != 1 else ''} were discovered outside the known page list; example: {discovered_missing[0].get('path')}.",
+                recommendation="Queue snapshots/screenshots for discovered sitemap pages so the audit covers the full resident journey, not just tracked pages.",
+                confidence="High",
+            )
+        )
+    return {
+        "status": "ok",
+        "knownPageCount": len(known_paths),
+        "discoveredMissingCount": len(discovered_missing),
+        "discoveredMissing": discovered_missing[:100],
+        "sitemaps": sitemaps,
+        "findings": findings,
+    }
+
+
+def _site_audit_select_technical_pages(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def priority(page: dict[str, Any]) -> tuple[int, str]:
+        path = _normalize_text(page.get("path") or page.get("url"), 500).lower()
+        if path in {"", "/"}:
+            return (0, path)
+        if any(token in path for token in ("floor", "availability", "pricing", "apartment")):
+            return (1, path)
+        if any(token in path for token in ("apply", "application", "lease")):
+            return (2, path)
+        if any(token in path for token in ("contact", "hours", "location")):
+            return (3, path)
+        return (8, path)
+    candidates = [page for page in pages if _normalize_text(page.get("url"), 2048).startswith(("http://", "https://"))]
+    return sorted(candidates, key=priority)[:SITE_AUDIT_TECHNICAL_MAX_PAGES]
+
+
+def _site_audit_browser_probe_script(site_key: str | None = None) -> str:
+    expected_key = json.dumps(_normalize_text(site_key, 160))
+    return f"""
+    () => {{
+      const expectedSiteKey = {expected_key};
+      const isVisible = (node) => {{
+        const style = window.getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        return style && style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+      }};
+      const labelFor = (input) => {{
+        if (!input) return '';
+        const id = input.getAttribute('id');
+        const aria = input.getAttribute('aria-label') || input.getAttribute('aria-labelledby') || '';
+        const placeholder = input.getAttribute('placeholder') || '';
+        const wrapped = input.closest('label');
+        const explicit = id ? document.querySelector(`label[for="${{CSS.escape(id)}}"]`) : null;
+        return [aria, placeholder, wrapped && wrapped.textContent, explicit && explicit.textContent].filter(Boolean).join(' ').trim();
+      }};
+      const text = (node) => (node && (node.innerText || node.textContent || '') || '').replace(/\\s+/g, ' ').trim();
+      const hrefIsBlocked = (href) => !href || href === '#' || href === '/#' || /^javascript:/i.test(href) || /^void\\(/i.test(href);
+      const scripts = Array.from(document.scripts || []);
+      const trackerScripts = scripts.filter((script) => {{
+        const src = script.src || '';
+        return script.id === 'redstone-tracker'
+          || script.dataset.redstoneTracker === '1'
+          || /\\/api\\/heatmaps\\/tracker\\.js/i.test(src)
+          || (expectedSiteKey && src.includes(expectedSiteKey));
+      }}).map((script) => script.src || script.id || 'inline tracker');
+      const imgsMissingAlt = Array.from(document.images || []).filter((img) => isVisible(img) && !img.getAttribute('alt')).length;
+      const unlabeledButtons = Array.from(document.querySelectorAll('button, [role="button"]')).filter((button) => isVisible(button) && !text(button) && !button.getAttribute('aria-label') && !button.getAttribute('title')).length;
+      const unlabeledInputs = Array.from(document.querySelectorAll('input, select, textarea')).filter((input) => {{
+        const type = String(input.getAttribute('type') || '').toLowerCase();
+        return isVisible(input) && !['hidden', 'submit', 'button', 'checkbox', 'radio'].includes(type) && !labelFor(input);
+      }}).length;
+      const emptyLinks = Array.from(document.querySelectorAll('a[href]')).filter((link) => isVisible(link) && !text(link) && !link.getAttribute('aria-label') && !link.querySelector('img[alt]')).length;
+      const forms = Array.from(document.forms || []).map((form) => {{
+        const submit = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+        const fields = form.querySelectorAll('input:not([type="hidden"]), select, textarea').length;
+        return {{
+          action: form.action || '',
+          method: form.method || '',
+          fieldCount: fields,
+          hasSubmit: !!submit,
+          disabledSubmit: !!(submit && submit.disabled),
+          visible: isVisible(form)
+        }};
+      }}).filter((form) => form.visible);
+      const applyLinks = Array.from(document.querySelectorAll('a[href], button, [role="button"]')).filter((node) => {{
+        const haystack = `${{text(node)}} ${{node.href || node.getAttribute('href') || ''}}`.toLowerCase();
+        return /apply|application|lease now|start application|online leasing/.test(haystack);
+      }}).map((node) => {{
+        const href = node.href || node.getAttribute('href') || '';
+        return {{ label: text(node).slice(0, 160), href, disabled: !!node.disabled || node.getAttribute('aria-disabled') === 'true', blocked: hrefIsBlocked(href) }};
+      }});
+      const doc = document.documentElement;
+      const body = document.body || doc;
+      const scrollWidth = Math.max(doc.scrollWidth || 0, body.scrollWidth || 0);
+      const viewportWidth = window.innerWidth || doc.clientWidth || 0;
+      const overflowX = Math.max(0, scrollWidth - viewportWidth);
+      const navLinks = Array.from(document.querySelectorAll('nav a[href], header a[href]')).filter(isVisible).length;
+      const main = document.querySelector('main, [role="main"]');
+      return {{
+        url: location.href,
+        title: document.title || '',
+        viewportWidth,
+        scrollWidth,
+        overflowX,
+        trackerPresent: trackerScripts.length > 0,
+        trackerScripts,
+        accessibility: {{ imgsMissingAlt, unlabeledButtons, unlabeledInputs, emptyLinks, hasMain: !!main, navLinks }},
+        forms,
+        applyLinks,
+        performance: {{
+          navigation: performance.getEntriesByType('navigation')[0] ? performance.getEntriesByType('navigation')[0].toJSON() : null,
+          resources: performance.getEntriesByType('resource').length
+        }}
+      }};
+    }}
+    """
+
+
+def _site_audit_launch_browser(playwright: Any) -> Any:
+    try:
+        return playwright.chromium.launch(headless=True)
+    except Exception as launch_error:
+        error_text = str(launch_error)
+        if "Executable doesn't exist" not in error_text and "playwright install" not in error_text:
+            raise
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        return playwright.chromium.launch(headless=True)
+
+
+def _site_audit_browser_technical_checks(pages: list[dict[str, Any]], *, site_key: str | None = None) -> dict[str, Any]:
+    selected_pages = _site_audit_select_technical_pages(pages)
+    if not selected_pages:
+        return {"status": "skipped", "reason": "No absolute URLs available for browser checks.", "pages": [], "findings": []}
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        return {"status": "unavailable", "reason": str(error), "pages": [], "findings": []}
+
+    results: list[dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
+    with sync_playwright() as playwright:
+        try:
+            browser = _site_audit_launch_browser(playwright)
+        except Exception as error:
+            return {"status": "unavailable", "reason": str(error), "pages": [], "findings": []}
+        try:
+            for page_row in selected_pages:
+                url = _normalize_text(page_row.get("url"), 2048)
+                page_console: list[dict[str, Any]] = []
+                page_errors: list[str] = []
+                context = browser.new_context(
+                    viewport={"width": 390, "height": 844},
+                    is_mobile=True,
+                    device_scale_factor=2,
+                    user_agent=SCREENSHOT_CAPTURE_USER_AGENT,
+                    locale="en-US",
+                    timezone_id="America/Denver",
+                )
+                page = context.new_page()
+                page.on("console", lambda message, store=page_console: store.append({"type": message.type, "text": _normalize_text(message.text, 500)}))
+                page.on("pageerror", lambda error, store=page_errors: store.append(_normalize_text(str(error), 500)))
+                try:
+                    response = page.goto(url, wait_until="domcontentloaded", timeout=SITE_AUDIT_TECHNICAL_TIMEOUT_MS)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=min(10_000, SITE_AUDIT_TECHNICAL_TIMEOUT_MS))
+                    except Exception:
+                        pass
+                    probe = page.evaluate(_site_audit_browser_probe_script(site_key))
+                    status = response.status if response else 0
+                    result = {
+                        "path": page_row.get("path") or urlparse(url).path or "/",
+                        "url": url,
+                        "status": status,
+                        "consoleErrors": [item for item in page_console if item.get("type") in {"error", "warning"}][:20],
+                        "pageErrors": page_errors[:10],
+                        "probe": probe,
+                    }
+                    results.append(result)
+                except Exception as error:
+                    result = {
+                        "path": page_row.get("path") or urlparse(url).path or "/",
+                        "url": url,
+                        "status": 0,
+                        "consoleErrors": [],
+                        "pageErrors": [_normalize_text(str(error), 500)],
+                        "probe": {},
+                    }
+                    results.append(result)
+                finally:
+                    context.close()
+        finally:
+            browser.close()
+
+    console_failures = [result for result in results if result.get("consoleErrors") or result.get("pageErrors")]
+    if console_failures:
+        first = console_failures[0]
+        errors = first.get("pageErrors") or [item.get("text") for item in first.get("consoleErrors") or []]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Mobile/load",
+                rubric_key="page_load_desktop_mobile",
+                severity="medium",
+                issue="Browser console errors or page errors were detected.",
+                evidence=f"{len(console_failures)} checked page{'s' if len(console_failures) != 1 else ''} produced console/page errors; example: {_normalize_text((errors or [''])[0], 240)}.",
+                recommendation="Fix JavaScript errors and blocked resources that can prevent CTAs, floor plan widgets, or tracking from working.",
+                path=first.get("path") or "",
+            )
+        )
+
+    overflow_pages = [result for result in results if _numeric(((result.get("probe") or {}).get("overflowX")), 0) > 24]
+    if overflow_pages:
+        first = overflow_pages[0]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Mobile/load",
+                rubric_key="page_load_desktop_mobile",
+                severity="medium",
+                issue="Mobile viewport has horizontal overflow.",
+                evidence=f"{first.get('path')} overflows by {round(_numeric((first.get('probe') or {}).get('overflowX'), 0))}px on a 390px mobile viewport.",
+                recommendation="Constrain wide elements, tables, widgets, and fixed-width media so mobile users do not need horizontal scrolling.",
+                path=first.get("path") or "",
+            )
+        )
+
+    tracking_missing = [
+        result for result in results
+        if site_key and not ((result.get("probe") or {}).get("trackerPresent"))
+    ]
+    if tracking_missing:
+        first = tracking_missing[0]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Website QA",
+                rubric_key="homepage_cta",
+                severity="high",
+                issue="Redstone tracking snippet is missing from checked pages.",
+                evidence=f"{len(tracking_missing)} checked page{'s' if len(tracking_missing) != 1 else ''} did not expose the redstone tracker script for site key {site_key}.",
+                recommendation="Install or repair the Redstone tracker snippet on all audited website templates so heatmaps and audit behavior checks are complete.",
+                path=first.get("path") or "",
+            )
+        )
+
+    accessibility_failures = []
+    for result in results:
+        accessibility = (result.get("probe") or {}).get("accessibility") or {}
+        count = sum(int(accessibility.get(key) or 0) for key in ("imgsMissingAlt", "unlabeledButtons", "unlabeledInputs", "emptyLinks"))
+        if count > 0 or accessibility.get("hasMain") is False:
+            accessibility_failures.append((result, count))
+    if accessibility_failures:
+        first, count = accessibility_failures[0]
+        accessibility = (first.get("probe") or {}).get("accessibility") or {}
+        findings.append(
+            _site_audit_technical_finding(
+                category="Website QA",
+                rubric_key="page_load_desktop_mobile",
+                severity="medium",
+                issue="Accessibility basics need review.",
+                evidence=f"{first.get('path')} has {count} unlabeled/missing-alt element{'s' if count != 1 else ''}; main landmark present: {bool(accessibility.get('hasMain'))}.",
+                recommendation="Add alt text, accessible names for controls/links, labels for form fields, and a main landmark on templates.",
+                path=first.get("path") or "",
+                confidence="Medium",
+            )
+        )
+
+    form_failures = []
+    apply_failures = []
+    for result in results:
+        probe = result.get("probe") or {}
+        forms = probe.get("forms") if isinstance(probe.get("forms"), list) else []
+        if any(int(form.get("fieldCount") or 0) > 0 and (not form.get("hasSubmit") or form.get("disabledSubmit")) for form in forms):
+            form_failures.append(result)
+        apply_links = probe.get("applyLinks") if isinstance(probe.get("applyLinks"), list) else []
+        if any(item.get("disabled") or item.get("blocked") for item in apply_links if isinstance(item, dict)):
+            apply_failures.append(result)
+    if form_failures:
+        first = form_failures[0]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Application",
+                rubric_key="application_flow_visible",
+                severity="high",
+                issue="Form appears broken or blocked.",
+                evidence=f"{first.get('path')} includes a visible form with fields but no usable submit control.",
+                recommendation="Verify contact, tour, and application forms can submit and route to the correct leasing workflow.",
+                path=first.get("path") or "",
+            )
+        )
+    if apply_failures:
+        first = apply_failures[0]
+        findings.append(
+            _site_audit_technical_finding(
+                category="Application",
+                rubric_key="application_flow_visible",
+                severity="high",
+                issue="Application link is blocked or placeholder-only in the live browser check.",
+                evidence=f"{first.get('path')} exposes an apply-related control that is disabled or points to a placeholder href.",
+                recommendation="Replace disabled or placeholder Apply controls with a working application URL and verify the handoff in a browser flow.",
+                path=first.get("path") or "",
+            )
+        )
+    return {"status": "ok", "pages": results, "findings": findings}
+
+
+def _site_audit_lighthouse_checks(pages: list[dict[str, Any]]) -> dict[str, Any]:
+    lighthouse_path = shutil.which("lighthouse")
+    if not lighthouse_path:
+        return {"status": "unavailable", "reason": "Lighthouse CLI is not installed.", "findings": []}
+    selected = _site_audit_select_technical_pages(pages)
+    if not selected:
+        return {"status": "skipped", "reason": "No absolute URLs available for Lighthouse.", "findings": []}
+    url = _normalize_text(selected[0].get("url"), 2048)
+    try:
+        completed = subprocess.run(
+            [
+                lighthouse_path,
+                url,
+                "--quiet",
+                "--output=json",
+                "--only-categories=performance,accessibility,best-practices,seo",
+                "--chrome-flags=--headless --no-sandbox",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=max(30, int(SITE_AUDIT_TECHNICAL_TIMEOUT_MS / 1000) + 20),
+            check=False,
+        )
+    except Exception as error:
+        return {"status": "error", "reason": str(error), "findings": []}
+    if completed.returncode != 0 and not completed.stdout:
+        return {"status": "error", "reason": _normalize_text(completed.stderr, 500), "findings": []}
+    try:
+        payload = json.loads(completed.stdout)
+    except Exception as error:
+        return {"status": "error", "reason": f"Unable to parse Lighthouse JSON: {error}", "findings": []}
+
+    categories = payload.get("categories") if isinstance(payload.get("categories"), dict) else {}
+    audits = payload.get("audits") if isinstance(payload.get("audits"), dict) else {}
+    scores = {
+        key: round(float(value.get("score") or 0) * 100, 1)
+        for key, value in categories.items()
+        if isinstance(value, dict) and value.get("score") is not None
+    }
+    metrics = {
+        "largestContentfulPaintMs": _numeric((audits.get("largest-contentful-paint") or {}).get("numericValue"), 0),
+        "cumulativeLayoutShift": _numeric((audits.get("cumulative-layout-shift") or {}).get("numericValue"), 0),
+        "totalBlockingTimeMs": _numeric((audits.get("total-blocking-time") or {}).get("numericValue"), 0),
+        "speedIndexMs": _numeric((audits.get("speed-index") or {}).get("numericValue"), 0),
+    }
+    findings: list[dict[str, Any]] = []
+    performance_score = scores.get("performance")
+    if performance_score is not None and performance_score < 65:
+        findings.append(
+            _site_audit_technical_finding(
+                category="Mobile/load",
+                rubric_key="page_load_desktop_mobile",
+                severity="high" if performance_score < 45 else "medium",
+                issue="Lighthouse performance score is below target.",
+                evidence=f"{url} scored {performance_score}/100. LCP {round(metrics['largestContentfulPaintMs'])}ms, TBT {round(metrics['totalBlockingTimeMs'])}ms, CLS {round(metrics['cumulativeLayoutShift'], 3)}.",
+                recommendation="Prioritize render-blocking scripts, image weight, third-party widgets, and layout stability on high-intent pages.",
+                path=selected[0].get("path") or "",
+            )
+        )
+    accessibility_score = scores.get("accessibility")
+    if accessibility_score is not None and accessibility_score < 80:
+        findings.append(
+            _site_audit_technical_finding(
+                category="Website QA",
+                rubric_key="page_load_desktop_mobile",
+                severity="medium",
+                issue="Lighthouse accessibility score is below target.",
+                evidence=f"{url} scored {accessibility_score}/100 for accessibility.",
+                recommendation="Review Lighthouse accessibility failures alongside the deterministic accessibility basics checks.",
+                path=selected[0].get("path") or "",
+                confidence="Medium",
+            )
+        )
+    return {"status": "ok", "url": url, "scores": scores, "coreWebVitals": metrics, "findings": findings}
+
+
+def _site_audit_technical_context(
+    pages: list[dict[str, Any]],
+    *,
+    site_key: str | None = None,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {"status": "ok", "findings": []}
+    link_checks, link_findings = _site_audit_internal_link_checks(pages)
+    application_link_checks, application_link_findings = _site_audit_application_link_status_checks(pages)
+    discovery = _site_audit_sitemap_discovery(pages)
+    browser = _site_audit_browser_technical_checks(pages, site_key=site_key)
+    lighthouse = _site_audit_lighthouse_checks(pages)
+    findings = [
+        *link_findings,
+        *application_link_findings,
+        *(discovery.get("findings") if isinstance(discovery.get("findings"), list) else []),
+        *(browser.get("findings") if isinstance(browser.get("findings"), list) else []),
+        *(lighthouse.get("findings") if isinstance(lighthouse.get("findings"), list) else []),
+    ]
+    context.update(
+        {
+            "findings": findings[:100],
+            "linkChecks": link_checks[:SITE_AUDIT_TECHNICAL_MAX_LINKS],
+            "applicationLinkChecks": application_link_checks[:25],
+            "discovery": discovery,
+            "browser": browser,
+            "lighthouse": lighthouse,
+            "checkedAt": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    if any(item.get("status") == "error" for item in (discovery, browser, lighthouse) if isinstance(item, dict)):
+        context["status"] = "partial"
+    return context
+
+
+def _site_audit_behavior_finding(
+    *,
+    category: str,
+    rubric_key: str,
+    severity: str,
+    issue: str,
+    evidence: str,
+    recommendation: str,
+    path: str = "",
+    confidence: str = "Medium",
+) -> dict[str, Any]:
+    return {
+        "category": category,
+        "rubricKey": rubric_key,
+        "severity": severity,
+        "issue": _normalize_text(issue, 700),
+        "evidence": _normalize_text(evidence, 900),
+        "recommendation": _normalize_text(recommendation, 700),
+        "path": path or "",
+        "confidence": confidence,
+        "confidenceScore": round(_site_audit_confidence_score(confidence) * 100),
+        "source": "heatmap_behavior",
+    }
+
+
+def _site_audit_behavior_confidence(sessions: int) -> str:
+    if sessions >= 20:
+        return "High"
+    if sessions >= 5:
+        return "Medium"
+    return "Low"
+
+
+def _site_audit_heatmap_context(
+    property_id: str,
+    *,
+    site_key: str | None = None,
+    access_token: str | None = None,
+) -> dict[str, Any]:
+    context: dict[str, Any] = {"status": "unavailable", "summary": None, "mobileSummary": None, "errors": []}
+    try:
+        context["summary"] = get_heatmap_summary(property_id, site_key=site_key, access_token=access_token)
+    except Exception as error:
+        context["errors"].append({"scope": "all_devices", "error": str(error)})
+    try:
+        context["mobileSummary"] = get_heatmap_summary(property_id, site_key=site_key, device_type="mobile", access_token=access_token)
+    except Exception as error:
+        context["errors"].append({"scope": "mobile", "error": str(error)})
+    if isinstance(context.get("summary"), dict) or isinstance(context.get("mobileSummary"), dict):
+        context["status"] = "ok" if not context["errors"] else "partial"
+    return context
+
+
+def _site_audit_heatmap_sessions(summary: dict[str, Any] | None) -> int:
+    totals = summary.get("totals") if isinstance(summary, dict) and isinstance(summary.get("totals"), dict) else {}
+    return int(totals.get("sessions") or summary.get("sessionCount") or 0) if isinstance(summary, dict) else 0
+
+
+def _site_audit_heatmap_total(summary: dict[str, Any] | None, key: str) -> float:
+    totals = summary.get("totals") if isinstance(summary, dict) and isinstance(summary.get("totals"), dict) else {}
+    return _numeric(totals.get(key), 0)
+
+
+def _site_audit_heatmap_reach(summary: dict[str, Any] | None, threshold: str) -> float:
+    if not isinstance(summary, dict):
+        return 0.0
+    scroll = summary.get("scroll") if isinstance(summary.get("scroll"), dict) else {}
+    reach = scroll.get("reach") if isinstance(scroll.get("reach"), dict) else {}
+    item = reach.get(str(threshold)) or reach.get(int(threshold)) if isinstance(reach, dict) else None
+    if isinstance(item, dict):
+        return _numeric(item.get("percent"), 0)
+    return 0.0
+
+
+def _site_audit_target_clicks(summary: dict[str, Any] | None, tokens: tuple[str, ...]) -> int:
+    if not isinstance(summary, dict):
+        return 0
+    total = 0
+    for target in summary.get("topTargets") if isinstance(summary.get("topTargets"), list) else []:
+        if not isinstance(target, dict):
+            continue
+        haystack = " ".join(
+            [
+                _normalize_text(target.get("label"), 240),
+                _normalize_text(target.get("targetKey"), 360),
+                _normalize_text(target.get("selector"), 360),
+                _normalize_text(target.get("href"), 360),
+                _normalize_text(target.get("category"), 80),
+            ]
+        ).lower()
+        if any(token in haystack for token in tokens):
+            total += int(target.get("ctaClicks") or target.get("clicks") or target.get("count") or target.get("eventCount") or 0)
+    return total
+
+
+def _site_audit_behavior_context_summary(heatmap_context: dict[str, Any]) -> dict[str, Any]:
+    summary = heatmap_context.get("summary") if isinstance(heatmap_context.get("summary"), dict) else {}
+    mobile = heatmap_context.get("mobileSummary") if isinstance(heatmap_context.get("mobileSummary"), dict) else {}
+    anomalies = summary.get("anomalies") if isinstance(summary.get("anomalies"), dict) else {}
+    return {
+        "status": heatmap_context.get("status"),
+        "errors": heatmap_context.get("errors") or [],
+        "sessions": _site_audit_heatmap_sessions(summary),
+        "mobileSessions": _site_audit_heatmap_sessions(mobile),
+        "ctaClicks": int(_site_audit_heatmap_total(summary, "ctaClicks")),
+        "avgScrollDepthPct": _site_audit_heatmap_total(summary, "avgScrollDepthPct"),
+        "avgAbandonmentDepthPct": _site_audit_heatmap_total(summary, "avgAbandonmentDepthPct"),
+        "mobileReach50Pct": _site_audit_heatmap_reach(mobile, "50"),
+        "rageClickCount": int(((anomalies.get("rageClicks") or {}) if isinstance(anomalies.get("rageClicks"), dict) else {}).get("count") or 0),
+        "deadClickCount": int(((anomalies.get("deadClicks") or {}) if isinstance(anomalies.get("deadClicks"), dict) else {}).get("count") or 0),
+        "ctaFrustrationCount": int(((anomalies.get("ctaFrustration") or {}) if isinstance(anomalies.get("ctaFrustration"), dict) else {}).get("count") or 0),
+    }
+
+
+def _site_audit_heatmap_behavior_findings(
+    heatmap_context: dict[str, Any],
+    page_results: list[dict[str, Any]],
+    entrata_context: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    summary = heatmap_context.get("summary") if isinstance(heatmap_context.get("summary"), dict) else {}
+    mobile_summary = heatmap_context.get("mobileSummary") if isinstance(heatmap_context.get("mobileSummary"), dict) else {}
+    entrata_context = entrata_context if isinstance(entrata_context, dict) else {}
+    pricing_context = entrata_context.get("pricing") if isinstance(entrata_context.get("pricing"), dict) else {}
+    specials_context = entrata_context.get("specials") if isinstance(entrata_context.get("specials"), dict) else {}
+    sessions = _site_audit_heatmap_sessions(summary)
+    mobile_sessions = _site_audit_heatmap_sessions(mobile_summary)
+    confidence = _site_audit_behavior_confidence(sessions)
+    findings: list[dict[str, Any]] = []
+    visible_cta_pages = sum(1 for page in page_results if int(page.get("ctaCount") or 0) > 0)
+    floorplan_pages = [page for page in page_results if any(token in _normalize_text(page.get("path"), 300).lower() for token in ("floor", "availability", "pricing", "apartment"))]
+    cta_clicks = int(_site_audit_heatmap_total(summary, "ctaClicks"))
+    avg_abandonment = _site_audit_heatmap_total(summary, "avgAbandonmentDepthPct")
+    avg_scroll = _site_audit_heatmap_total(summary, "avgScrollDepthPct")
+    reach_50 = _site_audit_heatmap_reach(summary, "50")
+    mobile_reach_50 = _site_audit_heatmap_reach(mobile_summary, "50")
+    anomalies = summary.get("anomalies") if isinstance(summary.get("anomalies"), dict) else {}
+    rage_clicks = anomalies.get("rageClicks") if isinstance(anomalies.get("rageClicks"), dict) else {}
+    dead_clicks = anomalies.get("deadClicks") if isinstance(anomalies.get("deadClicks"), dict) else {}
+    cta_frustration = anomalies.get("ctaFrustration") if isinstance(anomalies.get("ctaFrustration"), dict) else {}
+
+    if sessions >= 5 and visible_cta_pages > 0 and cta_clicks == 0:
+        findings.append(
+            _site_audit_behavior_finding(
+                category="CTA",
+                rubric_key="homepage_cta",
+                severity="medium",
+                issue="CTA is visible but users are not clicking it.",
+                evidence=f"Audit detected CTAs on {visible_cta_pages} page{'s' if visible_cta_pages != 1 else ''}, but heatmaps recorded 0 CTA clicks across {sessions} sessions.",
+                recommendation="Review CTA placement, label clarity, contrast, and whether the primary action appears above the fold on desktop and mobile.",
+                confidence=confidence,
+            )
+        )
+
+    if int(rage_clicks.get("count") or 0) > 0:
+        cluster = (rage_clicks.get("clusters") or [{}])[0] if isinstance(rage_clicks.get("clusters"), list) else {}
+        findings.append(
+            _site_audit_behavior_finding(
+                category="Broken links",
+                rubric_key="application_flow_visible",
+                severity="high",
+                issue="Users are rage-clicking website elements.",
+                evidence=f"{rage_clicks.get('count')} rage-click cluster{'s' if int(rage_clicks.get('count') or 0) != 1 else ''} detected; top target: {_normalize_text(cluster.get('label'), 120) or 'unknown element'}.",
+                recommendation="Inspect the clicked element for broken links, blocked modals, unresponsive widgets, or misleading visual affordances.",
+                path=cluster.get("path") or "",
+                confidence="High",
+            )
+        )
+
+    if int(dead_clicks.get("count") or 0) > 0:
+        target = (dead_clicks.get("targets") or [{}])[0] if isinstance(dead_clicks.get("targets"), list) else {}
+        findings.append(
+            _site_audit_behavior_finding(
+                category="Broken links",
+                rubric_key="application_flow_visible",
+                severity="high",
+                issue="Users are clicking elements that look actionable but have no tracked action.",
+                evidence=f"{dead_clicks.get('count')} dead-click event{'s' if int(dead_clicks.get('count') or 0) != 1 else ''} detected; top target: {_normalize_text(target.get('label'), 120) or 'unknown element'}.",
+                recommendation="Make the element functional, remove click affordance styling, or add tracking to the intended interaction.",
+                path=target.get("path") or "",
+                confidence="High",
+            )
+        )
+
+    has_pricing_truth = pricing_context.get("hasSnapshot") and pricing_context.get("minPrice") is not None
+    if sessions >= 5 and has_pricing_truth and floorplan_pages and (avg_abandonment and avg_abandonment < 0.45 or reach_50 and reach_50 < 0.45):
+        findings.append(
+            _site_audit_behavior_finding(
+                category="Pricing",
+                rubric_key="pricing_accuracy",
+                severity="high",
+                issue="Users appear to abandon before reaching pricing.",
+                evidence=f"Entrata has pricing truth, but heatmaps show average abandonment at {round(avg_abandonment * 100)}% depth and 50% reach at {round(reach_50 * 100)}% across {sessions} sessions.",
+                recommendation="Move pricing or availability summaries higher on the page and add jump links from hero CTAs to floor plan pricing.",
+                path=floorplan_pages[0].get("path") or "",
+                confidence=confidence,
+            )
+        )
+
+    floorplan_clicks_mobile = _site_audit_target_clicks(mobile_summary, ("floor", "availability", "pricing", "apartment"))
+    if mobile_sessions >= 5 and floorplan_pages and floorplan_clicks_mobile == 0 and mobile_reach_50 < 0.35:
+        findings.append(
+            _site_audit_behavior_finding(
+                category="Mobile/load",
+                rubric_key="page_load_desktop_mobile",
+                severity="high",
+                issue="Mobile users are not reaching floor plans.",
+                evidence=f"Mobile heatmaps show 0 floor plan / availability target clicks and only {round(mobile_reach_50 * 100)}% reach to mid-page across {mobile_sessions} sessions.",
+                recommendation="Prioritize mobile floor plan navigation above the fold and test sticky CTAs, page speed, and floor plan widget load behavior.",
+                path=floorplan_pages[0].get("path") or "",
+                confidence=_site_audit_behavior_confidence(mobile_sessions),
+            )
+        )
+
+    apply_clicks = _site_audit_target_clicks(summary, ("apply", "application", "lease now", "start application", "online leasing"))
+    if apply_clicks > 0 and int(cta_frustration.get("count") or 0) > 0:
+        cluster = (cta_frustration.get("clusters") or [{}])[0] if isinstance(cta_frustration.get("clusters"), list) else {}
+        findings.append(
+            _site_audit_behavior_finding(
+                category="Application",
+                rubric_key="application_flow_visible",
+                severity="high",
+                issue="Apply button gets clicks but no downstream activity.",
+                evidence=f"Heatmaps recorded {apply_clicks} apply-related click{'s' if apply_clicks != 1 else ''} and {cta_frustration.get('count')} repeated CTA cluster{'s' if int(cta_frustration.get('count') or 0) != 1 else ''} without page transition.",
+                recommendation="Run a browser-flow QA test from Apply Now through the Entrata application handoff and fix blocked redirects or embedded widget failures.",
+                path=cluster.get("path") or "",
+                confidence="High",
+            )
+        )
+
+    business_context = (
+        summary.get("businessContext")
+        if isinstance(summary.get("businessContext"), dict)
+        else heatmap_context.get("businessContext")
+        if isinstance(heatmap_context.get("businessContext"), dict)
+        else {}
+    )
+    high_spend_pages = business_context.get("highAdSpendPages") if isinstance(business_context.get("highAdSpendPages"), list) else []
+    if high_spend_pages and sessions >= 5 and cta_clicks <= max(1, int(sessions * 0.02)) and avg_scroll < 0.45:
+        page = high_spend_pages[0] if isinstance(high_spend_pages[0], dict) else {"path": str(high_spend_pages[0])}
+        findings.append(
+            _site_audit_behavior_finding(
+                category="CTA",
+                rubric_key="homepage_cta",
+                severity="high",
+                issue="High ad spend page has low engagement.",
+                evidence=f"Spend context marks {page.get('path') or 'a landing page'} as high spend, while heatmaps show {cta_clicks} CTA clicks and {round(avg_scroll * 100)}% average scroll depth across {sessions} sessions.",
+                recommendation="Compare ad promise to landing page content, move conversion paths higher, and validate mobile speed and CTA tracking.",
+                path=page.get("path") or "",
+                confidence=confidence,
+            )
+        )
+
+    if specials_context.get("hasSnapshot") and int(specials_context.get("specialCount") or 0) > 0 and sessions >= 5 and cta_clicks == 0 and visible_cta_pages > 0:
+        findings.append(
+            _site_audit_behavior_finding(
+                category="Specials",
+                rubric_key="special_offers_current",
+                severity="medium",
+                issue="Active offer exists, but users are not engaging with conversion CTAs.",
+                evidence=f"Entrata has {specials_context.get('specialCount')} active special{'s' if int(specials_context.get('specialCount') or 0) != 1 else ''}; heatmaps show no CTA clicks across {sessions} sessions.",
+                recommendation="Pair special offer copy with a visible Apply / Check Availability CTA and confirm the offer is present on high-traffic pages.",
+                confidence=confidence,
+            )
+        )
+
+    seen = set()
+    unique_findings = []
+    for finding in findings:
+        key = (finding.get("category"), finding.get("issue"), finding.get("path"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_findings.append(finding)
+    return unique_findings[:20]
 
 
 def run_site_audit_summary(
@@ -4759,11 +6116,42 @@ def run_site_audit_summary(
         include_ai=include_ai,
         entrata_context=entrata_context,
     )
-    all_issues = [
-        {"path": page.get("path"), "issue": issue}
-        for page in page_results
-        for issue in page.get("issues", [])
-    ]
+    technical_context = _site_audit_technical_context(pages, site_key=site_key)
+    technical_findings = technical_context.get("findings") if isinstance(technical_context.get("findings"), list) else []
+    heatmap_context = _site_audit_heatmap_context(property_id, site_key=site_key, access_token=access_token)
+    behavior_findings = _site_audit_heatmap_behavior_findings(heatmap_context, page_results, entrata_context)
+    all_issues = []
+    for page in page_results:
+        reconciliation_findings = page.get("reconciliationFindings") if isinstance(page.get("reconciliationFindings"), list) else []
+        reconciliation_issue_texts = {
+            finding.get("issue")
+            for finding in reconciliation_findings
+            if isinstance(finding, dict) and finding.get("issue")
+        }
+        ai_issues = page.get("aiIssues") if isinstance(page.get("aiIssues"), list) else []
+        ai_issue_texts = {
+            finding.get("issue")
+            for finding in ai_issues
+            if isinstance(finding, dict) and finding.get("issue")
+        }
+        for finding in reconciliation_findings:
+            if isinstance(finding, dict) and finding.get("issue"):
+                all_issues.append({**finding, "path": finding.get("path") or page.get("path")})
+        for finding in ai_issues:
+            if isinstance(finding, dict) and finding.get("issue"):
+                all_issues.append(
+                    {
+                        **finding,
+                        "path": finding.get("path") or finding.get("affectedPage") or page.get("path"),
+                    }
+                )
+        for issue in page.get("issues", []):
+            issue_text = issue.get("issue") if isinstance(issue, dict) else issue
+            if issue_text in reconciliation_issue_texts or issue_text in ai_issue_texts:
+                continue
+            all_issues.append({"path": page.get("path"), "issue": issue})
+    all_issues.extend(technical_findings)
+    all_issues.extend(behavior_findings)
     broken_links = [
         {"path": page.get("path"), "href": href}
         for page in page_results
@@ -4781,6 +6169,16 @@ def run_site_audit_summary(
             if recommendation not in seen_recommendations:
                 seen_recommendations.add(recommendation)
                 recommendations.append(recommendation)
+    for finding in behavior_findings:
+        recommendation = finding.get("recommendation") if isinstance(finding, dict) else ""
+        if recommendation and recommendation not in seen_recommendations:
+            seen_recommendations.add(recommendation)
+            recommendations.append(recommendation)
+    for finding in technical_findings:
+        recommendation = finding.get("recommendation") if isinstance(finding, dict) else ""
+        if recommendation and recommendation not in seen_recommendations:
+            seen_recommendations.add(recommendation)
+            recommendations.append(recommendation)
 
     average_score = round(sum(page.get("score", 0) for page in page_results) / len(page_results), 1) if page_results else 0
     ai_pages = [page for page in page_results if isinstance(page.get("aiAudit"), dict)]
@@ -4877,7 +6275,21 @@ def run_site_audit_summary(
                 "formCount": page.get("formCount"),
                 "aiScore": page.get("aiScore"),
                 "aiSummary": page.get("aiSummary"),
+                "aiIssues": page.get("aiIssues") or [],
                 "aiChecklist": (page.get("aiAudit") or {}).get("checklist") if isinstance(page.get("aiAudit"), dict) else [],
+                "reconciliationFindings": page.get("reconciliationFindings") or [],
+                "screenshots": [
+                    {
+                        "id": item.get("id"),
+                        "deviceType": item.get("deviceType"),
+                        "contentHash": item.get("contentHash"),
+                        "capturedAt": item.get("capturedAt"),
+                        "width": item.get("width"),
+                        "height": item.get("height"),
+                    }
+                    for item in (page.get("screenshots") if isinstance(page.get("screenshots"), list) else [])
+                    if isinstance(item, dict)
+                ][:5],
             }
             for page in page_results
         ][:100],
@@ -4887,6 +6299,11 @@ def run_site_audit_summary(
             "algorithm": "redstone-ai-vision-site-audit-v1" if ai_pages else "redstone-weighted-site-audit-v2",
             "aiAudit": ai_audit_meta,
             "entrataAuditContext": entrata_context,
+            "technicalAudit": technical_context,
+            "behaviorAudit": {
+                "findings": behavior_findings,
+                "summary": _site_audit_behavior_context_summary(heatmap_context),
+            },
             "categoryScores": [
                 {
                     "key": key,
@@ -4953,6 +6370,11 @@ def _save_site_audit_rubric_results(audit: dict[str, Any], page_results: list[di
                     "raw_data": {
                         "aiSummary": ai_audit.get("summary"),
                         "cacheHit": ai_audit.get("cacheHit"),
+                        "confidence": item.get("confidence"),
+                        "evidenceSource": item.get("evidenceSource"),
+                        "affectedPage": item.get("affectedPage"),
+                        "manualVerificationNeeded": item.get("manualVerificationNeeded"),
+                        "manualVerificationNote": item.get("manualVerificationNote"),
                     },
                 }
             )
@@ -5131,6 +6553,20 @@ SITE_AUDIT_RUBRIC_IMPACT = {
     "leasing_verbiage": 68,
 }
 SITE_AUDIT_SEVERITY_IMPACT = {"high": 25, "medium": 12, "low": 4}
+SITE_AUDIT_SEVERITY_SCORES = {"critical": 1.0, "high": 0.95, "medium": 0.68, "low": 0.38}
+SITE_AUDIT_CONFIDENCE_SCORES = {"high": 0.95, "medium": 0.7, "low": 0.42, "none": 0.2}
+SITE_AUDIT_PAGE_IMPORTANCE_SCORES = {
+    "Pricing": 0.98,
+    "Application": 0.96,
+    "Availability": 0.94,
+    "Specials": 0.9,
+    "CTA": 0.86,
+    "Mobile/load": 0.82,
+    "Broken links": 0.74,
+    "Stale copy": 0.66,
+    "Website QA": 0.62,
+    "No audit": 0.9,
+}
 
 
 def _site_audit_risk_tier(
@@ -5139,9 +6575,18 @@ def _site_audit_risk_tier(
     broken_link_count: int,
     stale_date_count: int,
     score_change: float | None = None,
+    risk_score: float | None = None,
 ) -> str:
     if not isinstance(audit_row, dict):
         return "No audit"
+    if risk_score is not None:
+        if risk_score >= 74:
+            return "Critical"
+        if risk_score >= 54:
+            return "High"
+        if risk_score >= 30:
+            return "Watch"
+        return "Healthy"
     score = _to_float(audit_row.get("performance_score"))
     if score is None:
         return "No audit"
@@ -5157,22 +6602,126 @@ def _site_audit_risk_tier(
 def _site_audit_issue_signature(item: Any) -> str:
     if isinstance(item, dict):
         text = item.get("issue") or item.get("text") or item.get("href") or item.get("link") or json.dumps(item, sort_keys=True)
-        path = item.get("path") or item.get("source") or ""
-        return _normalize_text(f"{path} {text}", 500).lower()
+        path = item.get("path") or item.get("affectedPage") or item.get("source") or ""
+        rubric_key = item.get("rubricKey") or item.get("rubric_key") or ""
+        category = item.get("category") or ""
+        return _normalize_text(f"{path} {rubric_key} {category} {text}", 700).lower()
     return _normalize_text(item, 500).lower()
 
 
-def _site_audit_issue_signatures(audit_row: dict[str, Any] | None) -> set[str]:
+def _site_audit_issue_descriptor(item: Any) -> dict[str, Any]:
+    if isinstance(item, dict):
+        issue = _normalize_text(item.get("issue") or item.get("text") or item.get("href") or item.get("link"), 700)
+        path = _normalize_text(item.get("path") or item.get("affectedPage") or "", 500)
+        return {
+            "signature": _site_audit_issue_signature(item),
+            "issue": issue,
+            "path": path,
+            "category": item.get("category") or _site_audit_reason_category(issue, item.get("rubricKey") or item.get("rubric_key") or ""),
+            "severity": item.get("severity") or "",
+            "source": item.get("source") or "",
+            "rubricKey": item.get("rubricKey") or item.get("rubric_key") or "",
+        }
+    issue = _normalize_text(item, 700)
+    return {
+        "signature": _site_audit_issue_signature(item),
+        "issue": issue,
+        "path": "",
+        "category": _site_audit_reason_category(issue),
+        "severity": "",
+        "source": "",
+        "rubricKey": "",
+    }
+
+
+def _site_audit_issue_map(audit_row: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
     if not isinstance(audit_row, dict):
-        return set()
-    signatures: set[str] = set()
+        return {}
+    issue_map: dict[str, dict[str, Any]] = {}
     for field in ("issues", "broken_links", "stale_date_findings"):
         values = audit_row.get(field) if isinstance(audit_row.get(field), list) else []
         for item in values:
-            signature = _site_audit_issue_signature(item)
-            if signature:
-                signatures.add(signature)
-    return signatures
+            descriptor = _site_audit_issue_descriptor(item)
+            signature = descriptor.get("signature")
+            if signature and signature not in issue_map:
+                issue_map[signature] = {**descriptor, "field": field}
+    return issue_map
+
+
+def _site_audit_issue_signatures(audit_row: dict[str, Any] | None) -> set[str]:
+    return set(_site_audit_issue_map(audit_row).keys())
+
+
+def _site_audit_performance_notes(audit_row: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(audit_row, dict):
+        return []
+    return audit_row.get("performance_notes") if isinstance(audit_row.get("performance_notes"), list) else []
+
+
+def _site_audit_page_note_map(audit_row: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    notes = _site_audit_performance_notes(audit_row)
+    mapped: dict[str, dict[str, Any]] = {}
+    for note in notes:
+        if not isinstance(note, dict):
+            continue
+        path = _normalize_text(note.get("path") or "/", 500)
+        if path:
+            mapped[path.rstrip("/") or "/"] = note
+    return mapped
+
+
+def _site_audit_screenshot_fingerprints(audit_row: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    fingerprints: dict[str, dict[str, Any]] = {}
+    for path, note in _site_audit_page_note_map(audit_row).items():
+        screenshots = note.get("screenshots") if isinstance(note.get("screenshots"), list) else []
+        for screenshot in screenshots:
+            if not isinstance(screenshot, dict):
+                continue
+            content_hash = _normalize_text(screenshot.get("contentHash") or screenshot.get("content_hash"), 160)
+            if not content_hash:
+                continue
+            device = _normalize_text(screenshot.get("deviceType") or screenshot.get("device_type") or "unknown", 40)
+            key = f"{path}|{device}"
+            fingerprints[key] = {
+                "path": path,
+                "deviceType": device,
+                "contentHash": content_hash,
+                "capturedAt": screenshot.get("capturedAt") or screenshot.get("captured_at"),
+                "width": screenshot.get("width"),
+                "height": screenshot.get("height"),
+            }
+    return fingerprints
+
+
+def _site_audit_tracking_sessions(audit_row: dict[str, Any] | None) -> int | None:
+    if not isinstance(audit_row, dict):
+        return None
+    raw_data = audit_row.get("raw_data") if isinstance(audit_row.get("raw_data"), dict) else {}
+    behavior = raw_data.get("behaviorAudit") if isinstance(raw_data.get("behaviorAudit"), dict) else {}
+    summary = behavior.get("summary") if isinstance(behavior.get("summary"), dict) else {}
+    sessions = summary.get("sessions")
+    if sessions is None:
+        heatmap = raw_data.get("heatmapAudit") if isinstance(raw_data.get("heatmapAudit"), dict) else {}
+        sessions = heatmap.get("sessions")
+    numeric = _to_float(sessions)
+    return int(numeric) if numeric is not None else None
+
+
+def _site_audit_tracking_missing(audit_row: dict[str, Any] | None) -> bool:
+    if not isinstance(audit_row, dict):
+        return False
+    issues = audit_row.get("issues") if isinstance(audit_row.get("issues"), list) else []
+    for item in issues:
+        text = json.dumps(item).lower() if isinstance(item, dict) else _normalize_text(item, 700).lower()
+        if any(token in text for token in ("tracking snippet is missing", "tracker script", "tracking stopped", "redstone tracker")):
+            return True
+    raw_data = audit_row.get("raw_data") if isinstance(audit_row.get("raw_data"), dict) else {}
+    technical = raw_data.get("technicalAudit") if isinstance(raw_data.get("technicalAudit"), dict) else {}
+    for finding in technical.get("findings") if isinstance(technical.get("findings"), list) else []:
+        text = json.dumps(finding).lower() if isinstance(finding, dict) else ""
+        if "tracking snippet is missing" in text or "tracker" in text:
+            return True
+    return False
 
 
 def _site_audit_category_score_map(audit_row: dict[str, Any] | None) -> dict[str, float]:
@@ -5194,10 +6743,19 @@ def _site_audit_trend_summary(property_audits: list[dict[str, Any]]) -> dict[str
     current_score = _to_float(current.get("performance_score")) if isinstance(current, dict) else None
     previous_score = _to_float(previous.get("performance_score")) if isinstance(previous, dict) else None
     score_change = round(current_score - previous_score, 1) if current_score is not None and previous_score is not None else None
-    current_signatures = _site_audit_issue_signatures(current)
-    previous_signatures = _site_audit_issue_signatures(previous)
-    new_issue_count = len(current_signatures - previous_signatures) if current_signatures else 0
-    resolved_issue_count = len(previous_signatures - current_signatures) if previous_signatures else 0
+    current_issue_map = _site_audit_issue_map(current)
+    previous_issue_map = _site_audit_issue_map(previous)
+    current_signatures = set(current_issue_map.keys())
+    previous_signatures = set(previous_issue_map.keys())
+    new_issue_signatures = current_signatures - previous_signatures
+    recurring_issue_signatures = current_signatures & previous_signatures
+    resolved_issue_signatures = previous_signatures - current_signatures
+    new_issues = [current_issue_map[key] for key in sorted(new_issue_signatures) if key in current_issue_map]
+    recurring_issues = [current_issue_map[key] for key in sorted(recurring_issue_signatures) if key in current_issue_map]
+    resolved_issues = [previous_issue_map[key] for key in sorted(resolved_issue_signatures) if key in previous_issue_map]
+    new_issue_count = len(new_issues)
+    recurring_issue_count = len(recurring_issues)
+    resolved_issue_count = len(resolved_issues)
     current_categories = _site_audit_category_score_map(current)
     previous_categories = _site_audit_category_score_map(previous)
     regressed_categories = [
@@ -5205,9 +6763,76 @@ def _site_audit_trend_summary(property_audits: list[dict[str, Any]]) -> dict[str
         for key, score in current_categories.items()
         if key in previous_categories and previous_categories[key] - score >= 5
     ]
-    regressed_issue_count = len(regressed_categories)
-    if score_change is not None and score_change <= -10 and regressed_issue_count == 0:
-        regressed_issue_count = 1
+    score_dropped = score_change is not None and score_change <= -5
+
+    current_pages = _site_audit_page_note_map(current)
+    previous_pages = _site_audit_page_note_map(previous)
+    page_disappeared = [
+        {
+            "path": path,
+            "previousScore": previous_pages[path].get("score"),
+            "previousScreenshotCount": previous_pages[path].get("screenshotCount"),
+        }
+        for path in sorted(set(previous_pages.keys()) - set(current_pages.keys()))
+    ]
+
+    current_screenshots = _site_audit_screenshot_fingerprints(current)
+    previous_screenshots = _site_audit_screenshot_fingerprints(previous)
+    screenshot_changed = []
+    for key in sorted(set(current_screenshots.keys()) & set(previous_screenshots.keys())):
+        current_shot = current_screenshots[key]
+        previous_shot = previous_screenshots[key]
+        if current_shot.get("contentHash") and previous_shot.get("contentHash") and current_shot.get("contentHash") != previous_shot.get("contentHash"):
+            screenshot_changed.append(
+                {
+                    "path": current_shot.get("path"),
+                    "deviceType": current_shot.get("deviceType"),
+                    "currentHash": current_shot.get("contentHash"),
+                    "previousHash": previous_shot.get("contentHash"),
+                    "currentCapturedAt": current_shot.get("capturedAt"),
+                    "previousCapturedAt": previous_shot.get("capturedAt"),
+                }
+            )
+
+    current_sessions = _site_audit_tracking_sessions(current)
+    previous_sessions = _site_audit_tracking_sessions(previous)
+    tracking_stopped_reporting = bool(
+        previous is not None
+        and previous_sessions is not None
+        and previous_sessions > 0
+        and (current_sessions is None or current_sessions == 0 or _site_audit_tracking_missing(current))
+    )
+
+    regression_events: list[dict[str, Any]] = []
+    if score_dropped:
+        regression_events.append(
+            {
+                "type": "score_dropped",
+                "label": "Score dropped",
+                "severity": "high" if score_change is not None and score_change <= -10 else "medium",
+                "detail": f"Score changed from {previous_score} to {current_score}.",
+                "scoreChange": score_change,
+            }
+        )
+    for issue in new_issues[:10]:
+        regression_events.append({"type": "new_issue", "label": "New issue", "severity": issue.get("severity") or "medium", "detail": issue.get("issue"), "path": issue.get("path"), "category": issue.get("category")})
+    for issue in resolved_issues[:10]:
+        regression_events.append({"type": "resolved_issue", "label": "Resolved issue", "severity": issue.get("severity") or "low", "detail": issue.get("issue"), "path": issue.get("path"), "category": issue.get("category")})
+    for item in screenshot_changed[:10]:
+        regression_events.append({"type": "screenshot_changed", "label": "Screenshot changed", "severity": "medium", "detail": f"{item.get('deviceType')} screenshot changed materially.", "path": item.get("path")})
+    for item in page_disappeared[:10]:
+        regression_events.append({"type": "page_disappeared", "label": "Page disappeared", "severity": "high", "detail": "Page existed in the prior audit but is absent now.", "path": item.get("path")})
+    if tracking_stopped_reporting:
+        regression_events.append(
+            {
+                "type": "tracking_stopped_reporting",
+                "label": "Tracking stopped reporting",
+                "severity": "high",
+                "detail": f"Prior audit had {previous_sessions} heatmap session{'s' if previous_sessions != 1 else ''}; current audit has {current_sessions or 0}.",
+            }
+        )
+
+    regressed_issue_count = len(regressed_categories) + (1 if score_dropped else 0) + len(page_disappeared) + (1 if tracking_stopped_reporting else 0)
     score_history = [
         {
             "auditedAt": row.get("audited_at"),
@@ -5220,10 +6845,16 @@ def _site_audit_trend_summary(property_audits: list[dict[str, Any]]) -> dict[str
         last_change_reason = "No audit has been run yet."
     elif previous is None:
         last_change_reason = "First audit captured for this property."
+    elif tracking_stopped_reporting:
+        last_change_reason = "Tracking stopped reporting since the prior audit."
+    elif page_disappeared:
+        last_change_reason = f"{len(page_disappeared)} page{'s' if len(page_disappeared) != 1 else ''} disappeared since the prior audit."
     elif score_change is not None and score_change <= -10:
         last_change_reason = f"Score dropped {abs(score_change):.1f} points since the prior audit."
     elif new_issue_count > 0:
         last_change_reason = f"{new_issue_count} new issue{'s' if new_issue_count != 1 else ''} appeared since the prior audit."
+    elif screenshot_changed:
+        last_change_reason = f"{len(screenshot_changed)} screenshot{'s' if len(screenshot_changed) != 1 else ''} changed since the prior audit."
     elif score_change is not None and score_change >= 10:
         last_change_reason = f"Score improved {score_change:.1f} points since the prior audit."
     elif resolved_issue_count > 0:
@@ -5236,10 +6867,23 @@ def _site_audit_trend_summary(property_audits: list[dict[str, Any]]) -> dict[str
         "scoreChange": score_change,
         "scoreHistory": score_history,
         "newIssueCount": new_issue_count,
+        "recurringIssueCount": recurring_issue_count,
         "regressedIssueCount": regressed_issue_count,
         "resolvedIssueCount": resolved_issue_count,
         "lastChangeReason": last_change_reason,
         "regressedCategories": regressed_categories[:8],
+        "scoreDropped": score_dropped,
+        "newIssues": new_issues[:20],
+        "recurringIssues": recurring_issues[:20],
+        "resolvedIssues": resolved_issues[:20],
+        "screenshotChangedCount": len(screenshot_changed),
+        "screenshotChanged": screenshot_changed[:20],
+        "pageDisappearedCount": len(page_disappeared),
+        "pageDisappeared": page_disappeared[:20],
+        "trackingStoppedReporting": tracking_stopped_reporting,
+        "currentTrackingSessions": current_sessions,
+        "previousTrackingSessions": previous_sessions,
+        "regressionEvents": regression_events[:40],
     }
 
 
@@ -5331,8 +6975,12 @@ def _site_audit_reason_category(text: str, rubric_key: str = "") -> str:
         return "Specials"
     if any(token in haystack for token in ("broken", "link", "non-https")):
         return "Broken links"
-    if any(token in haystack for token in ("mobile", "desktop", "load", "screenshot")):
+    if any(token in haystack for token in ("mobile", "desktop", "load", "screenshot", "console", "lighthouse", "core web vital", "overflow")):
         return "Mobile/load"
+    if any(token in haystack for token in ("accessibility", "alt text", "aria", "label")):
+        return "Website QA"
+    if any(token in haystack for token in ("tracking", "tracker", "snippet", "sitemap", "discovery")):
+        return "Website QA"
     if any(token in haystack for token in ("stale", "expired", "date")):
         return "Stale copy"
     if any(token in haystack for token in ("floor", "availability", "unit")):
@@ -5340,6 +6988,241 @@ def _site_audit_reason_category(text: str, rubric_key: str = "") -> str:
     if any(token in haystack for token in ("cta", "call to action")):
         return "CTA"
     return "Website QA"
+
+
+def _site_audit_normalize_severity(value: Any, *, fallback: str = "medium") -> str:
+    severity = _normalize_text(value, 40).lower()
+    return severity if severity in SITE_AUDIT_SEVERITY_SCORES else fallback
+
+
+def _site_audit_confidence_score(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        numeric = max(0.0, min(100.0, float(value)))
+        return round(numeric / 100, 3)
+    label = _normalize_text(value, 40).lower()
+    return SITE_AUDIT_CONFIDENCE_SCORES.get(label, SITE_AUDIT_CONFIDENCE_SCORES["medium"])
+
+
+def _site_audit_confidence_label(score: float) -> str:
+    if score >= 0.8:
+        return "High"
+    if score >= 0.55:
+        return "Medium"
+    if score > 0:
+        return "Low"
+    return "None"
+
+
+def _site_audit_issue_confidence(
+    *,
+    category: str,
+    rubric_key: str = "",
+    status: str = "",
+    evidence: str = "",
+    site_confidence: dict[str, Any] | None = None,
+    entrata_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base = _site_audit_confidence_score((site_confidence or {}).get("score") or (site_confidence or {}).get("label"))
+    category_text = f"{category} {rubric_key} {evidence}".lower()
+    evidence_text = _normalize_text(evidence, 800).lower()
+    entrata_context = entrata_context if isinstance(entrata_context, dict) else {}
+    pricing_context = entrata_context.get("pricing") if isinstance(entrata_context.get("pricing"), dict) else {}
+    specials_context = entrata_context.get("specials") if isinstance(entrata_context.get("specials"), dict) else {}
+    reasons: list[str] = []
+
+    if status == "not_verifiable":
+        base = min(base, 0.5)
+        reasons.append("not verifiable from current evidence")
+    if "screenshot" in evidence_text and not any(token in evidence_text for token in ("entrata", "pricing exists", "active specials")):
+        base = min(base, 0.62)
+        reasons.append("screenshot-only evidence")
+    if any(token in category_text for token in ("pricing", "availability", "floor")) and pricing_context.get("hasSnapshot"):
+        base = max(base, 0.9)
+        reasons.append("Entrata availability/pricing snapshot")
+    if "special" in category_text and specials_context.get("hasSnapshot"):
+        base = max(base, 0.88)
+        reasons.append("Entrata specials snapshot")
+    if any(token in evidence_text for token in ("entrata", "available units", "active specials", "pricing exists")):
+        base = max(base, 0.9)
+        reasons.append("cross-system evidence")
+
+    score = round(max(0.1, min(1.0, base)), 3)
+    return {
+        "score": round(score * 100),
+        "factor": score,
+        "label": _site_audit_confidence_label(score),
+        "reasons": list(dict.fromkeys(reasons))[:4],
+    }
+
+
+def _site_audit_page_importance(category: str, rubric_key: str = "", path: str = "") -> dict[str, Any]:
+    category = category or "Website QA"
+    score = SITE_AUDIT_PAGE_IMPORTANCE_SCORES.get(category, SITE_AUDIT_PAGE_IMPORTANCE_SCORES["Website QA"])
+    path_text = _normalize_text(path, 300).lower()
+    rubric_text = _normalize_text(rubric_key, 80).lower()
+    reasons: list[str] = []
+    if path_text in {"", "/"} or "homepage" in rubric_text:
+        score = max(score, 0.86)
+        reasons.append("homepage")
+    if any(token in path_text for token in ("floor", "availability", "pricing", "apartment")):
+        score = max(score, 0.94)
+        reasons.append("high-intent floor plan path")
+    if any(token in path_text for token in ("apply", "application", "lease")) or "application" in rubric_text:
+        score = max(score, 0.96)
+        reasons.append("application path")
+    if any(token in path_text for token in ("contact", "hours", "location")):
+        score = max(score, 0.74)
+        reasons.append("contact path")
+    return {
+        "score": round(score * 100),
+        "factor": round(score, 3),
+        "label": "High" if score >= 0.85 else "Medium" if score >= 0.65 else "Low",
+        "reasons": reasons[:4],
+    }
+
+
+def _site_audit_business_urgency(
+    *,
+    category: str,
+    raw_data: dict[str, Any] | None = None,
+    score_change: float | None = None,
+) -> dict[str, Any]:
+    raw_data = raw_data if isinstance(raw_data, dict) else {}
+    entrata_context = raw_data.get("entrataAuditContext") if isinstance(raw_data.get("entrataAuditContext"), dict) else {}
+    pricing_context = entrata_context.get("pricing") if isinstance(entrata_context.get("pricing"), dict) else {}
+    specials_context = entrata_context.get("specials") if isinstance(entrata_context.get("specials"), dict) else {}
+    score = 0.62
+    signals: list[str] = []
+    available_units = int(pricing_context.get("availableUnitCount") or 0)
+    special_count = int(specials_context.get("specialCount") or 0)
+
+    if category == "No audit":
+        score = max(score, 0.84)
+        signals.append("no audit record")
+    if available_units > 0 and category in {"Pricing", "Availability", "Application", "CTA", "Mobile/load"}:
+        score += 0.18
+        signals.append(f"{available_units} available unit{'s' if available_units != 1 else ''}")
+    if special_count > 0 and category in {"Specials", "Stale copy", "Website QA"}:
+        score += 0.14
+        signals.append(f"{special_count} active special{'s' if special_count != 1 else ''}")
+    if score_change is not None and score_change <= -10:
+        score += 0.12
+        signals.append(f"audit score dropped {abs(score_change):.1f}")
+    elif score_change is not None and score_change <= -5:
+        score += 0.06
+        signals.append(f"audit score slipped {abs(score_change):.1f}")
+
+    score = round(max(0.35, min(1.0, score)), 3)
+    return {
+        "score": round(score * 100),
+        "factor": score,
+        "label": "High" if score >= 0.8 else "Medium" if score >= 0.58 else "Low",
+        "signals": signals[:5],
+        "availableUnitCount": available_units,
+        "specialCount": special_count,
+    }
+
+
+def _site_audit_enrich_reason_risk(
+    reason: dict[str, Any],
+    *,
+    raw_data: dict[str, Any] | None,
+    score_change: float | None,
+    site_confidence: dict[str, Any] | None,
+) -> dict[str, Any]:
+    category = reason.get("category") or "Website QA"
+    rubric_key = _normalize_text(reason.get("rubricKey"), 80)
+    severity = _site_audit_normalize_severity(reason.get("severity"))
+    severity_factor = SITE_AUDIT_SEVERITY_SCORES[severity]
+    raw_data = raw_data if isinstance(raw_data, dict) else {}
+    entrata_context = raw_data.get("entrataAuditContext") if isinstance(raw_data.get("entrataAuditContext"), dict) else {}
+    reason_confidence = site_confidence
+    if reason.get("confidenceScore") is not None or reason.get("confidence"):
+        reason_confidence = {
+            "score": reason.get("confidenceScore"),
+            "label": reason.get("confidence"),
+            "detail": reason.get("confidenceDetail") or (site_confidence or {}).get("detail") or "",
+        }
+    confidence = _site_audit_issue_confidence(
+        category=category,
+        rubric_key=rubric_key,
+        status=_normalize_text(reason.get("status"), 40),
+        evidence=reason.get("evidence") or "",
+        site_confidence=reason_confidence,
+        entrata_context=entrata_context,
+    )
+    page_importance = _site_audit_page_importance(category, rubric_key, reason.get("path") or "")
+    business_urgency = _site_audit_business_urgency(category=category, raw_data=raw_data, score_change=score_change)
+    risk_score = round(
+        100
+        * severity_factor
+        * float(confidence.get("factor") or 0)
+        * float(page_importance.get("factor") or 0)
+        * float(business_urgency.get("factor") or 0),
+        1,
+    )
+    return {
+        **reason,
+        "severity": severity,
+        "severityScore": round(severity_factor * 100),
+        "confidence": confidence.get("label") or reason.get("confidence") or "Medium",
+        "confidenceScore": confidence.get("score"),
+        "confidenceDetail": ", ".join(confidence.get("reasons") or []) or (reason_confidence or {}).get("detail") or "",
+        "pageImportance": page_importance,
+        "businessUrgency": business_urgency,
+        "riskScore": risk_score,
+        "riskFormula": {
+            "severity": round(severity_factor, 3),
+            "confidence": confidence.get("factor"),
+            "pageImportance": page_importance.get("factor"),
+            "businessUrgency": business_urgency.get("factor"),
+        },
+    }
+
+
+def _site_audit_property_risk_score(
+    *,
+    audit_row: dict[str, Any] | None,
+    flagged_reasons: list[dict[str, Any]],
+    score_change: float | None,
+) -> dict[str, Any]:
+    if not isinstance(audit_row, dict):
+        return {
+            "score": 84,
+            "tier": "No audit",
+            "label": "No audit",
+            "reason": "No audit record exists yet.",
+            "drivers": ["No website audit has been run"],
+        }
+    reason_scores = sorted(
+        [float(item.get("riskScore") or 0) for item in flagged_reasons if isinstance(item, dict)],
+        reverse=True,
+    )
+    if reason_scores:
+        weighted = reason_scores[0]
+        if len(reason_scores) > 1:
+            weighted = (reason_scores[0] * 0.72) + (reason_scores[1] * 0.2)
+        if len(reason_scores) > 2:
+            weighted += reason_scores[2] * 0.08
+    else:
+        performance_score = _to_float(audit_row.get("performance_score"))
+        weighted = max(0.0, 100 - performance_score) if performance_score is not None else 30.0
+    if score_change is not None and score_change <= -10:
+        weighted += min(12, abs(score_change) * 0.35)
+    score = round(max(0, min(100, weighted)), 1)
+    tier = "Critical" if score >= 74 else "High" if score >= 54 else "Watch" if score >= 30 else "Healthy"
+    drivers = [
+        item.get("issue") or item.get("rubricLabel") or item.get("category")
+        for item in flagged_reasons[:3]
+        if isinstance(item, dict)
+    ]
+    return {
+        "score": score,
+        "tier": tier,
+        "label": tier,
+        "reason": drivers[0] if drivers else "Risk is based on current audit score and trend.",
+        "drivers": drivers[:3],
+    }
 
 
 def _site_audit_flagged_reasons(
@@ -5351,10 +7234,12 @@ def _site_audit_flagged_reasons(
     performance_notes: list[dict[str, Any]],
     top_failing_rubric: dict[str, Any] | None,
     confidence: dict[str, Any],
+    score_change: float | None = None,
 ) -> list[dict[str, Any]]:
+    raw_data = audit_row.get("raw_data") if isinstance(audit_row, dict) and isinstance(audit_row.get("raw_data"), dict) else {}
     if not isinstance(audit_row, dict):
         return [
-            {
+            _site_audit_enrich_reason_risk({
                 "category": "No audit",
                 "severity": "high",
                 "impactScore": 90,
@@ -5362,7 +7247,7 @@ def _site_audit_flagged_reasons(
                 "evidence": "The property is missing its first audit record.",
                 "recommendation": "Capture page snapshots and queue an AI audit.",
                 "confidence": "High",
-            }
+            }, raw_data={}, score_change=None, site_confidence={"score": 95, "label": "High"})
         ]
     reasons: list[dict[str, Any]] = []
     for note in performance_notes:
@@ -5387,24 +7272,37 @@ def _site_audit_flagged_reasons(
                     "rubricKey": key,
                     "rubricLabel": label,
                     "severity": severity,
+                    "status": _normalize_text(item.get("status"), 40),
                     "impactScore": round(impact, 1),
                     "issue": issue,
                     "evidence": evidence,
                     "recommendation": recommendation,
                     "path": note.get("path") or "",
-                    "confidence": confidence.get("label") or "Medium",
+                    "confidence": item.get("confidence") or confidence.get("label") or "Medium",
+                    "evidenceSource": item.get("evidenceSource") or "",
+                    "affectedPage": item.get("affectedPage") or note.get("path") or "",
+                    "manualVerificationNeeded": bool(item.get("manualVerificationNeeded")),
+                    "manualVerificationNote": item.get("manualVerificationNote") or "",
+                    "source": item.get("source") or "openai_vision",
                 }
             )
     for issue in issues[:20]:
         if isinstance(issue, dict):
             issue_text = _normalize_text(issue.get("issue") or issue.get("text"), 500)
             path = issue.get("path") or ""
+            category = issue.get("category") or _site_audit_reason_category(issue_text, issue.get("rubricKey") or "")
+            severity = _site_audit_normalize_severity(issue.get("severity"), fallback="high" if category in {"Pricing", "Application"} else "medium")
+            evidence = _normalize_text(issue.get("evidence"), 900) or f"Detected on {path or 'captured site pages'}."
+            recommendation = _normalize_text(issue.get("recommendation"), 700) or "Review the affected page and update website content or tracking as needed."
         else:
             issue_text = _normalize_text(issue, 500)
             path = ""
+            category = _site_audit_reason_category(issue_text)
+            severity = ""
+            evidence = f"Detected on {path or 'captured site pages'}."
+            recommendation = "Review the affected page and update website content or tracking as needed."
         if not issue_text:
             continue
-        category = _site_audit_reason_category(issue_text)
         base_impact = {
             "Pricing": 95,
             "Application": 92,
@@ -5415,18 +7313,24 @@ def _site_audit_flagged_reasons(
             "Stale copy": 68,
             "CTA": 80,
         }.get(category, 58)
-        reasons.append(
-            {
-                "category": category,
-                "severity": "high" if base_impact >= 88 else "medium",
-                "impactScore": base_impact,
-                "issue": issue_text,
-                "evidence": f"Detected on {path or 'captured site pages'}.",
-                "recommendation": "Review the affected page and update website content or tracking as needed.",
-                "path": path,
-                "confidence": confidence.get("label") or "Medium",
-            }
-        )
+        reason = {
+            "category": category,
+            "severity": severity or ("high" if base_impact >= 88 else "medium"),
+            "impactScore": issue.get("impactScore") if isinstance(issue, dict) and issue.get("impactScore") is not None else base_impact,
+            "issue": issue_text,
+            "evidence": evidence,
+            "recommendation": recommendation,
+            "path": path,
+            "confidence": issue.get("confidence") if isinstance(issue, dict) and issue.get("confidence") else confidence.get("label") or "Medium",
+        }
+        if isinstance(issue, dict):
+            for key in ("rubricKey", "rubricLabel", "status", "source", "confidenceScore", "confidenceDetail"):
+                if issue.get(key) is not None:
+                    reason[key] = issue.get(key)
+            for key in ("evidenceSource", "affectedPage", "manualVerificationNeeded", "manualVerificationNote"):
+                if issue.get(key) is not None:
+                    reason[key] = issue.get(key)
+        reasons.append(reason)
     if broken_links:
         reasons.append(
             {
@@ -5473,7 +7377,14 @@ def _site_audit_flagged_reasons(
         if key in seen:
             continue
         seen.add(key)
-        unique_reasons.append(reason)
+        unique_reasons.append(
+            _site_audit_enrich_reason_risk(
+                reason,
+                raw_data=raw_data,
+                score_change=score_change,
+                site_confidence=confidence,
+            )
+        )
     return unique_reasons[:5]
 
 
@@ -5551,7 +7462,6 @@ def list_site_audit_portfolio_summary(
         score_change = trend_summary.get("scoreChange")
         confidence = _site_audit_confidence(audit_row, performance_notes)
         top_failing_rubric = _site_audit_top_failing_rubric(audit_row, performance_notes)
-        risk_tier = _site_audit_risk_tier(audit_row, len(issues), len(broken_links), len(stale_dates), score_change)
         flagged_reasons = _site_audit_flagged_reasons(
             audit_row,
             issues=issues,
@@ -5560,7 +7470,14 @@ def list_site_audit_portfolio_summary(
             performance_notes=performance_notes,
             top_failing_rubric=top_failing_rubric,
             confidence=confidence,
+            score_change=score_change,
         )
+        property_risk = _site_audit_property_risk_score(
+            audit_row=audit_row,
+            flagged_reasons=flagged_reasons,
+            score_change=score_change,
+        )
+        risk_score = _to_float(property_risk.get("score"))
         summary = {
             "propertyId": property_id,
             "propertyName": property_row.get("name") or f"Property {property_id}",
@@ -5578,15 +7495,26 @@ def list_site_audit_portfolio_summary(
             "urgencyScore": _to_float(audit_row.get("urgency_score")) if isinstance(audit_row, dict) else None,
             "freshnessScore": _to_float(audit_row.get("freshness_score")) if isinstance(audit_row, dict) else None,
             "linkScore": _to_float(audit_row.get("link_score")) if isinstance(audit_row, dict) else None,
-            "riskTier": risk_tier,
+            "riskTier": _site_audit_risk_tier(audit_row, len(issues), len(broken_links), len(stale_dates), score_change, risk_score),
+            "riskScore": risk_score,
+            "propertyRiskScore": risk_score,
+            "propertyRisk": property_risk,
+            "topSeverity": flagged_reasons[0].get("severity") if flagged_reasons else "low",
+            "topSeverityScore": flagged_reasons[0].get("severityScore") if flagged_reasons else 0,
             "confidence": confidence,
             "topFailingRubric": top_failing_rubric,
             "flaggedReasons": flagged_reasons,
             "trend": trend_summary,
             "scoreHistory": trend_summary.get("scoreHistory") or [],
             "newIssueCount": trend_summary.get("newIssueCount") or 0,
+            "recurringIssueCount": trend_summary.get("recurringIssueCount") or 0,
             "regressedIssueCount": trend_summary.get("regressedIssueCount") or 0,
             "resolvedIssueCount": trend_summary.get("resolvedIssueCount") or 0,
+            "scoreDropped": bool(trend_summary.get("scoreDropped")),
+            "screenshotChangedCount": trend_summary.get("screenshotChangedCount") or 0,
+            "pageDisappearedCount": trend_summary.get("pageDisappearedCount") or 0,
+            "trackingStoppedReporting": bool(trend_summary.get("trackingStoppedReporting")),
+            "regressionEvents": trend_summary.get("regressionEvents") or [],
             "lastChangeReason": trend_summary.get("lastChangeReason") or "",
             "issueCount": len(issues),
             "recommendationCount": len(recommendations),
@@ -5606,13 +7534,15 @@ def list_site_audit_portfolio_summary(
         }
         summaries.append(summary)
 
-    def _sort_key(item: dict[str, Any]) -> tuple[float, int, int, str]:
-        score = item.get("performanceScore")
-        normalized_score = float(score) if score is not None else -1.0
+    def _sort_key(item: dict[str, Any]) -> tuple[float, int, int, int, int, str]:
+        risk_score = item.get("propertyRiskScore") or item.get("riskScore")
+        normalized_risk = float(risk_score) if risk_score is not None else 0.0
         return (
-            normalized_score,
+            -normalized_risk,
+            -int(bool(item.get("trackingStoppedReporting"))),
+            -int(item.get("pageDisappearedCount") or 0),
+            -int(item.get("regressedIssueCount") or 0),
             -int(item.get("issueCount") or 0),
-            -int(item.get("brokenLinkCount") or 0),
             str(item.get("propertyName") or ""),
         )
 

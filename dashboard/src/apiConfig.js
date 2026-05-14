@@ -44,6 +44,11 @@ export const CALL_PREP_SUMMARY_URL = resolveApiUrl(
   '/api/reporting/call-prep-summary'
 );
 
+export const REPORTING_TAB_SUMMARY_URL = resolveApiUrl(
+  import.meta.env.VITE_REPORTING_TAB_SUMMARY_URL || '',
+  '/api/reporting/tab-summary'
+);
+
 export const WEBSITE_MANAGER_URL = resolveApiUrl(
   import.meta.env.VITE_WEBSITE_MANAGER_URL || '',
   '/api/admin/website-manager'

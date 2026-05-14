@@ -7,8 +7,39 @@ import {
   LineChart,
   Line,
 } from 'recharts';
+import { REPORTING_LAYOUT_URL } from './apiConfig';
+import { authFetch } from './lib/authFetch';
 
 const HeatmapAuditPanel = React.lazy(() => import('./HeatmapAuditPanel.jsx'));
+const REPORTING_LAYOUT_STORAGE_KEY = 'reportingLayoutAdminEnabled';
+const REPORTING_PANEL_LIBRARY = [
+  { id: 'roi', title: 'ROAS Metrics', eyebrow: 'Revenue Efficiency' },
+  { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
+  { id: 'entrata', title: 'Entrata Funnel', eyebrow: 'Leads to Leases' },
+  { id: 'heatmaps-audit', title: 'Heatmaps + Site Audit', eyebrow: 'Website Experience' },
+  { id: 'google-ads', title: 'Google Ads', eyebrow: 'Paid Search' },
+  { id: 'ga4', title: 'Google Analytics', eyebrow: 'Behavior + Demand' },
+  { id: 'opiniion', title: 'Opiniion', eyebrow: 'Resident Sentiment' },
+  { id: 'local-falcon', title: 'Local Falcon', eyebrow: 'Local SEO' },
+  { id: 'meta-ads', title: 'Meta Ads', eyebrow: 'Paid Social' }
+];
+const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
+
+const normalizeReportingLayoutRecord = (value) => {
+  const order = Array.isArray(value?.panelOrder) ? value.panelOrder.map((item) => String(item)) : [];
+  const hidden = Array.isArray(value?.hiddenPanelIds) ? value.hiddenPanelIds.map((item) => String(item)) : [];
+
+  const uniqueOrder = order.filter((panelId, index) => REPORTING_PANEL_IDS.includes(panelId) && order.indexOf(panelId) === index);
+  const normalizedOrder = [
+    ...uniqueOrder,
+    ...REPORTING_PANEL_IDS.filter((panelId) => !uniqueOrder.includes(panelId))
+  ];
+
+  return {
+    panelOrder: normalizedOrder,
+    hiddenPanelIds: hidden.filter((panelId, index) => REPORTING_PANEL_IDS.includes(panelId) && hidden.indexOf(panelId) === index)
+  };
+};
 
 export default function ReportsView(props) {
   const {
@@ -26,8 +57,6 @@ export default function ReportsView(props) {
     HEATMAP_DEVICE_OPTIONS,
     MeasuredChart,
     MiniMetricLoader,
-    REPORTING_PANEL_LIBRARY,
-    activeReportingPanels,
     adjustedMarketingSpend,
     applicationConversion,
     applicationToLeaseConversion,
@@ -36,8 +65,6 @@ export default function ReportsView(props) {
     blendedRoi,
     canEditReportingLayout,
     clientReportLink,
-    copiedClientReportLink,
-    copyClientReportLink,
     costPerLead,
     costPerLease,
     formatCurrency,
@@ -97,17 +124,8 @@ export default function ReportsView(props) {
     metaAdsLoading,
     metaAdsOverview,
     metaAdsStatusMessage,
-    moveReportingPanel,
     rangeDates,
     renderMetricValue,
-    renderPipelineStatusCard,
-    reportingAdminEnabled,
-    reportingLayoutDirty,
-    reportingLayoutDraft,
-    reportingLayoutError,
-    reportingLayoutLoading,
-    reportingLayoutNotice,
-    reportingLayoutSaving,
     reportingSourceBadge,
     reputationAverageRating,
     reputationLoading,
@@ -117,17 +135,15 @@ export default function ReportsView(props) {
     reputationStatusMessage,
     reputationSummary,
     reputationWindow,
-    resetReportingLayoutDraft,
     roiLoading,
     roiPipelineStatus,
+    roiPipelineStatusLoading,
     roiSourceBreakdown,
     roiTotals,
     runSiteAudit,
-    saveReportingLayoutDraft,
     screenshotPreviewError,
     screenshotPreviewLoading,
     screenshotPreviewUrl,
-    scrollToReportingPanel,
     selectedAuditPage,
     selectedHeatmapDevice,
     selectedHeatmapPath,
@@ -144,8 +160,6 @@ export default function ReportsView(props) {
     siteAuditNotice,
     siteAuditRunning,
     toggleMarketingSpendLine,
-    toggleReportingAdminMode,
-    toggleReportingPanelVisibility,
     totalApplications,
     totalBlendedMarketingSpend,
     totalLeads,
@@ -154,6 +168,210 @@ export default function ReportsView(props) {
     unattributedLeaseCount,
     updateHeatmapLayer,
   } = props;
+
+  const reportingLayoutUsesStagedAdapter = Boolean(REPORTING_LAYOUT_URL);
+  const [reportingLayoutLoading, setReportingLayoutLoading] = React.useState(true);
+  const [reportingLayoutSaving, setReportingLayoutSaving] = React.useState(false);
+  const [reportingLayoutError, setReportingLayoutError] = React.useState(null);
+  const [reportingLayoutNotice, setReportingLayoutNotice] = React.useState(null);
+  const [reportingLayoutDoc, setReportingLayoutDoc] = React.useState(() => normalizeReportingLayoutRecord(null));
+  const [reportingLayoutDraft, setReportingLayoutDraft] = React.useState(() => normalizeReportingLayoutRecord(null));
+  const [copiedClientReportLink, setCopiedClientReportLink] = React.useState(false);
+  const [reportingAdminEnabled, setReportingAdminEnabled] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(REPORTING_LAYOUT_STORAGE_KEY) === 'true';
+  });
+  const reportingLayoutDirty = React.useMemo(
+    () => JSON.stringify(reportingLayoutDraft) !== JSON.stringify(reportingLayoutDoc),
+    [reportingLayoutDraft, reportingLayoutDoc]
+  );
+  const activeReportingPanels = React.useMemo(() => {
+    const hiddenIds = new Set(reportingLayoutDraft.hiddenPanelIds);
+    return reportingLayoutDraft.panelOrder
+      .map((panelId) => REPORTING_PANEL_LIBRARY.find((panel) => panel.id === panelId))
+      .filter(Boolean)
+      .filter((panel) => !hiddenIds.has(panel.id));
+  }, [reportingLayoutDraft]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(REPORTING_LAYOUT_STORAGE_KEY, reportingAdminEnabled ? 'true' : 'false');
+  }, [reportingAdminEnabled]);
+
+  React.useEffect(() => {
+    if (!canEditReportingLayout && reportingAdminEnabled) {
+      setReportingAdminEnabled(false);
+    }
+  }, [canEditReportingLayout, reportingAdminEnabled]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const loadReportingLayout = async () => {
+      if (!selectedPropertyId) {
+        const fallback = normalizeReportingLayoutRecord(null);
+        setReportingLayoutDoc(fallback);
+        setReportingLayoutDraft(fallback);
+        setReportingLayoutError('No property is currently available for this account.');
+        setReportingLayoutLoading(false);
+        return;
+      }
+
+      if (!reportingLayoutUsesStagedAdapter) {
+        const fallback = normalizeReportingLayoutRecord(null);
+        setReportingLayoutDoc(fallback);
+        setReportingLayoutDraft(fallback);
+        setReportingLayoutError('Reporting layout endpoint is not configured.');
+        setReportingLayoutLoading(false);
+        return;
+      }
+
+      setReportingLayoutLoading(true);
+      setReportingLayoutError(null);
+      setReportingLayoutNotice(null);
+
+      try {
+        const params = new URLSearchParams({ property_id: selectedPropertyId });
+        const response = await authFetch(`${REPORTING_LAYOUT_URL}?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || payload?.status === 'error') {
+          throw new Error(payload?.error || `Reporting layout fetch failed: ${response.status}`);
+        }
+
+        if (cancelled) return;
+
+        const normalized = normalizeReportingLayoutRecord(payload.record);
+        setReportingLayoutDoc(normalized);
+        setReportingLayoutDraft(normalized);
+        setReportingLayoutLoading(false);
+      } catch (error) {
+        console.error('Reporting layout staged fetch failed', error);
+        if (cancelled) return;
+        const fallback = normalizeReportingLayoutRecord(null);
+        setReportingLayoutDoc(fallback);
+        setReportingLayoutDraft(fallback);
+        setReportingLayoutError('Unable to load the saved reporting layout from the staged adapter.');
+        setReportingLayoutLoading(false);
+      }
+    };
+
+    loadReportingLayout();
+    return () => {
+      cancelled = true;
+    };
+  }, [reportingLayoutUsesStagedAdapter, selectedPropertyId]);
+
+  const toggleReportingAdminMode = () => {
+    if (!canEditReportingLayout) {
+      setReportingLayoutError('Your current role can view reports, but cannot change reporting layout.');
+      return;
+    }
+    setReportingLayoutNotice(null);
+    setReportingLayoutError(null);
+    setReportingAdminEnabled((current) => !current);
+  };
+
+  const moveReportingPanel = (panelId, direction) => {
+    setReportingLayoutNotice(null);
+    setReportingLayoutError(null);
+    setReportingLayoutDraft((current) => {
+      const currentIndex = current.panelOrder.indexOf(panelId);
+      if (currentIndex === -1) return current;
+      const nextIndex = currentIndex + direction;
+      if (nextIndex < 0 || nextIndex >= current.panelOrder.length) return current;
+      const nextOrder = [...current.panelOrder];
+      const [moved] = nextOrder.splice(currentIndex, 1);
+      nextOrder.splice(nextIndex, 0, moved);
+      return {
+        ...current,
+        panelOrder: nextOrder
+      };
+    });
+  };
+
+  const toggleReportingPanelVisibility = (panelId) => {
+    setReportingLayoutNotice(null);
+    setReportingLayoutError(null);
+    setReportingLayoutDraft((current) => {
+      const hidden = new Set(current.hiddenPanelIds);
+      if (hidden.has(panelId)) hidden.delete(panelId);
+      else hidden.add(panelId);
+      return {
+        ...current,
+        hiddenPanelIds: REPORTING_PANEL_IDS.filter((id) => hidden.has(id))
+      };
+    });
+  };
+
+  const resetReportingLayoutDraft = () => {
+    setReportingLayoutDraft(reportingLayoutDoc);
+    setReportingLayoutNotice('Unsaved reporting layout changes were discarded.');
+    setReportingLayoutError(null);
+  };
+
+  const saveReportingLayoutDraft = async () => {
+    if (!selectedPropertyId) {
+      setReportingLayoutError('No property is currently available for this account.');
+      return;
+    }
+    if (!canEditReportingLayout) {
+      setReportingLayoutError('Your current role can view reporting, but cannot change panel layout.');
+      return;
+    }
+
+    setReportingLayoutSaving(true);
+    setReportingLayoutError(null);
+    setReportingLayoutNotice(null);
+
+    try {
+      if (!reportingLayoutUsesStagedAdapter) {
+        throw new Error('Reporting layout endpoint is not configured.');
+      }
+      const normalizedDraft = normalizeReportingLayoutRecord(reportingLayoutDraft);
+      const response = await authFetch(REPORTING_LAYOUT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          property_id: selectedPropertyId,
+          propertyId: selectedPropertyId,
+          propertyName: selectedPropertyLabel || '',
+          ...normalizedDraft,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Reporting layout save failed: ${response.status}`);
+      }
+      const savedRecord = normalizeReportingLayoutRecord(payload.record);
+      setReportingLayoutDoc(savedRecord);
+      setReportingLayoutDraft(savedRecord);
+      setReportingLayoutNotice('Reporting layout saved for this property.');
+    } catch (error) {
+      console.error('Reporting layout save failed', error);
+      setReportingLayoutError(error.message || 'Unable to save the reporting layout.');
+    } finally {
+      setReportingLayoutSaving(false);
+    }
+  };
+
+  const scrollToReportingPanel = (panelId) => {
+    const target = document.getElementById(`reporting-panel-${panelId}`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const copyClientReportLink = async () => {
+    if (!clientReportLink) return;
+
+    try {
+      await navigator.clipboard.writeText(clientReportLink);
+      setCopiedClientReportLink(true);
+      window.setTimeout(() => setCopiedClientReportLink(false), 1800);
+    } catch {
+      setReportingLayoutError('Unable to copy the client report link. Select the link text and copy it manually.');
+    }
+  };
 
   const activeMarketingSpendLineCount = React.useMemo(() => (
     marketingSpendBreakdown.filter((item) => !item.excluded).length
@@ -181,6 +399,51 @@ export default function ReportsView(props) {
       name: labelCounts[item.label] > 1 && item.keyword ? `${item.label} ${shortenLabel(item.keyword, 14)}` : item.label,
     }));
   }, [localFalconData, shortenLabel]);
+  const formatPipelineTimestamp = (value) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleString();
+  };
+  const renderPipelineStatusCard = (title, status) => {
+    const progress = status?.progress || {};
+    const phase = status?.phase || 'unknown';
+    const isComplete = Boolean(status?.completed);
+    const isActive = Boolean(status?.active);
+
+    const progressRows = [];
+    if (progress.raw_days_total) {
+      progressRows.push(`Raw days: ${progress.raw_days_processed}/${progress.raw_days_total}`);
+    }
+    if (progress.attribution_properties_total) {
+      progressRows.push(`Attribution props: ${progress.attribution_properties_processed}/${progress.attribution_properties_total}`);
+    }
+    if (progress.aggregate_properties_total) {
+      progressRows.push(`Aggregate props: ${progress.aggregate_properties_processed}/${progress.aggregate_properties_total}`);
+    }
+
+    return (
+      <div className="card span-2" style={{ background: 'var(--panel-soft)', color: 'var(--white)' }}>
+        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>{title}</div>
+        {roiPipelineStatusLoading ? (
+          <div style={{ marginTop: '1rem', opacity: 0.6 }}>Loading pipeline status...</div>
+        ) : !status ? (
+          <div style={{ marginTop: '1rem', opacity: 0.6 }}>No pipeline status available.</div>
+        ) : (
+          <div style={{ marginTop: '0.85rem', display: 'grid', gap: '0.45rem', fontSize: '0.88rem' }}>
+            <div><strong>Status:</strong> {isComplete ? 'Completed' : isActive ? 'Active' : 'Idle'}</div>
+            <div><strong>Phase:</strong> {phase}</div>
+            <div><strong>Window:</strong> {status.report_start_date || '-'} to {status.report_end_date || '-'}</div>
+            <div><strong>Last update:</strong> {formatPipelineTimestamp(status.last_processed_at)}</div>
+            {progressRows.map((row) => (
+              <div key={row}>{row}</div>
+            ))}
+            <div style={{ opacity: 0.75 }}><strong>Summary:</strong> {status.last_summary || '-'}</div>
+          </div>
+        )}
+      </div>
+    );
+  };
   const reportingPanelSummaries = React.useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
