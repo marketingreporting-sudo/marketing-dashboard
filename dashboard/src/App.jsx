@@ -125,6 +125,7 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dashboardSidebarCollapsed';
 const ALL_PROPERTIES_OPTION = '__all__';
 const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
 const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
+const AUDIT_FINDING_WORKFLOW_STORAGE_KEY_PREFIX = 'auditFindingWorkflowState';
 const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
 const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
 const RECOMMENDATION_FEEDBACK_TAGS = [
@@ -173,6 +174,55 @@ const REPORTING_PANEL_LIBRARY = [
 ];
 const REPORTING_PANEL_IDS = REPORTING_PANEL_LIBRARY.map((panel) => panel.id);
 const HEATMAP_DEVICE_OPTIONS = ['desktop', 'mobile', 'tablet'];
+const AUDIT_TABLE_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'critical', label: 'Critical' },
+  { id: 'no-audit', label: 'No audit' },
+  { id: 'pricing', label: 'Pricing' },
+  { id: 'application', label: 'Application' },
+  { id: 'specials', label: 'Specials' },
+  { id: 'broken-links', label: 'Broken links' },
+  { id: 'mobile', label: 'Mobile' },
+  { id: 'stale-copy', label: 'Stale copy' },
+];
+const AUDIT_RISK_ORDER = {
+  Critical: 5,
+  High: 4,
+  Watch: 3,
+  Healthy: 2,
+  'No audit': 1,
+};
+const AUDIT_RUBRIC_ITEMS = [
+  { key: 'page_load_desktop_mobile', label: 'Desktop/mobile load' },
+  { key: 'application_flow_visible', label: 'Application flow' },
+  { key: 'floor_plan_availability', label: 'Floor plan availability' },
+  { key: 'pricing_accuracy', label: 'Pricing accuracy' },
+  { key: 'homepage_cta', label: 'Homepage CTA' },
+  { key: 'homepage_value_add', label: 'Homepage value-add' },
+  { key: 'special_offers_current', label: 'Special offers' },
+  { key: 'leasing_verbiage', label: 'Leasing verbiage' },
+  { key: 'contact_info_hours', label: 'Contact info/hours' },
+];
+const AUDIT_RUBRIC_FALLBACK_MAP = {
+  page_load_desktop_mobile: 'performanceProxy',
+  application_flow_visible: 'ctaClarity',
+  floor_plan_availability: 'pageStructure',
+  pricing_accuracy: 'pageStructure',
+  homepage_cta: 'ctaClarity',
+  homepage_value_add: 'seoBasics',
+  special_offers_current: 'staleDates',
+  leasing_verbiage: 'seoBasics',
+  contact_info_hours: 'pageStructure',
+};
+const AUDIT_FINDING_WORKFLOW_STATUSES = [
+  { id: 'new', label: 'New' },
+  { id: 'confirmed', label: 'Confirmed' },
+  { id: 'assigned', label: 'Assigned' },
+  { id: 'fixed', label: 'Fixed' },
+  { id: 'ignored', label: 'Ignored' },
+  { id: 'needs_manual_qa', label: 'Needs manual QA' },
+];
+const AUDIT_FINDING_WORKFLOW_STATUS_IDS = AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => status.id);
 const TASK_STATUSES = [
   { id: 'new', label: 'New' },
   { id: 'in_progress', label: 'In Progress' },
@@ -539,6 +589,11 @@ const getDashboardWorkspaceStateKey = (user) => {
   return `${DASHBOARD_WORKSPACE_STATE_KEY_PREFIX}:${accountId}`;
 };
 
+const getAuditFindingWorkflowStorageKey = (user) => {
+  const accountId = user?.id || user?.email || 'anonymous';
+  return `${AUDIT_FINDING_WORKFLOW_STORAGE_KEY_PREFIX}:${accountId}`;
+};
+
 const readDashboardWorkspaceState = (storageKey) => {
   if (typeof window === 'undefined' || !storageKey) return {};
 
@@ -550,6 +605,23 @@ const readDashboardWorkspaceState = (storageKey) => {
   } catch {
     return {};
   }
+};
+
+const readAuditFindingWorkflowState = (storageKey) => {
+  if (typeof window === 'undefined' || !storageKey) return {};
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeAuditFindingWorkflowState = (storageKey, state) => {
+  if (typeof window === 'undefined' || !storageKey) return;
+  window.localStorage.setItem(storageKey, JSON.stringify(state && typeof state === 'object' ? state : {}));
 };
 
 const isDateInputValue = (value) => (
@@ -1803,11 +1875,111 @@ const renderMetricValue = (isLoading, value) => (
   isLoading ? <MiniMetricLoader /> : value
 );
 
+const AuditScoreSparkline = ({ points = [] }) => {
+  const cleanPoints = points
+    .map((point) => Number(point?.score))
+    .filter((score) => Number.isFinite(score));
+  if (cleanPoints.length < 2) {
+    return <span className="audit-sparkline audit-sparkline--empty">No trend</span>;
+  }
+  const width = 112;
+  const height = 34;
+  const min = Math.min(50, ...cleanPoints);
+  const max = Math.max(100, ...cleanPoints);
+  const range = Math.max(1, max - min);
+  const step = width / Math.max(1, cleanPoints.length - 1);
+  const path = cleanPoints.map((score, index) => {
+    const x = index * step;
+    const y = height - ((score - min) / range) * height;
+    return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const latest = cleanPoints[cleanPoints.length - 1];
+  const previous = cleanPoints[cleanPoints.length - 2];
+  const tone = latest >= previous ? 'positive' : 'negative';
+  return (
+    <svg className={`audit-sparkline audit-sparkline--${tone}`} viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Score trend ${cleanPoints.join(', ')}`}>
+      <path d={path} fill="none" />
+      {cleanPoints.map((score, index) => {
+        const x = index * step;
+        const y = height - ((score - min) / range) * height;
+        return <circle key={`${score}-${index}`} cx={x} cy={y} r={2.2} />;
+      })}
+    </svg>
+  );
+};
+
 const getDeltaTone = (value) => {
   if (value == null || Number.isNaN(Number(value))) return 'neutral';
   if (Number(value) > 0) return 'positive';
   if (Number(value) < 0) return 'negative';
   return 'neutral';
+};
+
+const formatAuditScoreChange = (value) => {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  const numeric = Number(value);
+  const prefix = numeric > 0 ? '+' : '';
+  return `${prefix}${numeric.toFixed(1)} pts`;
+};
+
+const getAuditRiskClass = (tier) => {
+  const normalized = String(tier || '').toLowerCase().replace(/\s+/g, '-');
+  return normalized || 'unknown';
+};
+
+const getAuditReasonText = (reason) => {
+  if (!reason) return '';
+  if (typeof reason === 'string') return reason;
+  return reason.issue || reason.text || reason.evidence || '';
+};
+
+const normalizeAuditRubricStatus = (value, score) => {
+  const status = String(value || '').toLowerCase().replace(/\s+/g, '_');
+  if (['pass', 'warn', 'fail', 'not_verifiable'].includes(status)) return status;
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return 'not_verifiable';
+  if (numeric < 70) return 'fail';
+  if (numeric < 85) return 'warn';
+  return 'pass';
+};
+
+const getAuditRubricStatusLabel = (status) => ({
+  pass: 'Pass',
+  warn: 'Warn',
+  fail: 'Fail',
+  not_verifiable: 'Not verifiable',
+}[status] || 'Not verifiable');
+
+const getAuditFindingWorkflowLabel = (status) => (
+  AUDIT_FINDING_WORKFLOW_STATUSES.find((item) => item.id === status)?.label || 'New'
+);
+
+const getAuditFindingKey = (propertyId, reason, index = 0) => {
+  const signature = [
+    propertyId || 'property',
+    reason?.rubricKey || reason?.category || 'finding',
+    reason?.path || '',
+    reason?.issue || reason?.rubricLabel || reason?.evidence || '',
+    index,
+  ].join('|').toLowerCase();
+  return signature.replace(/[^a-z0-9|_-]+/g, '-').slice(0, 220);
+};
+
+const propertyMatchesAuditFilter = (property, filterId) => {
+  if (!property || filterId === 'all') return true;
+  const reasons = Array.isArray(property.flaggedReasons) ? property.flaggedReasons : [];
+  const reasonText = reasons.map((reason) => `${reason.category || ''} ${getAuditReasonText(reason)} ${reason.rubricKey || ''}`).join(' ').toLowerCase();
+  const topRubric = `${property.topFailingRubric?.key || ''} ${property.topFailingRubric?.label || ''}`.toLowerCase();
+  const combined = `${reasonText} ${topRubric} ${property.topIssue || ''}`.toLowerCase();
+  if (filterId === 'critical') return property.riskTier === 'Critical';
+  if (filterId === 'no-audit') return !property.hasAudit;
+  if (filterId === 'pricing') return combined.includes('pricing') || combined.includes('price') || combined.includes('rent');
+  if (filterId === 'application') return combined.includes('application') || combined.includes('apply') || combined.includes('lease now');
+  if (filterId === 'specials') return combined.includes('special') || combined.includes('offer') || combined.includes('promo');
+  if (filterId === 'broken-links') return Number(property.brokenLinkCount || 0) > 0 || combined.includes('broken link');
+  if (filterId === 'mobile') return combined.includes('mobile') || combined.includes('desktop') || combined.includes('load');
+  if (filterId === 'stale-copy') return Number(property.staleDateCount || 0) > 0 || combined.includes('stale') || combined.includes('expired');
+  return true;
 };
 
 const getLocalFalconRankTone = (rank) => {
@@ -1984,6 +2156,10 @@ const DashboardApp = ({
     () => getDashboardWorkspaceStateKey(currentUser),
     [currentUser]
   );
+  const auditFindingWorkflowStorageKey = useMemo(
+    () => getAuditFindingWorkflowStorageKey(currentUser),
+    [currentUser]
+  );
   const savedWorkspaceState = useMemo(
     () => normalizeSavedDashboardState(readDashboardWorkspaceState(workspaceStateStorageKey), defaultPropertyId),
     [defaultPropertyId, workspaceStateStorageKey]
@@ -2056,6 +2232,11 @@ const DashboardApp = ({
   const [portfolioAuditLoading, setPortfolioAuditLoading] = useState(false);
   const [portfolioAuditError, setPortfolioAuditError] = useState(null);
   const [portfolioAuditProperties, setPortfolioAuditProperties] = useState([]);
+  const [auditTableFilter, setAuditTableFilter] = useState('all');
+  const [auditPortfolioFilter, setAuditPortfolioFilter] = useState('all');
+  const [auditRegionFilter, setAuditRegionFilter] = useState('all');
+  const [auditTableSort, setAuditTableSort] = useState({ key: 'riskTier', direction: 'desc' });
+  const [auditFindingWorkflowState, setAuditFindingWorkflowState] = useState(() => readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
   const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState('');
   const [screenshotPreviewLoading, setScreenshotPreviewLoading] = useState(false);
   const [screenshotPreviewError, setScreenshotPreviewError] = useState(null);
@@ -2499,6 +2680,14 @@ const DashboardApp = ({
       })
     );
   }, [activeTab, customRange, dateRange, excludedMarketingSpendKeys, isClientReportMode, metaAdsAttributionMode, selectedPropertyId, workspaceStateStorageKey]);
+
+  useEffect(() => {
+    setAuditFindingWorkflowState(readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
+  }, [auditFindingWorkflowStorageKey]);
+
+  useEffect(() => {
+    writeAuditFindingWorkflowState(auditFindingWorkflowStorageKey, auditFindingWorkflowState);
+  }, [auditFindingWorkflowState, auditFindingWorkflowStorageKey]);
 
   useEffect(() => {
     if (!canEditReportingLayout && reportingAdminEnabled) {
@@ -6706,10 +6895,149 @@ const DashboardApp = ({
     () => portfolioAuditProperties.find((property) => property.propertyId === selectedPropertyId) || portfolioAuditProperties[0] || null,
     [portfolioAuditProperties, selectedPropertyId]
   );
+  const updateAuditFindingWorkflow = useCallback((findingKey, status) => {
+    if (!findingKey || !AUDIT_FINDING_WORKFLOW_STATUS_IDS.includes(status)) return;
+    setAuditFindingWorkflowState((current) => ({
+      ...current,
+      [findingKey]: {
+        status,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+  }, []);
+  const auditPortfolioOptions = useMemo(() => (
+    [...new Set(portfolioAuditProperties.map((property) => property.portfolio).filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b)))
+  ), [portfolioAuditProperties]);
+  const auditRegionOptions = useMemo(() => (
+    [...new Set(portfolioAuditProperties.map((property) => [property.state, property.city].filter(Boolean).join(' / ')).filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b)))
+  ), [portfolioAuditProperties]);
+  const filteredPortfolioAuditProperties = useMemo(() => {
+    const sortMultiplier = auditTableSort.direction === 'asc' ? 1 : -1;
+    const getSortValue = (property) => {
+      if (auditTableSort.key === 'propertyName') return String(property.propertyName || '').toLowerCase();
+      if (auditTableSort.key === 'riskTier') return AUDIT_RISK_ORDER[property.riskTier] || 0;
+      if (auditTableSort.key === 'performanceScore') return property.performanceScore == null ? -1 : Number(property.performanceScore);
+      if (auditTableSort.key === 'scoreChange') return property.scoreChange == null ? -999 : Number(property.scoreChange);
+      if (auditTableSort.key === 'trend') return (Number(property.newIssueCount || 0) * 4) + (Number(property.regressedIssueCount || 0) * 5) - (Number(property.resolvedIssueCount || 0) * 2) - Number(property.scoreChange || 0);
+      if (auditTableSort.key === 'topFailingRubric') return Number(property.topFailingRubric?.score ?? 101);
+      if (auditTableSort.key === 'auditedAt') return property.auditedAt ? new Date(property.auditedAt).getTime() : 0;
+      if (auditTableSort.key === 'issueCount') return Number(property.issueCount || 0);
+      if (auditTableSort.key === 'confidence') return Number(property.confidence?.score || 0);
+      if (auditTableSort.key === 'auditStatus') return String(property.auditStatus || '').toLowerCase();
+      return 0;
+    };
+    return portfolioAuditProperties
+      .filter((property) => propertyMatchesAuditFilter(property, auditTableFilter))
+      .filter((property) => auditPortfolioFilter === 'all' || property.portfolio === auditPortfolioFilter)
+      .filter((property) => auditRegionFilter === 'all' || [property.state, property.city].filter(Boolean).join(' / ') === auditRegionFilter)
+      .sort((a, b) => {
+        const left = getSortValue(a);
+        const right = getSortValue(b);
+        if (typeof left === 'string' || typeof right === 'string') {
+          return String(left).localeCompare(String(right)) * sortMultiplier;
+        }
+        if (left === right) return String(a.propertyName || '').localeCompare(String(b.propertyName || ''));
+        return (Number(left) - Number(right)) * sortMultiplier;
+      });
+  }, [auditPortfolioFilter, auditRegionFilter, auditTableFilter, auditTableSort, portfolioAuditProperties]);
+  const selectedAuditReasonPool = useMemo(() => {
+    const portfolioReasons = Array.isArray(selectedPortfolioAudit?.flaggedReasons) ? selectedPortfolioAudit.flaggedReasons : [];
+    const baseReasons = portfolioReasons.length ? portfolioReasons : (auditIssues || []).map((item) => ({
+      category: 'Website QA',
+      issue: typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding',
+      evidence: typeof item === 'string' ? 'Detected in latest audit output.' : item.evidence || item.path || 'Detected in latest audit output.',
+      recommendation: typeof item === 'string' ? 'Review the affected page and update website content as needed.' : item.recommendation || 'Review the affected page and update website content as needed.',
+      confidence: selectedPortfolioAudit?.confidence?.label || 'Medium',
+    }));
+    return baseReasons.map((reason, index) => {
+      const workflowKey = getAuditFindingKey(selectedPortfolioAudit?.propertyId || selectedPropertyId, reason, index);
+      const workflow = auditFindingWorkflowState[workflowKey] || { status: 'new' };
+      return {
+        ...reason,
+        workflowKey,
+        workflowStatus: workflow.status || 'new',
+        workflowUpdatedAt: workflow.updatedAt || null,
+      };
+    });
+  }, [auditFindingWorkflowState, auditIssues, selectedPortfolioAudit, selectedPropertyId]);
+  const selectedAuditFlaggedReasons = useMemo(() => (
+    selectedAuditReasonPool.slice(0, 3)
+  ), [selectedAuditReasonPool]);
+  const auditRubricRows = useMemo(() => {
+    const checklistByKey = new Map(
+      (aiAuditChecklist || [])
+        .filter((item) => item && item.key)
+        .map((item) => [item.key, item])
+    );
+    const categoryByKey = new Map(
+      (auditCategoryScores || [])
+        .filter((item) => item && item.key)
+        .map((item) => [item.key, item])
+    );
+    return AUDIT_RUBRIC_ITEMS.map((rubric) => {
+      const checklistItem = checklistByKey.get(rubric.key);
+      const fallbackCategory = categoryByKey.get(AUDIT_RUBRIC_FALLBACK_MAP[rubric.key]);
+      const score = checklistItem?.score ?? fallbackCategory?.score;
+      const status = normalizeAuditRubricStatus(checklistItem?.status, score);
+      const source = checklistItem
+        ? 'AI screenshot audit'
+        : fallbackCategory
+          ? 'Deterministic metadata proxy'
+          : 'Not evaluated';
+      return {
+        key: rubric.key,
+        label: checklistItem?.label || rubric.label,
+        status,
+        score,
+        evidence: checklistItem?.evidence || (fallbackCategory ? `${fallbackCategory.label || rubric.label} proxy score ${formatNumber(fallbackCategory.score, 0)}.` : 'No evidence captured for this rubric item yet.'),
+        source,
+        confidence: checklistItem ? selectedPortfolioAudit?.confidence?.label || 'Medium' : fallbackCategory ? 'Medium' : 'Low',
+        recommendation: checklistItem?.recommendation || (status === 'pass' ? 'No immediate fix needed.' : 'Run a fresh AI screenshot audit or manually verify this item.'),
+      };
+    });
+  }, [aiAuditChecklist, auditCategoryScores, selectedPortfolioAudit]);
+  const auditScreenshotAnnotations = useMemo(() => {
+    const rubricAnnotations = auditRubricRows
+      .filter((row) => row.status === 'fail' || row.status === 'warn')
+      .map((row) => {
+        const label = {
+          homepage_cta: 'CTA missing above fold',
+          pricing_accuracy: 'Pricing not visible here',
+          application_flow_visible: 'Application path needs review',
+          floor_plan_availability: 'Availability not clear',
+          special_offers_current: 'Special offer mismatch',
+          page_load_desktop_mobile: 'Device/load issue',
+          homepage_value_add: 'Value-add unclear',
+          leasing_verbiage: 'Leasing copy needs review',
+          contact_info_hours: 'Contact info/hours need review',
+        }[row.key] || row.label;
+        return {
+          label,
+          status: row.status,
+          evidence: row.evidence,
+          source: row.source,
+        };
+      });
+    const reasonAnnotations = selectedAuditReasonPool.map((reason) => ({
+      label: reason.category || reason.rubricLabel || 'Audit finding',
+      status: String(reason.severity || '').toLowerCase() === 'high' ? 'fail' : 'warn',
+      evidence: reason.evidence || getAuditReasonText(reason),
+      source: 'Ranked audit finding',
+    }));
+    const seen = new Set();
+    return [...rubricAnnotations, ...reasonAnnotations].filter((item) => {
+      const key = `${item.label}-${item.evidence}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 5);
+  }, [auditRubricRows, selectedAuditReasonPool]);
   const portfolioAuditSummary = useMemo(() => {
     const totalProperties = portfolioAuditProperties.length;
     const missingAudits = portfolioAuditProperties.filter((property) => !property.hasAudit).length;
-    const urgentProperties = portfolioAuditProperties.filter((property) => Number(property.performanceScore ?? 101) < 70).length;
+    const urgentProperties = portfolioAuditProperties.filter((property) => property.riskTier === 'Critical' || Number(property.performanceScore ?? 101) < 70).length;
     const brokenLinkProperties = portfolioAuditProperties.filter((property) => Number(property.brokenLinkCount || 0) > 0).length;
     const staleDateProperties = portfolioAuditProperties.filter((property) => Number(property.staleDateCount || 0) > 0).length;
     return {
@@ -9315,189 +9643,407 @@ const DashboardApp = ({
     </section>
   );
 
-  const renderAuditCommandCenter = () => (
-    <div className="audit-view">
-      <div className="audit-shell">
-        <div className="audit-hero">
-          <div>
-            <div className="reports-kicker">Internal Command Center</div>
-            <div className="reports-headline">Website audit priorities across every property.</div>
-            <div className="reports-subhead">
-              Rank sites by audit score, scan CTA and urgency gaps, catch stale dates, flag broken links, and decide where the web team should focus next.
+  const renderAuditCommandCenter = () => {
+    const sortButton = (key, label) => (
+      <button
+        type="button"
+        className="audit-table__sort"
+        onClick={() => setAuditTableSort((current) => ({
+          key,
+          direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
+        }))}
+      >
+        <span>{label}</span>
+        <span aria-hidden="true">{auditTableSort.key === key ? (auditTableSort.direction === 'desc' ? 'v' : '^') : ''}</span>
+      </button>
+    );
+
+    return (
+      <div className="audit-view">
+        <div className="audit-shell">
+          <div className="audit-hero">
+            <div>
+              <div className="reports-kicker">Internal Command Center</div>
+              <div className="reports-headline">Website audit priorities across every property.</div>
+              <div className="reports-subhead">
+                Rank sites by risk tier, confidence, audit movement, failing rubric, and issue load so web cleanup starts with the properties most likely to cost leases.
+              </div>
+            </div>
+            <div className="reports-chip-row">
+              <div className="reports-chip">All properties</div>
+              <div className="reports-chip">{portfolioAuditSummary.urgentProperties} urgent</div>
+              <div className="reports-chip">{portfolioAuditSummary.missingAudits} awaiting first audit</div>
             </div>
           </div>
-          <div className="reports-chip-row">
-            <div className="reports-chip">All properties</div>
-            <div className="reports-chip">{portfolioAuditSummary.urgentProperties} below 70</div>
-            <div className="reports-chip">{portfolioAuditSummary.missingAudits} awaiting first audit</div>
-          </div>
-        </div>
 
-        <div className="audit-kpi-grid">
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Properties tracked</div>
-            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.totalProperties)}</div>
-            <div className="reports-kpi-card__meta">Every property visible in this internal-only queue</div>
+          <div className="audit-kpi-grid">
+            <div className="reports-kpi-card">
+              <div className="reports-kpi-card__label">Properties tracked</div>
+              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.totalProperties)}</div>
+              <div className="reports-kpi-card__meta">Every property visible in this internal-only queue</div>
+            </div>
+            <div className="reports-kpi-card">
+              <div className="reports-kpi-card__label">Needs urgent cleanup</div>
+              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.urgentProperties)}</div>
+              <div className="reports-kpi-card__meta">Critical risk or audit score below 70</div>
+            </div>
+            <div className="reports-kpi-card">
+              <div className="reports-kpi-card__label">Broken link risk</div>
+              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.brokenLinkProperties)}</div>
+              <div className="reports-kpi-card__meta">Properties with suspicious internal links</div>
+            </div>
+            <div className="reports-kpi-card">
+              <div className="reports-kpi-card__label">Outdated date risk</div>
+              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.staleDateProperties)}</div>
+              <div className="reports-kpi-card__meta">Properties with stale or expiring date copy</div>
+            </div>
           </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Needs urgent cleanup</div>
-            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.urgentProperties)}</div>
-            <div className="reports-kpi-card__meta">Properties with audit scores below 70</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Broken link risk</div>
-            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.brokenLinkProperties)}</div>
-            <div className="reports-kpi-card__meta">Properties with suspicious internal links</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Outdated date risk</div>
-            <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.staleDateProperties)}</div>
-            <div className="reports-kpi-card__meta">Properties with stale or expiring date copy</div>
-          </div>
-        </div>
 
-        <div className="audit-workspace">
-          <section className="reports-panel">
-            <div className="reports-panel__eyebrow">Priority Queue</div>
-            <div className="reports-panel__title">Lowest scores rise to the top</div>
-            {portfolioAuditError && <div className="reports-empty">{portfolioAuditError}</div>}
-            {!portfolioAuditError && (
-              <div className="audit-leaderboard">
-                {portfolioAuditLoading && <div className="reports-empty">Loading portfolio audit data…</div>}
-                {!portfolioAuditLoading && portfolioAuditProperties.map((property, index) => {
-                  const isActive = property.propertyId === selectedPortfolioAudit?.propertyId;
-                  const scoreLabel = property.performanceScore != null ? Math.round(property.performanceScore) : '—';
-                  const issueSummary = [
-                    `${formatNumber(property.issueCount)} issues`,
-                    `${formatNumber(property.brokenLinkCount)} broken links`,
-                    `${formatNumber(property.staleDateCount)} stale dates`,
-                    `${formatNumber(property.ctaMissingPageCount)} CTA gaps`,
-                  ].join(' | ');
-
-                  return (
+          <div className="audit-workspace">
+            <section className="reports-panel audit-table-panel">
+              <div className="reports-panel__eyebrow">Priority Table</div>
+              <div className="reports-panel__title">Sortable audit triage</div>
+              <div className="audit-filter-bar">
+                <div className="audit-filter-tabs" aria-label="Audit risk filters">
+                  {AUDIT_TABLE_FILTERS.map((filter) => (
                     <button
-                      key={property.propertyId}
+                      key={filter.id}
                       type="button"
-                      className={`audit-leaderboard__row ${isActive ? 'is-active' : ''}`}
-                      onClick={() => setSelectedPropertyId(property.propertyId)}
+                      className={`audit-filter-tab${auditTableFilter === filter.id ? ' is-active' : ''}`}
+                      onClick={() => setAuditTableFilter(filter.id)}
                     >
-                      <div className="audit-leaderboard__rank">{String(index + 1).padStart(2, '0')}</div>
-                      <div className="audit-leaderboard__content">
-                        <div className="audit-leaderboard__topline">
-                          <strong>{property.propertyName}</strong>
-                          <span>{[property.city, property.state].filter(Boolean).join(', ') || 'Location pending'}</span>
-                        </div>
-                        <div className="audit-leaderboard__meta">{property.summary || property.topIssue}</div>
-                        <div className="audit-leaderboard__signals">{issueSummary}</div>
-                      </div>
-                      <div className="audit-leaderboard__score">
-                        <strong>{scoreLabel}</strong>
-                        <span>{property.hasAudit ? 'audit score' : 'needs audit'}</span>
-                      </div>
+                      {filter.label}
                     </button>
-                  );
-                })}
-                {!portfolioAuditLoading && portfolioAuditProperties.length === 0 && (
-                  <div className="reports-empty">No portfolio audit records are available yet.</div>
-                )}
-              </div>
-            )}
-          </section>
-
-          <section className="reports-panel">
-            <div className="reports-panel__eyebrow">Selected Property</div>
-            <div className="reports-panel__title">
-              {selectedPortfolioAudit?.propertyName || selectedPropertyLabel || 'Choose a property'}
-            </div>
-            {siteAuditNotice && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{siteAuditNotice}</div>}
-            <div className="audit-detail-toolbar">
-              <label className="website-manager-field">
-                <span className="website-manager-field__label">Audit page</span>
-                <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
-                  {auditPageOptions.map((page) => <option key={page.path || page.id} value={page.path || '/'}>{page.title || page.path || '/'}</option>)}
-                  {auditPageOptions.length === 0 && <option value="">No audit pages captured yet</option>}
-                </select>
-              </label>
-              <label className="website-manager-field">
-                <span className="website-manager-field__label">Screenshot device</span>
-                <select className="website-manager-field__input" value={selectedHeatmapDevice} onChange={(event) => setSelectedHeatmapDevice(event.target.value)}>
-                  {HEATMAP_DEVICE_OPTIONS.map((device) => <option key={device} value={device}>{device}</option>)}
-                </select>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'end' }}>
-                <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading || !selectedPropertyId}>
-                  {siteAuditRunning ? 'Queueing…' : 'Queue AI Audit'}
-                </button>
-              </div>
-            </div>
-
-            <div className="reports-panel__grid reports-panel__grid--three">
-              <div className="reports-stat"><span>Audit Score</span><strong>{renderMetricValue(siteAuditLoading, auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—')}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'} · {auditModeLabel}</small></div>
-              <div className="reports-stat"><span>Urgency / CTA</span><strong>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</strong><small>{auditPageResult?.ctaCount ?? selectedPortfolioAudit?.ctaMissingPageCount ?? 0} CTA gaps surfaced</small></div>
-              <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
-            </div>
-
-            <div className="audit-detail-grid">
-              <div className="audit-screenshot-card">
-                {screenshotPreviewUrl ? (
-                  <img src={screenshotPreviewUrl} alt={`${selectedPortfolioAudit?.propertyName || selectedPropertyLabel} site screenshot`} className="audit-screenshot-card__image" />
-                ) : (
-                  <div className="audit-screenshot-card__empty">No screenshot preview stored for this page and device yet.</div>
-                )}
-                <div className="audit-screenshot-card__meta">
-                  <strong>Screenshot</strong>
-                  <span>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No capture yet'}</span>
+                  ))}
+                </div>
+                <div className="audit-filter-selects">
+                  <label className="website-manager-field">
+                    <span className="website-manager-field__label">Portfolio</span>
+                    <select className="website-manager-field__input" value={auditPortfolioFilter} onChange={(event) => setAuditPortfolioFilter(event.target.value)}>
+                      <option value="all">All portfolios</option>
+                      {auditPortfolioOptions.map((portfolio) => <option key={portfolio} value={portfolio}>{portfolio}</option>)}
+                    </select>
+                  </label>
+                  <label className="website-manager-field">
+                    <span className="website-manager-field__label">Region</span>
+                    <select className="website-manager-field__input" value={auditRegionFilter} onChange={(event) => setAuditRegionFilter(event.target.value)}>
+                      <option value="all">All regions</option>
+                      {auditRegionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
+                    </select>
+                  </label>
                 </div>
               </div>
+              {portfolioAuditError && <div className="reports-empty">{portfolioAuditError}</div>}
+              {!portfolioAuditError && (
+                <div className="audit-table-wrap">
+                  {portfolioAuditLoading && <div className="reports-empty">Loading portfolio audit data…</div>}
+                  {!portfolioAuditLoading && (
+                    <table className="audit-table">
+                      <thead>
+                        <tr>
+                          <th>{sortButton('propertyName', 'Property')}</th>
+                          <th>{sortButton('riskTier', 'Risk')}</th>
+                          <th>{sortButton('performanceScore', 'Score')}</th>
+                          <th>{sortButton('scoreChange', 'Change')}</th>
+                          <th>{sortButton('trend', 'Trend')}</th>
+                          <th>{sortButton('topFailingRubric', 'Top failing rubric')}</th>
+                          <th>{sortButton('auditedAt', 'Last audited')}</th>
+                          <th>{sortButton('issueCount', 'Issues')}</th>
+                          <th>{sortButton('confidence', 'Confidence')}</th>
+                          <th>{sortButton('auditStatus', 'Status')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredPortfolioAuditProperties.map((property) => {
+                          const isActive = property.propertyId === selectedPortfolioAudit?.propertyId;
+                          const riskClass = getAuditRiskClass(property.riskTier);
+                          return (
+                            <tr
+                              key={property.propertyId}
+                              className={isActive ? 'is-active' : ''}
+                              onClick={() => setSelectedPropertyId(property.propertyId)}
+                            >
+                              <td>
+                                <button type="button" className="audit-table__property" onClick={() => setSelectedPropertyId(property.propertyId)}>
+                                  <strong>{property.propertyName}</strong>
+                                  <span>{[property.city, property.state].filter(Boolean).join(', ') || 'Location pending'}</span>
+                                </button>
+                              </td>
+                              <td><span className={`audit-risk-pill audit-risk-pill--${riskClass}`}>{property.riskTier || 'Unknown'}</span></td>
+                              <td><strong>{property.performanceScore != null ? Math.round(property.performanceScore) : '—'}</strong></td>
+                              <td><span className={`audit-delta audit-delta--${getDeltaTone(property.scoreChange)}`}>{formatAuditScoreChange(property.scoreChange)}</span></td>
+                              <td>
+                                <div className="audit-trend-cell">
+                                  <AuditScoreSparkline points={property.scoreHistory || property.trend?.scoreHistory || []} />
+                                  <span>
+                                    +{formatNumber(property.newIssueCount || 0)} new · {formatNumber(property.regressedIssueCount || 0)} regressed · {formatNumber(property.resolvedIssueCount || 0)} resolved
+                                  </span>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="audit-table__rubric">
+                                  <strong>{property.topFailingRubric?.label || '—'}</strong>
+                                  <span>{property.topFailingRubric?.score != null ? `${Math.round(property.topFailingRubric.score)} score` : property.hasAudit ? 'No failing rubric' : 'Audit needed'}</span>
+                                </div>
+                              </td>
+                              <td>{property.auditedAt ? getSnapshotTimestampLabel(property.auditedAt) : 'Never'}</td>
+                              <td>{formatNumber(property.issueCount || 0)}</td>
+                              <td>
+                                <div className="audit-table__confidence">
+                                  <strong>{property.confidence?.label || 'None'}</strong>
+                                  <span>{property.confidence?.score != null ? `${formatNumber(property.confidence.score)}%` : '—'}</span>
+                                </div>
+                              </td>
+                              <td>{property.auditStatus || (property.hasAudit ? 'ok' : 'not started')}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                  {!portfolioAuditLoading && filteredPortfolioAuditProperties.length === 0 && (
+                    <div className="reports-empty">No properties match the selected audit filters.</div>
+                  )}
+                </div>
+              )}
+            </section>
 
-              <div className="audit-focus-list">
-                <div className="reports-list__row">
-                  <div>
-                    <strong>Call to action</strong>
-                    <small>{auditPageResult?.ctaCount ?? 0} CTA-like elements detected on the selected page.</small>
-                  </div>
-                  <div>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</div>
+            <section className="reports-panel">
+              <div className="reports-panel__eyebrow">Selected Property</div>
+              <div className="reports-panel__title">
+                {selectedPortfolioAudit?.propertyName || selectedPropertyLabel || 'Choose a property'}
+              </div>
+              {siteAuditNotice && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{siteAuditNotice}</div>}
+              <div className="audit-detail-toolbar">
+                <label className="website-manager-field">
+                  <span className="website-manager-field__label">Audit page</span>
+                  <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
+                    {auditPageOptions.map((page) => <option key={page.path || page.id} value={page.path || '/'}>{page.title || page.path || '/'}</option>)}
+                    {auditPageOptions.length === 0 && <option value="">No audit pages captured yet</option>}
+                  </select>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'end' }}>
+                  <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading || !selectedPropertyId}>
+                    {siteAuditRunning ? 'Queueing…' : 'Queue AI Audit'}
+                  </button>
                 </div>
-                <div className="reports-list__row">
+              </div>
+
+              <div className="reports-panel__grid reports-panel__grid--three">
+                <div className="reports-stat"><span>Audit Score</span><strong>{renderMetricValue(siteAuditLoading, auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—')}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'} · {auditModeLabel}</small></div>
+                <div className="reports-stat"><span>Risk / Confidence</span><strong>{selectedPortfolioAudit?.riskTier || '—'}</strong><small>{selectedPortfolioAudit?.confidence?.label || 'No'} confidence · {selectedPortfolioAudit?.confidence?.detail || 'Audit evidence pending'}</small></div>
+                <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
+              </div>
+
+              <div className="audit-trend-panel">
+                <div className="audit-trend-panel__chart">
+                  <AuditScoreSparkline points={selectedPortfolioAudit?.scoreHistory || selectedPortfolioAudit?.trend?.scoreHistory || []} />
                   <div>
-                    <strong>Outdated dates</strong>
-                    <small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'No stale dates flagged yet.'}</small>
+                    <strong>{formatAuditScoreChange(selectedPortfolioAudit?.scoreChange)}</strong>
+                    <small>{selectedPortfolioAudit?.lastChangeReason || selectedPortfolioAudit?.trend?.lastChangeReason || 'No prior audit comparison yet.'}</small>
                   </div>
-                  <div>{formatNumber((auditStaleDates || []).length || selectedPortfolioAudit?.staleDateCount || 0)}</div>
                 </div>
-                <div className="reports-list__row">
+                <div className="audit-trend-panel__counts">
+                  <span><strong>{formatNumber(selectedPortfolioAudit?.newIssueCount || 0)}</strong> new</span>
+                  <span><strong>{formatNumber(selectedPortfolioAudit?.regressedIssueCount || 0)}</strong> regressed</span>
+                  <span><strong>{formatNumber(selectedPortfolioAudit?.resolvedIssueCount || 0)}</strong> resolved</span>
+                </div>
+              </div>
+
+              <div className="audit-why-panel">
+                <div className="audit-why-panel__header">
                   <div>
-                    <strong>Broken links</strong>
-                    <small>{Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected in the latest audit.'}</small>
+                    <strong>Why this is flagged</strong>
+                    <small>Top problems ranked by resident and business impact.</small>
                   </div>
-                  <div>{formatNumber((auditBrokenLinks || []).length || selectedPortfolioAudit?.brokenLinkCount || 0)}</div>
+                  <span>{formatNumber(selectedAuditFlaggedReasons.length)} shown</span>
                 </div>
-                <div className="reports-list__row">
-                  <div>
-                    <strong>Value add</strong>
-                    <small>{(auditRecommendations || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.recommendation || item.text || '')).filter(Boolean).join(' | ') || 'Run a fresh audit to generate recommendations for stronger leasing value.'}</small>
-                  </div>
-                  <div>{formatNumber((auditRecommendations || []).length || selectedPortfolioAudit?.recommendationCount || 0)}</div>
-                </div>
-                {(auditIssues || []).slice(0, 4).map((item, index) => (
-                  <div key={`audit-command-issue-${index}`} className="reports-list__row">
+                {selectedAuditFlaggedReasons.length > 0 ? selectedAuditFlaggedReasons.map((reason, index) => (
+                  <div key={`${reason.category || 'reason'}-${index}`} className="audit-why-row">
+                    <div className="audit-why-row__rank">{index + 1}</div>
                     <div>
-                      <strong>Issue</strong>
-                      <small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding'}</small>
+                      <div className="audit-why-row__topline">
+                        <strong>{reason.issue || reason.rubricLabel || 'Review website finding'}</strong>
+                        <span>{reason.category || 'Website QA'} · {reason.severity || 'medium'} · {reason.confidence || selectedPortfolioAudit?.confidence?.label || 'Medium'} confidence</span>
+                      </div>
+                      <small>{reason.evidence || 'Evidence is available in the latest audit output.'}</small>
+                      {reason.recommendation && <em>{reason.recommendation}</em>}
                     </div>
-                    <div>Fix</div>
+                    <label className="audit-workflow-select">
+                      <span>Workflow</span>
+                      <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
+                        {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
+                      </select>
+                    </label>
                   </div>
-                ))}
-                {!latestAudit && !siteAuditLoading && (
-                  <div className="reports-empty">Select a property from the queue, then run an audit if this property has not been scored yet.</div>
+                )) : (
+                  <div className="reports-empty">No ranked reasons are available yet. Run or refresh the audit to populate impact-based findings.</div>
+                )}
+                {selectedAuditReasonPool.length > 0 && (
+                  <div className="audit-workflow-queue">
+                    <div className="audit-workflow-queue__header">
+                      <strong>Finding workflow</strong>
+                      <small>Move each active finding through the operating queue.</small>
+                    </div>
+                    {selectedAuditReasonPool.map((reason, index) => (
+                      <div key={reason.workflowKey || `${reason.category}-${index}`} className="audit-workflow-row">
+                        <div>
+                          <strong>{reason.issue || reason.rubricLabel || reason.category || `Finding ${index + 1}`}</strong>
+                          <small>{getAuditFindingWorkflowLabel(reason.workflowStatus)}{reason.workflowUpdatedAt ? ` · updated ${getSnapshotTimestampLabel(reason.workflowUpdatedAt)}` : ''}</small>
+                        </div>
+                        <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
+                          {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-          </section>
+
+              <div className="audit-rubric-panel">
+                <div className="audit-rubric-panel__header">
+                  <div>
+                    <strong>9-point audit rubric</strong>
+                    <small>Compact evidence rows for the selected page and latest property audit.</small>
+                  </div>
+                  <span>{auditModeLabel}</span>
+                </div>
+                <div className="audit-rubric-table">
+                  {auditRubricRows.map((row) => (
+                    <div key={row.key} className="audit-rubric-row">
+                      <div className="audit-rubric-row__status">
+                        <span className={`audit-rubric-status audit-rubric-status--${row.status}`}>{getAuditRubricStatusLabel(row.status)}</span>
+                        <strong>{row.score != null ? Math.round(row.score) : '—'}</strong>
+                      </div>
+                      <div className="audit-rubric-row__main">
+                        <strong>{row.label}</strong>
+                        <small>{row.evidence}</small>
+                      </div>
+                      <div className="audit-rubric-row__meta">
+                        <span>{row.source}</span>
+                        <span>{row.confidence} confidence</span>
+                      </div>
+                      <div className="audit-rubric-row__fix">{row.recommendation}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="audit-detail-grid">
+                <div className="audit-screenshot-card">
+                  <div className="audit-screenshot-card__header">
+                    <div>
+                      <strong>Screenshot review</strong>
+                      <small>Full-page scroll preview with audit callouts.</small>
+                    </div>
+                    <div className="audit-device-tabs" role="tablist" aria-label="Screenshot device">
+                      {HEATMAP_DEVICE_OPTIONS.map((device) => (
+                        <button
+                          key={device}
+                          type="button"
+                          role="tab"
+                          aria-selected={selectedHeatmapDevice === device}
+                          className={`audit-device-tab${selectedHeatmapDevice === device ? ' is-active' : ''}`}
+                          onClick={() => setSelectedHeatmapDevice(device)}
+                        >
+                          {device}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="audit-screenshot-card__viewport">
+                    {screenshotPreviewUrl ? (
+                      <div className="audit-screenshot-card__scroll">
+                        <img src={screenshotPreviewUrl} alt={`${selectedPortfolioAudit?.propertyName || selectedPropertyLabel} site screenshot`} className="audit-screenshot-card__image" />
+                        {auditScreenshotAnnotations.length > 0 && (
+                          <div className="audit-screenshot-card__annotations" aria-label="Screenshot annotations">
+                            {auditScreenshotAnnotations.slice(0, 3).map((annotation, index) => (
+                              <div key={`${annotation.label}-${index}`} className={`audit-screenshot-annotation audit-screenshot-annotation--${annotation.status}`}>
+                                <strong>{annotation.label}</strong>
+                                <span>{annotation.evidence}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="audit-screenshot-card__empty">No screenshot preview stored for this page and device yet.</div>
+                    )}
+                  </div>
+                  <div className="audit-screenshot-card__meta">
+                    <strong>Screenshot</strong>
+                    <span>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No capture yet'}</span>
+                  </div>
+                  <div className="audit-screenshot-callouts">
+                    {auditScreenshotAnnotations.length > 0 ? auditScreenshotAnnotations.map((annotation, index) => (
+                      <div key={`${annotation.source}-${annotation.label}-${index}`} className="audit-screenshot-callout">
+                        <span className={`audit-rubric-status audit-rubric-status--${annotation.status}`}>{getAuditRubricStatusLabel(annotation.status)}</span>
+                        <div>
+                          <strong>{annotation.label}</strong>
+                          <small>{annotation.source} · {annotation.evidence}</small>
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="audit-screenshot-callout">
+                        <span className="audit-rubric-status audit-rubric-status--pass">Pass</span>
+                        <div>
+                          <strong>No visual callouts yet</strong>
+                          <small>Run an AI screenshot audit to attach page-specific visual findings.</small>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="audit-focus-list">
+                  <div className="reports-list__row">
+                    <div>
+                      <strong>Call to action</strong>
+                      <small>{auditPageResult?.ctaCount ?? 0} CTA-like elements detected on the selected page.</small>
+                    </div>
+                    <div>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</div>
+                  </div>
+                  <div className="reports-list__row">
+                    <div>
+                      <strong>Outdated dates</strong>
+                      <small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'No stale dates flagged yet.'}</small>
+                    </div>
+                    <div>{formatNumber((auditStaleDates || []).length || selectedPortfolioAudit?.staleDateCount || 0)}</div>
+                  </div>
+                  <div className="reports-list__row">
+                    <div>
+                      <strong>Broken links</strong>
+                      <small>{Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected in the latest audit.'}</small>
+                    </div>
+                    <div>{formatNumber((auditBrokenLinks || []).length || selectedPortfolioAudit?.brokenLinkCount || 0)}</div>
+                  </div>
+                  <div className="reports-list__row">
+                    <div>
+                      <strong>Value add</strong>
+                      <small>{(auditRecommendations || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.recommendation || item.text || '')).filter(Boolean).join(' | ') || 'Run a fresh audit to generate recommendations for stronger leasing value.'}</small>
+                    </div>
+                    <div>{formatNumber((auditRecommendations || []).length || selectedPortfolioAudit?.recommendationCount || 0)}</div>
+                  </div>
+                  {(auditIssues || []).slice(0, 4).map((item, index) => (
+                    <div key={`audit-command-issue-${index}`} className="reports-list__row">
+                      <div>
+                        <strong>Issue</strong>
+                        <small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding'}</small>
+                      </div>
+                      <div>Fix</div>
+                    </div>
+                  ))}
+                  {!latestAudit && !siteAuditLoading && (
+                    <div className="reports-empty">Select a property from the table, then run an audit if this property has not been scored yet.</div>
+                  )}
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderReports = () => (
     <div className="reports-view">

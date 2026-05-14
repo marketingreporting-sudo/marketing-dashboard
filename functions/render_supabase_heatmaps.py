@@ -4960,6 +4960,365 @@ def get_site_audit_summary(
     }
 
 
+SITE_AUDIT_RUBRIC_LABELS = {item["key"]: item["label"] for item in SITE_AUDIT_RUBRIC}
+SITE_AUDIT_RUBRIC_IMPACT = {
+    "pricing_accuracy": 98,
+    "application_flow_visible": 95,
+    "floor_plan_availability": 92,
+    "special_offers_current": 88,
+    "homepage_cta": 82,
+    "page_load_desktop_mobile": 80,
+    "homepage_value_add": 76,
+    "contact_info_hours": 72,
+    "leasing_verbiage": 68,
+}
+SITE_AUDIT_SEVERITY_IMPACT = {"high": 25, "medium": 12, "low": 4}
+
+
+def _site_audit_risk_tier(
+    audit_row: dict[str, Any] | None,
+    issue_count: int,
+    broken_link_count: int,
+    stale_date_count: int,
+    score_change: float | None = None,
+) -> str:
+    if not isinstance(audit_row, dict):
+        return "No audit"
+    score = _to_float(audit_row.get("performance_score"))
+    if score is None:
+        return "No audit"
+    if score < 60 or issue_count >= 8 or broken_link_count >= 5 or (score_change is not None and score_change <= -20):
+        return "Critical"
+    if score < 70 or issue_count >= 4 or broken_link_count > 0 or (score_change is not None and score_change <= -10):
+        return "High"
+    if score < 85 or stale_date_count > 0 or issue_count > 0:
+        return "Watch"
+    return "Healthy"
+
+
+def _site_audit_issue_signature(item: Any) -> str:
+    if isinstance(item, dict):
+        text = item.get("issue") or item.get("text") or item.get("href") or item.get("link") or json.dumps(item, sort_keys=True)
+        path = item.get("path") or item.get("source") or ""
+        return _normalize_text(f"{path} {text}", 500).lower()
+    return _normalize_text(item, 500).lower()
+
+
+def _site_audit_issue_signatures(audit_row: dict[str, Any] | None) -> set[str]:
+    if not isinstance(audit_row, dict):
+        return set()
+    signatures: set[str] = set()
+    for field in ("issues", "broken_links", "stale_date_findings"):
+        values = audit_row.get(field) if isinstance(audit_row.get(field), list) else []
+        for item in values:
+            signature = _site_audit_issue_signature(item)
+            if signature:
+                signatures.add(signature)
+    return signatures
+
+
+def _site_audit_category_score_map(audit_row: dict[str, Any] | None) -> dict[str, float]:
+    raw_data = audit_row.get("raw_data") if isinstance(audit_row, dict) and isinstance(audit_row.get("raw_data"), dict) else {}
+    category_scores: dict[str, float] = {}
+    for item in raw_data.get("categoryScores") if isinstance(raw_data.get("categoryScores"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        key = _normalize_text(item.get("key"), 80)
+        score = _to_float(item.get("score"))
+        if key and score is not None:
+            category_scores[key] = score
+    return category_scores
+
+
+def _site_audit_trend_summary(property_audits: list[dict[str, Any]]) -> dict[str, Any]:
+    current = property_audits[0] if property_audits else None
+    previous = property_audits[1] if len(property_audits) > 1 else None
+    current_score = _to_float(current.get("performance_score")) if isinstance(current, dict) else None
+    previous_score = _to_float(previous.get("performance_score")) if isinstance(previous, dict) else None
+    score_change = round(current_score - previous_score, 1) if current_score is not None and previous_score is not None else None
+    current_signatures = _site_audit_issue_signatures(current)
+    previous_signatures = _site_audit_issue_signatures(previous)
+    new_issue_count = len(current_signatures - previous_signatures) if current_signatures else 0
+    resolved_issue_count = len(previous_signatures - current_signatures) if previous_signatures else 0
+    current_categories = _site_audit_category_score_map(current)
+    previous_categories = _site_audit_category_score_map(previous)
+    regressed_categories = [
+        key
+        for key, score in current_categories.items()
+        if key in previous_categories and previous_categories[key] - score >= 5
+    ]
+    regressed_issue_count = len(regressed_categories)
+    if score_change is not None and score_change <= -10 and regressed_issue_count == 0:
+        regressed_issue_count = 1
+    score_history = [
+        {
+            "auditedAt": row.get("audited_at"),
+            "score": _to_float(row.get("performance_score")),
+        }
+        for row in reversed(property_audits[:8])
+        if isinstance(row, dict) and row.get("audited_at") and _to_float(row.get("performance_score")) is not None
+    ]
+    if not current:
+        last_change_reason = "No audit has been run yet."
+    elif previous is None:
+        last_change_reason = "First audit captured for this property."
+    elif score_change is not None and score_change <= -10:
+        last_change_reason = f"Score dropped {abs(score_change):.1f} points since the prior audit."
+    elif new_issue_count > 0:
+        last_change_reason = f"{new_issue_count} new issue{'s' if new_issue_count != 1 else ''} appeared since the prior audit."
+    elif score_change is not None and score_change >= 10:
+        last_change_reason = f"Score improved {score_change:.1f} points since the prior audit."
+    elif resolved_issue_count > 0:
+        last_change_reason = f"{resolved_issue_count} issue{'s' if resolved_issue_count != 1 else ''} resolved since the prior audit."
+    elif score_change is not None:
+        last_change_reason = f"Score changed {score_change:+.1f} points since the prior audit."
+    else:
+        last_change_reason = "No comparable prior audit score yet."
+    return {
+        "scoreChange": score_change,
+        "scoreHistory": score_history,
+        "newIssueCount": new_issue_count,
+        "regressedIssueCount": regressed_issue_count,
+        "resolvedIssueCount": resolved_issue_count,
+        "lastChangeReason": last_change_reason,
+        "regressedCategories": regressed_categories[:8],
+    }
+
+
+def _site_audit_confidence(audit_row: dict[str, Any] | None, performance_notes: list[dict[str, Any]]) -> dict[str, Any]:
+    if not isinstance(audit_row, dict):
+        return {"score": 0, "label": "None", "detail": "No audit has been run."}
+    raw_data = audit_row.get("raw_data") if isinstance(audit_row.get("raw_data"), dict) else {}
+    ai_audit = raw_data.get("aiAudit") if isinstance(raw_data.get("aiAudit"), dict) else {}
+    page_count = max(0, int(audit_row.get("page_count") or 0))
+    screenshot_pages = sum(
+        1 for note in performance_notes if isinstance(note, dict) and int(note.get("screenshotCount") or 0) > 0
+    )
+    ai_pages = int(ai_audit.get("pagesScored") or 0) if isinstance(ai_audit, dict) else 0
+    score = 35
+    if page_count > 0:
+        score += 20
+    if screenshot_pages > 0:
+        score += 20 * min(1, screenshot_pages / max(page_count, 1))
+    if ai_pages > 0:
+        score += 20 * min(1, ai_pages / max(page_count, 1))
+    if ai_audit.get("status") in {"ok", "partial"}:
+        score += 5
+    score = max(0, min(100, round(score)))
+    label = "High" if score >= 80 else "Medium" if score >= 55 else "Low"
+    return {
+        "score": score,
+        "label": label,
+        "detail": f"{screenshot_pages}/{page_count} pages with screenshots, {ai_pages} AI-scored pages.",
+    }
+
+
+def _site_audit_top_failing_rubric(
+    audit_row: dict[str, Any] | None,
+    performance_notes: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    candidates: list[dict[str, Any]] = []
+    raw_data = audit_row.get("raw_data") if isinstance(audit_row, dict) and isinstance(audit_row.get("raw_data"), dict) else {}
+    for item in raw_data.get("categoryScores") if isinstance(raw_data.get("categoryScores"), list) else []:
+        if not isinstance(item, dict):
+            continue
+        key = _normalize_text(item.get("key"), 80)
+        score = _to_float(item.get("score"))
+        if not key or score is None:
+            continue
+        candidates.append(
+            {
+                "key": key,
+                "label": item.get("label") or SITE_AUDIT_RUBRIC_LABELS.get(key) or key,
+                "score": score,
+                "status": "fail" if score < 70 else "warn" if score < 85 else "pass",
+                "severity": "high" if score < 60 else "medium" if score < 80 else "low",
+            }
+        )
+    for note in performance_notes:
+        if not isinstance(note, dict):
+            continue
+        for item in note.get("aiChecklist") if isinstance(note.get("aiChecklist"), list) else []:
+            if not isinstance(item, dict):
+                continue
+            key = _normalize_text(item.get("key"), 80)
+            score = _to_float(item.get("score"))
+            status = _normalize_text(item.get("status"), 40)
+            if not key or score is None or status == "pass":
+                continue
+            candidates.append(
+                {
+                    "key": key,
+                    "label": item.get("label") or SITE_AUDIT_RUBRIC_LABELS.get(key) or key,
+                    "score": score,
+                    "status": status or ("fail" if score < 70 else "warn"),
+                    "severity": item.get("severity") or ("high" if score < 60 else "medium"),
+                    "evidence": item.get("evidence") or "",
+                    "recommendation": item.get("recommendation") or "",
+                    "path": note.get("path") or "",
+                }
+            )
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: (float(item.get("score") or 100), -SITE_AUDIT_RUBRIC_IMPACT.get(item.get("key"), 50)))[0]
+
+
+def _site_audit_reason_category(text: str, rubric_key: str = "") -> str:
+    haystack = f"{rubric_key} {text}".lower()
+    if any(token in haystack for token in ("pricing", "price", "rent")):
+        return "Pricing"
+    if any(token in haystack for token in ("application", "apply", "lease now")):
+        return "Application"
+    if any(token in haystack for token in ("special", "offer", "promo")):
+        return "Specials"
+    if any(token in haystack for token in ("broken", "link", "non-https")):
+        return "Broken links"
+    if any(token in haystack for token in ("mobile", "desktop", "load", "screenshot")):
+        return "Mobile/load"
+    if any(token in haystack for token in ("stale", "expired", "date")):
+        return "Stale copy"
+    if any(token in haystack for token in ("floor", "availability", "unit")):
+        return "Availability"
+    if any(token in haystack for token in ("cta", "call to action")):
+        return "CTA"
+    return "Website QA"
+
+
+def _site_audit_flagged_reasons(
+    audit_row: dict[str, Any] | None,
+    *,
+    issues: list[Any],
+    broken_links: list[Any],
+    stale_dates: list[Any],
+    performance_notes: list[dict[str, Any]],
+    top_failing_rubric: dict[str, Any] | None,
+    confidence: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not isinstance(audit_row, dict):
+        return [
+            {
+                "category": "No audit",
+                "severity": "high",
+                "impactScore": 90,
+                "issue": "No website audit has been run for this property yet.",
+                "evidence": "The property is missing its first audit record.",
+                "recommendation": "Capture page snapshots and queue an AI audit.",
+                "confidence": "High",
+            }
+        ]
+    reasons: list[dict[str, Any]] = []
+    for note in performance_notes:
+        if not isinstance(note, dict):
+            continue
+        for item in note.get("aiChecklist") if isinstance(note.get("aiChecklist"), list) else []:
+            if not isinstance(item, dict) or item.get("status") == "pass":
+                continue
+            key = _normalize_text(item.get("key"), 80)
+            label = item.get("label") or SITE_AUDIT_RUBRIC_LABELS.get(key) or key
+            severity = _normalize_text(item.get("severity"), 40) or "medium"
+            score = _to_float(item.get("score"))
+            issue = f"{label} needs review."
+            evidence = _normalize_text(item.get("evidence"), 500)
+            recommendation = _normalize_text(item.get("recommendation"), 500)
+            impact = SITE_AUDIT_RUBRIC_IMPACT.get(key, 60) + SITE_AUDIT_SEVERITY_IMPACT.get(severity, 8)
+            if score is not None:
+                impact += max(0, 70 - score) / 2
+            reasons.append(
+                {
+                    "category": _site_audit_reason_category(f"{label} {evidence}", key),
+                    "rubricKey": key,
+                    "rubricLabel": label,
+                    "severity": severity,
+                    "impactScore": round(impact, 1),
+                    "issue": issue,
+                    "evidence": evidence,
+                    "recommendation": recommendation,
+                    "path": note.get("path") or "",
+                    "confidence": confidence.get("label") or "Medium",
+                }
+            )
+    for issue in issues[:20]:
+        if isinstance(issue, dict):
+            issue_text = _normalize_text(issue.get("issue") or issue.get("text"), 500)
+            path = issue.get("path") or ""
+        else:
+            issue_text = _normalize_text(issue, 500)
+            path = ""
+        if not issue_text:
+            continue
+        category = _site_audit_reason_category(issue_text)
+        base_impact = {
+            "Pricing": 95,
+            "Application": 92,
+            "Specials": 86,
+            "Availability": 84,
+            "Broken links": 74,
+            "Mobile/load": 78,
+            "Stale copy": 68,
+            "CTA": 80,
+        }.get(category, 58)
+        reasons.append(
+            {
+                "category": category,
+                "severity": "high" if base_impact >= 88 else "medium",
+                "impactScore": base_impact,
+                "issue": issue_text,
+                "evidence": f"Detected on {path or 'captured site pages'}.",
+                "recommendation": "Review the affected page and update website content or tracking as needed.",
+                "path": path,
+                "confidence": confidence.get("label") or "Medium",
+            }
+        )
+    if broken_links:
+        reasons.append(
+            {
+                "category": "Broken links",
+                "severity": "medium",
+                "impactScore": 76 + min(20, len(broken_links) * 2),
+                "issue": f"{len(broken_links)} suspicious internal link{'s' if len(broken_links) != 1 else ''} detected.",
+                "evidence": "Internal navigation includes non-HTTPS or suspicious links.",
+                "recommendation": "Verify the affected links and replace broken or insecure URLs.",
+                "confidence": "High",
+            }
+        )
+    if stale_dates:
+        reasons.append(
+            {
+                "category": "Stale copy",
+                "severity": "medium",
+                "impactScore": 70 + min(15, len(stale_dates) * 2),
+                "issue": f"{len(stale_dates)} stale or expiring date reference{'s' if len(stale_dates) != 1 else ''} detected.",
+                "evidence": "Promo or date language may be expired.",
+                "recommendation": "Refresh specials, event dates, and leasing deadline copy.",
+                "confidence": confidence.get("label") or "Medium",
+            }
+        )
+    if top_failing_rubric and not reasons:
+        label = top_failing_rubric.get("label") or "Top audit rubric"
+        reasons.append(
+            {
+                "category": _site_audit_reason_category(label, top_failing_rubric.get("key") or ""),
+                "rubricKey": top_failing_rubric.get("key"),
+                "rubricLabel": label,
+                "severity": top_failing_rubric.get("severity") or "medium",
+                "impactScore": SITE_AUDIT_RUBRIC_IMPACT.get(top_failing_rubric.get("key"), 60),
+                "issue": f"{label} is the weakest audit area.",
+                "evidence": f"Current rubric score: {top_failing_rubric.get('score')}.",
+                "recommendation": top_failing_rubric.get("recommendation") or "Review the failing rubric and update the affected page.",
+                "confidence": confidence.get("label") or "Medium",
+            }
+        )
+    seen = set()
+    unique_reasons = []
+    for reason in sorted(reasons, key=lambda item: float(item.get("impactScore") or 0), reverse=True):
+        key = (reason.get("category"), reason.get("issue"), reason.get("path"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_reasons.append(reason)
+    return unique_reasons[:5]
+
+
 def list_site_audit_portfolio_summary(
     *,
     access_token: str,
@@ -4985,16 +5344,18 @@ def list_site_audit_portfolio_summary(
         headers=_supabase_anon_headers(access_token),
     )
 
-    latest_audit_by_property: dict[str, dict[str, Any]] = {}
+    audits_by_property: dict[str, list[dict[str, Any]]] = {}
     for row in audit_rows or []:
         property_id = _normalize_text(row.get("property_id"), 120)
-        if property_id and property_id not in latest_audit_by_property:
-            latest_audit_by_property[property_id] = row
+        if property_id:
+            audits_by_property.setdefault(property_id, []).append(row)
 
     summaries = []
     for property_row in property_rows or []:
         property_id = _normalize_text(property_row.get("id"), 120)
-        audit_row = latest_audit_by_property.get(property_id)
+        property_audits = audits_by_property.get(property_id) or []
+        audit_row = property_audits[0] if property_audits else None
+        previous_audit_row = property_audits[1] if len(property_audits) > 1 else None
         issues = audit_row.get("issues") if isinstance(audit_row, dict) and isinstance(audit_row.get("issues"), list) else []
         recommendations = (
             audit_row.get("recommendations")
@@ -5026,6 +5387,22 @@ def list_site_audit_portfolio_summary(
         cta_missing_pages = sum(
             1 for note in performance_notes if isinstance(note, dict) and int(note.get("ctaCount") or 0) <= 0
         )
+        current_score = _to_float(audit_row.get("performance_score")) if isinstance(audit_row, dict) else None
+        previous_score = _to_float(previous_audit_row.get("performance_score")) if isinstance(previous_audit_row, dict) else None
+        trend_summary = _site_audit_trend_summary(property_audits)
+        score_change = trend_summary.get("scoreChange")
+        confidence = _site_audit_confidence(audit_row, performance_notes)
+        top_failing_rubric = _site_audit_top_failing_rubric(audit_row, performance_notes)
+        risk_tier = _site_audit_risk_tier(audit_row, len(issues), len(broken_links), len(stale_dates), score_change)
+        flagged_reasons = _site_audit_flagged_reasons(
+            audit_row,
+            issues=issues,
+            broken_links=broken_links,
+            stale_dates=stale_dates,
+            performance_notes=performance_notes,
+            top_failing_rubric=top_failing_rubric,
+            confidence=confidence,
+        )
         summary = {
             "propertyId": property_id,
             "propertyName": property_row.get("name") or f"Property {property_id}",
@@ -5037,10 +5414,22 @@ def list_site_audit_portfolio_summary(
             "auditStatus": audit_row.get("status") if isinstance(audit_row, dict) else "not_started",
             "auditedAt": audit_row.get("audited_at") if isinstance(audit_row, dict) else None,
             "pageCount": int(audit_row.get("page_count") or 0) if isinstance(audit_row, dict) else 0,
-            "performanceScore": _to_float(audit_row.get("performance_score")) if isinstance(audit_row, dict) else None,
+            "performanceScore": current_score,
+            "previousPerformanceScore": previous_score,
+            "scoreChange": score_change,
             "urgencyScore": _to_float(audit_row.get("urgency_score")) if isinstance(audit_row, dict) else None,
             "freshnessScore": _to_float(audit_row.get("freshness_score")) if isinstance(audit_row, dict) else None,
             "linkScore": _to_float(audit_row.get("link_score")) if isinstance(audit_row, dict) else None,
+            "riskTier": risk_tier,
+            "confidence": confidence,
+            "topFailingRubric": top_failing_rubric,
+            "flaggedReasons": flagged_reasons,
+            "trend": trend_summary,
+            "scoreHistory": trend_summary.get("scoreHistory") or [],
+            "newIssueCount": trend_summary.get("newIssueCount") or 0,
+            "regressedIssueCount": trend_summary.get("regressedIssueCount") or 0,
+            "resolvedIssueCount": trend_summary.get("resolvedIssueCount") or 0,
+            "lastChangeReason": trend_summary.get("lastChangeReason") or "",
             "issueCount": len(issues),
             "recommendationCount": len(recommendations),
             "brokenLinkCount": len(broken_links),
