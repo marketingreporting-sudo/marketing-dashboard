@@ -271,6 +271,18 @@ def _unique_lead_count(rows: list[dict[str, Any]]) -> int:
     return len({_lead_identity_key(row) for row in rows})
 
 
+def _dedupe_lead_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    canonical: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = _lead_identity_key(row)
+        existing = canonical.get(key)
+        existing_date = _lead_created_date(existing) if existing else None
+        row_date = _lead_created_date(row)
+        if not existing or (row_date and (not existing_date or row_date < existing_date)):
+            canonical[key] = row
+    return list(canonical.values())
+
+
 def _event_type_id(row: dict[str, Any]) -> int | None:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
     candidates = [
@@ -1128,6 +1140,7 @@ def get_property_reporting_overview_payload(
         headers=headers,
     )
     leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
+    leads_rows = _dedupe_lead_rows(leads_rows)
     events_rows = _fetch_json(
         "property_events",
         [
@@ -1151,6 +1164,7 @@ def get_property_reporting_overview_payload(
         headers=headers,
     )
     lead_60_day_rows = _filter_lead_event_rows(lead_60_day_rows, conventional_window_start, end_date)
+    lead_60_day_rows = _dedupe_lead_rows(lead_60_day_rows)
     event_60_day_rows = _fetch_json(
         "property_events",
         [
@@ -1548,6 +1562,7 @@ def get_multi_property_call_prep_summary(
         invoices_rows = []
 
     leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
+    leads_rows = _dedupe_lead_rows(leads_rows)
 
     for row in leads_rows:
         _increment_call_prep_row_count(property_row_counts, row, "lead_items")
