@@ -1283,16 +1283,21 @@ def _fetch_call_prep_table_set(
     table_queries: dict[str, tuple[str, list[tuple[str, str]]]],
     *,
     headers: dict[str, str],
-) -> dict[str, list[dict[str, Any]]]:
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
     rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in table_queries}
+    errors_by_key: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=min(len(table_queries), 4) or 1) as executor:
         futures = {
             executor.submit(_fetch_call_prep_pages, table_name, query_params, headers=headers): key
             for key, (table_name, query_params) in table_queries.items()
         }
         for future in as_completed(futures):
-            rows_by_key[futures[future]] = future.result()
-    return rows_by_key
+            key = futures[future]
+            try:
+                rows_by_key[key] = future.result()
+            except (HTTPError, URLError, SupabaseValidationConfigError, TimeoutError) as error:
+                errors_by_key[key] = str(error)
+    return rows_by_key, errors_by_key
 
 
 def _increment_call_prep_row_count(property_row_counts: dict[str, dict[str, int]], row: dict[str, Any], key: str) -> None:
@@ -1338,6 +1343,7 @@ def get_multi_property_call_prep_summary(
     event_items: list[dict[str, Any]] = []
     lease_items: list[dict[str, Any]] = []
     invoice_items: list[dict[str, Any]] = []
+    table_errors: dict[str, str] = {}
     property_errors: list[dict[str, str]] = []
     loaded_property_ids: list[str] = list(normalized_property_ids)
     property_row_counts: dict[str, dict[str, int]] = {
@@ -1352,7 +1358,7 @@ def get_multi_property_call_prep_summary(
 
     property_filter = _postgrest_in_filter(normalized_property_ids)
     try:
-        rows_by_key = _fetch_call_prep_table_set(
+        rows_by_key, table_errors = _fetch_call_prep_table_set(
             {
                 "leads": (
                     "property_leads",
@@ -1434,10 +1440,18 @@ def get_multi_property_call_prep_summary(
     lease_items.extend(_shape_property_lease(row) for row in lease_rows)
     invoice_items.extend(_compact_invoice_payload(row) for row in invoices_rows)
 
-    if not lead_items and not event_items and not lease_items and not invoice_items and property_errors:
+    if not lead_items and not event_items and not lease_items and not invoice_items and (property_errors or table_errors):
+        failed_tables = ", ".join(sorted(table_errors)) if table_errors else "property data"
+        first_table_error = next(iter(table_errors.values()), None)
         return {
             "status": "error",
-            "message": "Unable to load any property data for call prep aggregation.",
+            "message": (
+                f"Unable to load any property data for call prep aggregation. Failed table reads: {failed_tables}."
+                if table_errors
+                else "Unable to load any property data for call prep aggregation."
+            ),
+            "error": first_table_error or "Unable to load any property data for call prep aggregation.",
+            "table_errors": table_errors,
             "property_errors": property_errors,
             "staging_only": True,
         }
@@ -1471,6 +1485,7 @@ def get_multi_property_call_prep_summary(
             "properties_failed": len(property_errors),
         },
         "property_errors": property_errors,
+        "table_errors": table_errors,
         "source": "supabase",
         "aggregated": True,
         "call_prep_only": True,
