@@ -13,8 +13,28 @@ from render_supabase_validation import SupabaseValidationConfigError, _supabase_
 
 _LEAD_KEY_CANDIDATES = (
     "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID",
-    "applicationId", "applicationID", "leadEventId", "eventId", "eventID", "id",
+    "applicationId", "applicationID", "prospect_leadId", "prospect_leadID",
+    "prospect_prospectId", "prospect_prospectID", "prospect_customerId",
+    "prospect_customerID", "prospect_applicationId", "leadEventId", "eventId",
+    "eventID", "id",
 )
+_LEAD_EVENT_ID_CANDIDATES = ("leadEventId", "eventId", "eventID")
+_LEAD_PERSON_ID_CANDIDATES = (
+    "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID",
+    "applicationId", "applicationID", "prospect_leadId", "prospect_leadID",
+    "prospect_prospectId", "prospect_prospectID", "prospect_customerId",
+    "prospect_customerID", "prospect_applicationId",
+)
+_LEAD_EMAIL_CANDIDATES = (
+    "email", "emailAddress", "primaryEmail", "emailaddress", "prospectEmail",
+    "guestCardEmail", "prospect_email", "prospect_emailAddress",
+)
+_LEAD_PHONE_CANDIDATES = (
+    "phoneNumber", "primaryPhoneNumber", "mobilePhone", "phone", "phone_number",
+    "prospect_phoneNumber", "prospect_primaryPhoneNumber", "prospect_mobilePhone",
+)
+_LEAD_FIRST_NAME_CANDIDATES = ("firstName", "firstname", "prospect_firstName", "prospect_firstname")
+_LEAD_LAST_NAME_CANDIDATES = ("lastName", "lastname", "prospect_lastName", "prospect_lastname")
 _LEASE_KEY_CANDIDATES = (
     "lease_interval_id", "leaseIntervalId", "lease_id", "leaseId", "leaseID",
     "application_id", "applicationId", "applicationID", "id",
@@ -194,8 +214,61 @@ def _stable_key(row: dict[str, Any], candidates: tuple[str, ...]) -> str:
     return f"{_row_property_id(row)}:{row.get('id') or row.get('firestore_path') or row.get('_firestorePath') or str(payload)}"
 
 
+def _candidate_value(row: dict[str, Any], key: str) -> Any:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
+    value = row.get(key) if row.get(key) not in (None, "") else payload.get(key)
+    if value not in (None, ""):
+        return value
+    return _find_nested_value(payload, (key,))
+
+
+def _normalize_identity_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _normalize_identity_phone(value: Any) -> str:
+    digits = re.sub(r"\D+", "", str(value or ""))
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def _lead_identity_key(row: dict[str, Any]) -> str:
+    property_id = _row_property_id(row)
+    event_ids = {
+        _normalize_identity_text(_candidate_value(row, key))
+        for key in _LEAD_EVENT_ID_CANDIDATES
+        if _candidate_value(row, key) not in (None, "")
+    }
+
+    for key in _LEAD_PERSON_ID_CANDIDATES:
+        value = _candidate_value(row, key)
+        normalized = _normalize_identity_text(value)
+        if normalized and normalized not in event_ids:
+            return f"{property_id}:id:{normalized}"
+
+    for key in _LEAD_EMAIL_CANDIDATES:
+        normalized = _normalize_identity_text(_candidate_value(row, key))
+        if normalized:
+            return f"{property_id}:email:{normalized}"
+
+    for key in _LEAD_PHONE_CANDIDATES:
+        normalized = _normalize_identity_phone(_candidate_value(row, key))
+        if normalized:
+            return f"{property_id}:phone:{normalized}"
+
+    first_name = next((_normalize_identity_text(_candidate_value(row, key)) for key in _LEAD_FIRST_NAME_CANDIDATES if _candidate_value(row, key) not in (None, "")), "")
+    last_name = next((_normalize_identity_text(_candidate_value(row, key)) for key in _LEAD_LAST_NAME_CANDIDATES if _candidate_value(row, key) not in (None, "")), "")
+    if first_name or last_name:
+        return f"{property_id}:name:{first_name}:{last_name}"
+
+    return _stable_key(row, _LEAD_KEY_CANDIDATES)
+
+
 def _unique_count(rows: list[dict[str, Any]], candidates: tuple[str, ...]) -> int:
     return len({_stable_key(row, candidates) for row in rows})
+
+
+def _unique_lead_count(rows: list[dict[str, Any]]) -> int:
+    return len({_lead_identity_key(row) for row in rows})
 
 
 def _event_type_id(row: dict[str, Any]) -> int | None:
@@ -494,7 +567,7 @@ def _red_list_summary(
         forecast_occupied = _active_lease_count(conventional_lease_rows, conventional_forecast_date, signed_as_of=end_date)
         forecast_exposure_rate = max(0, 1 - min(1, forecast_occupied / target_count)) if target_count > 0 else None
         available_units = max(0, target_count - forecast_occupied) if target_count > 0 else None
-        lead_count = _unique_count(lead_60_day_rows, _LEAD_KEY_CANDIDATES)
+        lead_count = _unique_lead_count(lead_60_day_rows)
         lease_count = _unique_count([row for row in event_60_day_rows if _is_approved_lease_event(row)], _LEASE_KEY_CANDIDATES)
         required_leads_at_ten = int((available_units / 0.1) + 0.999999) if available_units is not None else None
         lead_deficit_at_ten = max(0, required_leads_at_ten - lead_count) if required_leads_at_ten is not None else None
@@ -520,7 +593,7 @@ def _red_list_summary(
 
     current_preleases = _unique_count(prelease_lease_rows, _LEASE_KEY_CANDIDATES)
     leases_remaining = max(0, target_count - current_preleases) if target_count > 0 else None
-    lead_count = _unique_count(leads_rows, _LEAD_KEY_CANDIDATES)
+    lead_count = _unique_lead_count(leads_rows)
     days_in_window = max(1, (end_date - start_date).days + 1)
     leads_per_month = lead_count / max(days_in_window / 30.4375, 0.1)
     days_to_fall = max(0, (prelease_cycle["fall_start"] - end_date).days)
@@ -1568,7 +1641,7 @@ def _build_call_prep_metrics(payload: dict[str, Any], start_date: date, end_date
 
     canonical_leads: dict[str, dict[str, Any]] = {}
     for lead in lead_rows:
-        key = _stable_key(lead, _LEAD_KEY_CANDIDATES)
+        key = _lead_identity_key(lead)
         existing = canonical_leads.get(key)
         if not existing or str(lead.get("_date") or "") < str(existing.get("_date") or "9999-12-31"):
             canonical_leads[key] = lead

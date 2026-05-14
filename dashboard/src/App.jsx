@@ -1087,8 +1087,19 @@ const getScopedStableKey = (propertyId, fallbackValue) => {
   return `${scope}${String(fallbackValue)}`;
 };
 
+const normalizeLeadIdentityText = (value) => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+const normalizeLeadIdentityPhone = (value) => {
+  const digits = String(value ?? '').replace(/\D+/g, '');
+  return digits.length >= 10 ? digits.slice(-10) : digits;
+};
+
 const getLeadKey = (lead) => {
-  const candidates = [
+  const eventIds = new Set(
+    [lead.leadEventId, lead.eventId, lead.eventID]
+      .map(normalizeLeadIdentityText)
+      .filter(Boolean)
+  );
+  const idCandidates = [
     lead.leadId,
     lead.leadID,
     lead.prospectId,
@@ -1097,14 +1108,51 @@ const getLeadKey = (lead) => {
     lead.customerID,
     lead.applicationId,
     lead.applicationID,
-    lead.leadEventId,
-    lead.eventId,
-    lead.eventID,
-    lead.id
+    lead.prospect_leadId,
+    lead.prospect_leadID,
+    lead.prospect_prospectId,
+    lead.prospect_prospectID,
+    lead.prospect_customerId,
+    lead.prospect_customerID,
+    lead.prospect_applicationId
   ];
 
-  const stableId = candidates.find((value) => value != null && value !== '');
-  if (stableId) return getScopedStableKey(lead?._propertyId, stableId);
+  const stableId = idCandidates.find((value) => {
+    const normalized = normalizeLeadIdentityText(value);
+    return normalized && !eventIds.has(normalized);
+  });
+  if (stableId) return getScopedStableKey(lead?._propertyId, `id:${normalizeLeadIdentityText(stableId)}`);
+
+  const email = [
+    lead.email,
+    lead.emailAddress,
+    lead.primaryEmail,
+    lead.emailaddress,
+    lead.prospectEmail,
+    lead.guestCardEmail,
+    lead.prospect_email,
+    lead.prospect_emailAddress
+  ].map(normalizeLeadIdentityText).find(Boolean);
+  if (email) return getScopedStableKey(lead?._propertyId, `email:${email}`);
+
+  const phone = [
+    lead.phoneNumber,
+    lead.primaryPhoneNumber,
+    lead.mobilePhone,
+    lead.phone,
+    lead.phone_number,
+    lead.prospect_phoneNumber,
+    lead.prospect_primaryPhoneNumber,
+    lead.prospect_mobilePhone
+  ].map(normalizeLeadIdentityPhone).find(Boolean);
+  if (phone) return getScopedStableKey(lead?._propertyId, `phone:${phone}`);
+
+  const firstName = normalizeLeadIdentityText(lead.firstName || lead.firstname || lead.prospect_firstName || lead.prospect_firstname);
+  const lastName = normalizeLeadIdentityText(lead.lastName || lead.lastname || lead.prospect_lastName || lead.prospect_lastname);
+  if (firstName || lastName) return getScopedStableKey(lead?._propertyId, `name:${firstName}:${lastName}`);
+
+  const eventId = [lead.leadEventId, lead.eventId, lead.eventID, lead.id].find((value) => value != null && value !== '');
+  if (eventId) return getScopedStableKey(lead?._propertyId, `event:${eventId}`);
   return getScopedStableKey(lead?._propertyId, JSON.stringify(lead));
 };
 
