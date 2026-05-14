@@ -265,6 +265,10 @@ const MARKETING_BUDGET_STATUSES = [
   { id: 'past', label: 'Past' },
 ];
 const MARKETING_BUDGET_STATUS_IDS = MARKETING_BUDGET_STATUSES.map((status) => status.id);
+const MARKETING_BUDGET_STATUS_ORDER = Object.fromEntries(
+  MARKETING_BUDGET_STATUSES.map((status, index) => [status.id, index])
+);
+const LOCKED_MARKETING_BUDGET_FIELDS = new Set(['itemName', 'startDate', 'endDate', 'monthlyAmount']);
 const MARKETING_BUDGET_SELECT_COLUMNS = [
   'id',
   'property_id',
@@ -2359,6 +2363,7 @@ const DashboardApp = ({
   const [marketingBudgetError, setMarketingBudgetError] = useState(null);
   const [marketingBudgetNotice, setMarketingBudgetNotice] = useState(null);
   const [propertyBudgetItemsExpanded, setPropertyBudgetItemsExpanded] = useState(true);
+  const [propertyBudgetTableSort, setPropertyBudgetTableSort] = useState({ key: 'startDate', direction: 'desc' });
   const [actualMarketingSpendItems, setActualMarketingSpendItems] = useState([]);
   const [actualMarketingSpendLoading, setActualMarketingSpendLoading] = useState(false);
   const [actualMarketingSpendError, setActualMarketingSpendError] = useState(null);
@@ -2608,6 +2613,36 @@ const DashboardApp = ({
   const futureMarketingBudgetItems = useMemo(() => (
     marketingBudgetItems.filter((item) => item.status === 'new' || (item.startDate && item.startDate > currentMarketingBudgetDate))
   ), [currentMarketingBudgetDate, marketingBudgetItems]);
+  const sortedMarketingBudgetItems = useMemo(() => {
+    const sortMultiplier = propertyBudgetTableSort.direction === 'asc' ? 1 : -1;
+    const getSortValue = (item) => {
+      if (propertyBudgetTableSort.key === 'status') return MARKETING_BUDGET_STATUS_ORDER[item.status] ?? 99;
+      if (propertyBudgetTableSort.key === 'itemName') return String(item.itemName || '').toLowerCase();
+      if (propertyBudgetTableSort.key === 'startDate') return item.startDate || '';
+      if (propertyBudgetTableSort.key === 'endDate') return item.endDate || '';
+      if (propertyBudgetTableSort.key === 'monthlyAmount') return parseCurrency(item.monthlyAmount);
+      if (propertyBudgetTableSort.key === 'contractFileName') return String(item.contractFileName || '').toLowerCase();
+      if (propertyBudgetTableSort.key === 'listingUrl') return String(item.listingUrl || '').toLowerCase();
+      if (propertyBudgetTableSort.key === 'notes') return String(item.notes || '').toLowerCase();
+      if (propertyBudgetTableSort.key === 'updatedAt') return item.updatedAt || '';
+      return '';
+    };
+    return [...marketingBudgetItems].sort((a, b) => {
+      const left = getSortValue(a);
+      const right = getSortValue(b);
+      const leftEmpty = left === '' || left == null || (typeof left === 'number' && !Number.isFinite(left));
+      const rightEmpty = right === '' || right == null || (typeof right === 'number' && !Number.isFinite(right));
+      if (leftEmpty || rightEmpty) {
+        if (leftEmpty && rightEmpty) return String(a.itemName || '').localeCompare(String(b.itemName || ''));
+        return leftEmpty ? 1 : -1;
+      }
+      const comparison = typeof left === 'number' && typeof right === 'number'
+        ? left - right
+        : String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: 'base' });
+      if (comparison !== 0) return comparison * sortMultiplier;
+      return String(a.itemName || '').localeCompare(String(b.itemName || ''));
+    });
+  }, [marketingBudgetItems, propertyBudgetTableSort]);
   const actualMarketingSpendWindow = useMemo(() => getCallPrepWindowRange(30), []);
 
   const handleDateRangeChange = (nextDateRange) => {
@@ -3502,12 +3537,48 @@ const DashboardApp = ({
   };
 
   const updateMarketingBudgetField = (itemId, field, value) => {
+    if (itemId && LOCKED_MARKETING_BUDGET_FIELDS.has(field)) return;
     setMarketingBudgetError(null);
     setMarketingBudgetNotice(null);
     setMarketingBudgetItems((current) => current.map((item) => (
       item.id === itemId ? { ...item, [field]: value } : item
     )));
   };
+
+  const updatePropertyBudgetTableSort = (key) => {
+    const defaultDirection = ['startDate', 'endDate', 'monthlyAmount', 'updatedAt'].includes(key) ? 'desc' : 'asc';
+    setPropertyBudgetTableSort((current) => (
+      current.key === key
+        ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+        : { key, direction: defaultDirection }
+    ));
+  };
+
+  const getPropertyBudgetSortLabel = (key) => {
+    if (propertyBudgetTableSort.key !== key) return '';
+    return propertyBudgetTableSort.direction === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const getPropertyBudgetAriaSort = (key) => {
+    if (propertyBudgetTableSort.key !== key) return 'none';
+    return propertyBudgetTableSort.direction === 'asc' ? 'ascending' : 'descending';
+  };
+
+  const renderPropertyBudgetSortHeader = (key, label) => (
+    <button
+      type="button"
+      className={`property-budget-sort ${propertyBudgetTableSort.key === key ? 'is-active' : ''}`}
+      onClick={() => updatePropertyBudgetTableSort(key)}
+      aria-label={`Sort budget items by ${label}${getPropertyBudgetSortLabel(key) ? `, currently ${getPropertyBudgetSortLabel(key)}` : ''}`}
+    >
+      <span>{label}</span>
+      <ChevronDown
+        size={13}
+        className={`property-budget-sort__icon ${propertyBudgetTableSort.direction === 'asc' ? 'is-ascending' : ''}`}
+        aria-hidden="true"
+      />
+    </button>
+  );
 
   const validateMarketingBudgetFile = (file) => {
     if (!file) return null;
@@ -3526,29 +3597,30 @@ const DashboardApp = ({
       return;
     }
 
+    const isExistingItem = Boolean(item.id);
     const itemName = String(item.itemName || '').trim();
     const startDate = item.startDate || '';
     const monthlyAmount = parseCurrency(item.monthlyAmount);
     const status = MARKETING_BUDGET_STATUS_IDS.includes(item.status) ? item.status : 'new';
     const fileError = validateMarketingBudgetFile(contractFile);
 
-    if (!itemName) {
+    if (!isExistingItem && !itemName) {
       setMarketingBudgetError('Add an item name before saving.');
       return;
     }
-    if (!isDateInputValue(startDate)) {
+    if (!isExistingItem && !isDateInputValue(startDate)) {
       setMarketingBudgetError('Add a valid start date before saving.');
       return;
     }
-    if (String(item.monthlyAmount ?? '').trim() === '') {
+    if (!isExistingItem && String(item.monthlyAmount ?? '').trim() === '') {
       setMarketingBudgetError('Add a monthly amount before saving.');
       return;
     }
-    if (!Number.isFinite(monthlyAmount) || monthlyAmount < 0) {
+    if (!isExistingItem && (!Number.isFinite(monthlyAmount) || monthlyAmount < 0)) {
       setMarketingBudgetError('Add a valid monthly amount before saving.');
       return;
     }
-    if (item.endDate && !isDateInputValue(item.endDate)) {
+    if (!isExistingItem && item.endDate && !isDateInputValue(item.endDate)) {
       setMarketingBudgetError('End date must be blank or a valid date.');
       return;
     }
@@ -3584,10 +3656,6 @@ const DashboardApp = ({
       const payload = {
         property_id: propertyScopedSelectionId,
         status,
-        item_name: itemName,
-        monthly_amount: monthlyAmount,
-        start_date: startDate,
-        end_date: item.endDate || null,
         listing_url: String(item.listingUrl || '').trim() || null,
         contract_file_name: contractFileName,
         contract_storage_path: contractStoragePath,
@@ -3596,8 +3664,14 @@ const DashboardApp = ({
         updated_by: currentUser.id,
         updated_at: new Date().toISOString(),
       };
+      if (!isExistingItem) {
+        payload.item_name = itemName;
+        payload.monthly_amount = monthlyAmount;
+        payload.start_date = startDate;
+        payload.end_date = item.endDate || null;
+      }
 
-      const response = item.id
+      const response = isExistingItem
         ? await supabase
             .from('property_marketing_budget_items')
             .update(payload)
@@ -7526,19 +7600,19 @@ const DashboardApp = ({
                   <table className="property-budget-table">
                     <thead>
                       <tr>
-                        <th>Status</th>
-                        <th>Item</th>
-                        <th>Start</th>
-                        <th>End</th>
-                        <th>Monthly</th>
-                        <th>Contract</th>
-                        <th>Listing</th>
-                        <th>Notes</th>
-                        <th>Modified On</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('status')}>{renderPropertyBudgetSortHeader('status', 'Status')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('itemName')}>{renderPropertyBudgetSortHeader('itemName', 'Item')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('startDate')}>{renderPropertyBudgetSortHeader('startDate', 'Start')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('endDate')}>{renderPropertyBudgetSortHeader('endDate', 'End')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('monthlyAmount')}>{renderPropertyBudgetSortHeader('monthlyAmount', 'Monthly')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('contractFileName')}>{renderPropertyBudgetSortHeader('contractFileName', 'Contract')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('listingUrl')}>{renderPropertyBudgetSortHeader('listingUrl', 'Listing')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('notes')}>{renderPropertyBudgetSortHeader('notes', 'Notes')}</th>
+                        <th aria-sort={getPropertyBudgetAriaSort('updatedAt')}>{renderPropertyBudgetSortHeader('updatedAt', 'Modified On')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {marketingBudgetItems.map((item) => {
+                      {sortedMarketingBudgetItems.map((item) => {
                         const listingUrl = normalizeExternalUrl(item.listingUrl);
                         return (
                           <tr key={item.id} className={`property-budget-row property-budget-row--${item.status}`}>
@@ -7556,6 +7630,8 @@ const DashboardApp = ({
                               <input
                                 type="text"
                                 value={item.itemName}
+                                disabled={Boolean(item.id)}
+                                title="Locked after creation"
                                 onChange={(event) => updateMarketingBudgetField(item.id, 'itemName', event.target.value)}
                               />
                             </td>
@@ -7563,6 +7639,8 @@ const DashboardApp = ({
                               <input
                                 type="date"
                                 value={item.startDate}
+                                disabled={Boolean(item.id)}
+                                title="Locked after creation"
                                 onChange={(event) => updateMarketingBudgetField(item.id, 'startDate', event.target.value)}
                               />
                             </td>
@@ -7570,6 +7648,8 @@ const DashboardApp = ({
                               <input
                                 type="date"
                                 value={item.endDate}
+                                disabled={Boolean(item.id)}
+                                title="Locked after creation"
                                 onChange={(event) => updateMarketingBudgetField(item.id, 'endDate', event.target.value)}
                               />
                             </td>
@@ -7579,6 +7659,8 @@ const DashboardApp = ({
                                 min="0"
                                 step="0.01"
                                 value={item.monthlyAmount}
+                                disabled={Boolean(item.id)}
+                                title="Locked after creation"
                                 onChange={(event) => updateMarketingBudgetField(item.id, 'monthlyAmount', event.target.value)}
                               />
                             </td>

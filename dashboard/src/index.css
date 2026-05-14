@@ -3605,6 +3605,42 @@ td {
   text-align: left;
 }
 
+.property-budget-sort {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.property-budget-sort__icon {
+  opacity: 0.45;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.property-budget-sort.is-active .property-budget-sort__icon {
+  opacity: 1;
+}
+
+.property-budget-sort__icon.is-ascending {
+  transform: rotate(180deg);
+}
+
+.property-budget-table input:disabled {
+  color: var(--text-soft);
+  background: rgba(215, 210, 207, 0.06);
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+
 .property-budget-table th:last-child,
 .property-budget-table td:last-child {
   border-right: none;
