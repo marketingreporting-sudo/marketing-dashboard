@@ -7362,14 +7362,14 @@ const DashboardApp = ({
           <div className="property-info-card__meta">Leads / apps / leases in selected range</div>
         </div>
           <div className="property-info-card">
-            <div className="property-info-card__label">Budgeted Spend</div>
+            <div className="property-info-card__label">Scheduled Spend</div>
             <div className="property-info-card__value">{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</div>
           <div className="property-info-card__meta">{formatNumber(activeMarketingBudgetItems.length)} active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</div>
           </div>
         <div className="property-info-card">
-          <div className="property-info-card__label">Actual GL Spend</div>
+          <div className="property-info-card__label">Last 30 GL Spend</div>
           <div className="property-info-card__value">{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</div>
-          <div className="property-info-card__meta">Last 30 days from posted marketing invoices</div>
+          <div className="property-info-card__meta">From posted marketing invoices</div>
         </div>
       </div>
 
