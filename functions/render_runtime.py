@@ -440,20 +440,84 @@ def _derive_local_falcon_competitors(detail: dict[str, Any] | None, target_place
     return sorted(rows, key=lambda item: (not item["isTarget"], -(item.get("solv") or 0), item.get("arp") or 99))
 
 
-def _normalize_local_falcon_trends(reports: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _average_local_falcon_metric(items: list[dict[str, Any]], key: str) -> float | None:
+    values = [
+        value
+        for value in (_parse_local_falcon_number(item.get(key)) for item in items if isinstance(item, dict))
+        if value is not None
+    ]
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _normalize_local_falcon_date_label(value: Any) -> str:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return ""
+    if len(raw_value) == 8 and raw_value.isdigit():
+        return f"{raw_value[:4]}-{raw_value[4:6]}-{raw_value[6:8]}"
+    for date_format in ("%m/%d/%Y", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.datetime.strptime(raw_value[:19], date_format).date().isoformat()
+        except ValueError:
+            continue
+    return raw_value[:10]
+
+
+def _summarize_local_falcon_scan_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(detail, dict):
+        return {}
+    raw_points = detail.get("data_points") if isinstance(detail.get("data_points"), list) else []
+    ranks = [
+        rank
+        for rank in (_normalize_local_falcon_rank(point.get("rank")) for point in raw_points if isinstance(point, dict))
+        if rank is not None
+    ]
+    total_points = len(raw_points)
+    if not total_points:
+        return {}
+
+    found_in = len(ranks)
+    top_three_count = len([rank for rank in ranks if rank <= 3])
+    return {
+        "arp": round(sum(ranks) / found_in, 2) if found_in else None,
+        "atrp": round((sum(ranks) + ((total_points - found_in) * 21)) / total_points, 2),
+        "solv": round((top_three_count / total_points) * 100, 2),
+        "foundIn": found_in,
+        "points": total_points,
+        "foundInPercent": round((found_in / total_points) * 100, 2),
+    }
+
+
+def _normalize_local_falcon_trends(
+    reports: list[dict[str, Any]],
+    scan_details: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     rows = []
+    scan_details = scan_details or {}
     for item in reports:
         if not isinstance(item, dict):
             continue
+        report_key = item.get("report_key")
+        detail = scan_details.get(str(report_key)) if report_key else None
+        detail_summary = _summarize_local_falcon_scan_detail(detail)
+        raw_date = (
+            item.get("looker_date")
+            or item.get("looker_last_date")
+            or (detail or {}).get("looker_date")
+            or (detail or {}).get("date")
+            or item.get("date")
+        )
         rows.append(
             {
-                "reportKey": item.get("report_key"),
-                "date": item.get("looker_date") or item.get("date"),
-                "label": str(item.get("date") or item.get("looker_date") or "")[:10],
+                "reportKey": report_key,
+                "date": _normalize_local_falcon_date_label(raw_date),
+                "label": _normalize_local_falcon_date_label(raw_date),
                 "keyword": item.get("keyword"),
-                "arp": _parse_local_falcon_number(item.get("arp")),
-                "atrp": _parse_local_falcon_number(item.get("atrp")),
-                "solv": _parse_local_falcon_number(item.get("solv")),
+                "arp": detail_summary.get("arp") if detail_summary.get("arp") is not None else _parse_local_falcon_number(item.get("arp")),
+                "atrp": detail_summary.get("atrp") if detail_summary.get("atrp") is not None else _parse_local_falcon_number(item.get("atrp")),
+                "solv": detail_summary.get("solv") if detail_summary.get("solv") is not None else _parse_local_falcon_number(item.get("solv")),
             }
         )
     return list(reversed(rows))
@@ -545,18 +609,66 @@ def fetch_and_store_local_falcon_dashboard(
     scan_reports = sorted(scan_reports, key=_local_falcon_report_sort_value, reverse=True)
     latest_report = scan_reports[0] if scan_reports else None
     latest_scan_detail = None
+    scan_detail_by_report_key: dict[str, dict[str, Any]] = {}
     if latest_report and latest_report.get("report_key"):
         report_key = latest_report.get("report_key")
         latest_scan_detail = _local_falcon_data(
             _local_falcon_post(f"/v1/reports/{report_key}/", {"report_key": report_key}),
             f"/v1/reports/{report_key}/",
         )
+        if isinstance(latest_scan_detail, dict):
+            scan_detail_by_report_key[str(report_key)] = latest_scan_detail
+
+    for report in scan_reports:
+        if not isinstance(report, dict):
+            continue
+        report_key = report.get("report_key")
+        if not report_key or str(report_key) in scan_detail_by_report_key:
+            continue
+        try:
+            detail = _local_falcon_data(
+                _local_falcon_post(f"/v1/reports/{report_key}/", {"report_key": report_key}),
+                f"/v1/reports/{report_key}/",
+            )
+        except ValueError:
+            continue
+        if isinstance(detail, dict):
+            scan_detail_by_report_key[str(report_key)] = detail
+
     overview_source = location_detail or (location_reports[0] if location_reports else {}) or latest_report or {}
     if isinstance(latest_scan_detail, dict) and latest_scan_detail.get("report_key"):
         overview_source = latest_scan_detail
     keyword_rows = location_detail.get("keywords", []) if isinstance(location_detail, dict) else []
     if not isinstance(keyword_rows, list):
         keyword_rows = []
+    latest_scan_summary = _summarize_local_falcon_scan_detail(latest_scan_detail)
+    trend_rows = _normalize_local_falcon_trends(scan_reports, scan_detail_by_report_key)
+    normalized_reports = []
+    for item in scan_reports:
+        if not isinstance(item, dict):
+            continue
+        report_key = item.get("report_key")
+        detail_summary = _summarize_local_falcon_scan_detail(scan_detail_by_report_key.get(str(report_key)) if report_key else None)
+        normalized_reports.append(
+            {
+                "reportKey": report_key,
+                "date": _normalize_local_falcon_date_label(item.get("looker_date") or item.get("looker_last_date") or item.get("date")),
+                "keyword": item.get("keyword"),
+                "platform": item.get("platform"),
+                "gridSize": item.get("grid_size"),
+                "radius": item.get("radius"),
+                "measurement": item.get("measurement"),
+                "arp": detail_summary.get("arp") if detail_summary.get("arp") is not None else _parse_local_falcon_number(item.get("arp")),
+                "atrp": detail_summary.get("atrp") if detail_summary.get("atrp") is not None else _parse_local_falcon_number(item.get("atrp")),
+                "solv": detail_summary.get("solv") if detail_summary.get("solv") is not None else _parse_local_falcon_number(item.get("solv")),
+                "heatmap": item.get("heatmap"),
+                "image": item.get("image"),
+                "pdf": item.get("pdf"),
+                "publicUrl": item.get("public_url"),
+            }
+        )
+    keyword_avg_solv = _average_local_falcon_metric(keyword_rows, "solv")
+    report_avg_solv = _average_local_falcon_metric(normalized_reports, "solv")
     location_source = matched_location or overview_source.get("location") or {}
     if not isinstance(location_source, dict):
         location_source = {}
@@ -579,12 +691,20 @@ def fetch_and_store_local_falcon_dashboard(
             "keywordCount": int(_parse_local_falcon_number(overview_source.get("keyword_count")) or len(keyword_rows)),
             "avgArp": _parse_local_falcon_number(overview_source.get("avg_arp") or overview_source.get("arp")),
             "avgAtrp": _parse_local_falcon_number(overview_source.get("avg_atrp") or overview_source.get("atrp")),
-            "avgSolv": _parse_local_falcon_number(overview_source.get("avg_solv") or overview_source.get("solv")),
-            "foundIn": int(_parse_local_falcon_number(overview_source.get("found_in")) or 0),
-            "points": int(_parse_local_falcon_number(overview_source.get("points") or overview_source.get("data_points")) or 0),
+            "avgSolv": (
+                keyword_avg_solv
+                if keyword_avg_solv is not None
+                else report_avg_solv
+                if report_avg_solv is not None
+                else _parse_local_falcon_number(overview_source.get("avg_solv") or overview_source.get("solv"))
+            ),
+            "foundIn": int(_parse_local_falcon_number(overview_source.get("found_in")) or latest_scan_summary.get("foundIn") or 0),
+            "points": int(_parse_local_falcon_number(overview_source.get("points")) or latest_scan_summary.get("points") or 0),
             "foundInPercent": (
-                round(((_parse_local_falcon_number(overview_source.get("found_in")) or 0) / (_parse_local_falcon_number(overview_source.get("points") or overview_source.get("data_points")) or 1)) * 100, 2)
-                if (overview_source.get("found_in") is not None or overview_source.get("points") is not None or overview_source.get("data_points") is not None)
+                latest_scan_summary.get("foundInPercent")
+                if latest_scan_summary.get("foundInPercent") is not None
+                else round(((_parse_local_falcon_number(overview_source.get("found_in")) or 0) / (_parse_local_falcon_number(overview_source.get("points")) or 1)) * 100, 2)
+                if (overview_source.get("found_in") is not None or overview_source.get("points") is not None)
                 else None
             ),
             "lastRunDate": overview_source.get("last_date") or overview_source.get("date"),
@@ -604,7 +724,7 @@ def fetch_and_store_local_falcon_dashboard(
         },
         "Grid": _normalize_local_falcon_grid(latest_scan_detail),
         "Competitors": _derive_local_falcon_competitors(latest_scan_detail, resolved_place_id),
-        "Trends": _normalize_local_falcon_trends(scan_reports),
+        "Trends": trend_rows,
         "Keywords": [
             {
                 "keyword": item.get("keyword"),
@@ -621,26 +741,7 @@ def fetch_and_store_local_falcon_dashboard(
             for item in keyword_rows
             if isinstance(item, dict)
         ],
-        "Reports": [
-            {
-                "reportKey": item.get("report_key"),
-                "date": item.get("date"),
-                "keyword": item.get("keyword"),
-                "platform": item.get("platform"),
-                "gridSize": item.get("grid_size"),
-                "radius": item.get("radius"),
-                "measurement": item.get("measurement"),
-                "arp": _parse_local_falcon_number(item.get("arp")),
-                "atrp": _parse_local_falcon_number(item.get("atrp")),
-                "solv": _parse_local_falcon_number(item.get("solv")),
-                "heatmap": item.get("heatmap"),
-                "image": item.get("image"),
-                "pdf": item.get("pdf"),
-                "publicUrl": item.get("public_url"),
-            }
-            for item in scan_reports
-            if isinstance(item, dict)
-        ],
+        "Reports": normalized_reports,
         "Campaigns": campaign_reports,
         "Status": {
             "message": f"Matched Local Falcon place ID {resolved_place_id}",

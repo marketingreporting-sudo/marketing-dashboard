@@ -10309,23 +10309,23 @@ th {
 }
 
 .local-falcon-grid__cell--strong {
-  background: rgba(87, 136, 108, 0.72);
-  color: #204731;
+  background: rgba(70, 145, 96, 0.78);
+  color: #173b27;
 }
 
 .local-falcon-grid__cell--moderate {
-  background: rgba(238, 132, 19, 0.68);
-  color: #7a430b;
+  background: rgba(236, 194, 73, 0.78);
+  color: #5d4300;
 }
 
 .local-falcon-grid__cell--weak {
-  background: rgba(255, 100, 22, 0.62);
-  color: #7a2d07;
+  background: rgba(237, 132, 45, 0.76);
+  color: #6e3505;
 }
 
 .local-falcon-grid__cell--missing {
-  background: rgba(16, 33, 38, 0.42);
-  color: rgba(16, 33, 38, 0.72);
+  background: rgba(198, 71, 55, 0.78);
+  color: #5b1b15;
 }
 
 .local-falcon-grid-legend {
@@ -10350,19 +10350,19 @@ th {
 }
 
 .local-falcon-grid-legend__dot--strong {
-  background: #57886c;
+  background: #469160;
 }
 
 .local-falcon-grid-legend__dot--moderate {
-  background: #ee8413;
+  background: #ecc249;
 }
 
 .local-falcon-grid-legend__dot--weak {
-  background: #ff6416;
+  background: #ed842d;
 }
 
 .local-falcon-grid-legend__dot--missing {
-  background: rgba(16, 33, 38, 0.38);
+  background: #c64737;
 }
 
 .local-falcon-competitor-table {

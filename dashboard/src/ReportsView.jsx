@@ -158,14 +158,29 @@ export default function ReportsView(props) {
   const activeMarketingSpendLineCount = React.useMemo(() => (
     marketingSpendBreakdown.filter((item) => !item.excluded).length
   ), [marketingSpendBreakdown]);
-  const localFalconTrendChartData = React.useMemo(() => (
-    (Array.isArray(localFalconData?.Trends) ? localFalconData.Trends : []).map((item) => ({
-      name: String(item.label || item.date || '').slice(0, 10),
-      arp: Number(item.arp || 0),
-      atrp: Number(item.atrp || 0),
-      solv: Number(item.solv || 0),
-    }))
-  ), [localFalconData]);
+  const localFalconTrendChartData = React.useMemo(() => {
+    const toMetric = (value) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+    const rows = (Array.isArray(localFalconData?.Trends) ? localFalconData.Trends : [])
+      .map((item) => ({
+        label: String(item.label || item.date || '').slice(0, 10),
+        keyword: item.keyword || '',
+        arp: toMetric(item.arp),
+        atrp: toMetric(item.atrp),
+        solv: toMetric(item.solv),
+      }))
+      .filter((item) => item.label && [item.arp, item.atrp, item.solv].some((value) => value !== null));
+    const labelCounts = rows.reduce((counts, item) => {
+      counts[item.label] = (counts[item.label] || 0) + 1;
+      return counts;
+    }, {});
+    return rows.map((item) => ({
+      ...item,
+      name: labelCounts[item.label] > 1 && item.keyword ? `${item.label} ${shortenLabel(item.keyword, 14)}` : item.label,
+    }));
+  }, [localFalconData, shortenLabel]);
   const reportingPanelSummaries = React.useMemo(() => ({
     executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
     roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
