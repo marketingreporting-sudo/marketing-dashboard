@@ -213,7 +213,7 @@ class CallPrepSummaryTests(unittest.TestCase):
             params = call.args[1]
             self.assertIn(("property_id", "in.(10,20)"), params)
 
-    def test_call_prep_counts_migrated_leads_without_event_api_metadata(self):
+    def test_call_prep_counts_only_get_lead_events_rows(self):
         rows_by_key = {
             "leads": [
                 {
@@ -221,7 +221,20 @@ class CallPrepSummaryTests(unittest.TestCase):
                     "property_id": "10",
                     "activity_date": "2026-05-14",
                     "raw_data": {"leadId": "lead-1", "leadSource": "Website"},
-                }
+                },
+                {
+                    "property_snapshot_id": "snap-1",
+                    "property_id": "10",
+                    "activity_date": "2026-05-14",
+                    "raw_data": {
+                        "_sourceApi": "getLeadEvents",
+                        "_sourceEventType": "online_guest_card",
+                        "leadEventId": "event-1",
+                        "leadId": "event-1",
+                        "leadSource": "Website",
+                        "eventDate": "05/14/2026",
+                    },
+                },
             ],
             "events": [],
             "leases": [],
@@ -240,7 +253,7 @@ class CallPrepSummaryTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["counts"]["lead_items"], 1)
         self.assertEqual(payload["property_row_counts"]["10"]["lead_items"], 1)
-        self.assertEqual(payload["lead_items"][0]["leadId"], "lead-1")
+        self.assertEqual(payload["lead_items"][0]["leadEventId"], "event-1")
 
     def test_google_ads_cached_snapshot_is_derived_by_window(self):
         payload = {
