@@ -7408,10 +7408,10 @@ const DashboardApp = ({
 
       <div className="property-info-grid">
         <div className="property-info-card">
-          <div className="property-info-card__label">Current Specials</div>
-          <div className="property-info-card__value">{renderMetricValue(propertyInfoLoading, formatNumber(specialItems.length))}</div>
+          <div className="property-info-card__label">Active Marketing Items</div>
+          <div className="property-info-card__value">{renderMetricValue(marketingBudgetLoading, formatNumber(activeMarketingBudgetItems.length))}</div>
           <div className="property-info-card__meta">
-            Last synced {getSnapshotTimestampLabel(specialsSnapshot?.last_synced_at)}
+            Marketing items with Active status
           </div>
         </div>
         <div className="property-info-card">
@@ -7727,10 +7727,6 @@ const DashboardApp = ({
                                 <button type="button" onClick={() => saveMarketingBudgetItem(item)} disabled={marketingBudgetSaving}>
                                   <Save size={14} />
                                   Save
-                                </button>
-                                <button type="button" className="property-budget-delete" onClick={() => deleteMarketingBudgetItem(item.id)} disabled={marketingBudgetSaving}>
-                                  <Trash2 size={14} />
-                                  Delete
                                 </button>
                               </div>
                             </td>
