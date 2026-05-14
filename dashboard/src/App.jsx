@@ -32,7 +32,6 @@ import {
 } from './apiConfig';
 import { authFetch } from './lib/authFetch';
 import { supabase } from './lib/supabase';
-import HeatmapRenderer from './components/HeatmapRenderer';
 import { OPINIION_SKIPPED_PROPERTY_IDS } from './opiniionLocationMap';
 import {
   DEFAULT_TAB_ORDER,
@@ -89,12 +88,11 @@ import {
   Upload,
   ExternalLink
 } from 'lucide-react';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  BarChart, Bar, LineChart, Line
-} from 'recharts';
-
+const AnalyticsView = React.lazy(() => import('./AnalyticsView.jsx'));
+const AuditView = React.lazy(() => import('./AuditView.jsx'));
+const DashboardView = React.lazy(() => import('./DashboardView.jsx'));
 const CallPrepView = React.lazy(() => import('./CallPrepView.jsx'));
+const ReportsView = React.lazy(() => import('./ReportsView.jsx'));
 
 const PERFORMANCE_MARKETING_GL_CODES = new Set(['5300-0030', '5300-0210']);
 const ALL_MARKETING_GL_CODES = new Set([
@@ -167,7 +165,6 @@ const REPORTING_PANEL_LIBRARY = [
   { id: 'roi', title: 'ROAS Metrics', eyebrow: 'Revenue Efficiency' },
   { id: 'budget', title: 'Budget Tracking', eyebrow: 'Spend Control' },
   { id: 'entrata', title: 'Entrata Funnel', eyebrow: 'Leads to Leases' },
-  { id: 'lead-deficit', title: 'Lead Deficit', eyebrow: 'Student Prelease' },
   { id: 'heatmaps-audit', title: 'Heatmaps + Site Audit', eyebrow: 'Website Experience' },
   { id: 'google-ads', title: 'Google Ads', eyebrow: 'Paid Search' },
   { id: 'ga4', title: 'Google Analytics', eyebrow: 'Behavior + Demand' },
@@ -2248,7 +2245,7 @@ const DashboardApp = ({
   const [auditTableFilter, setAuditTableFilter] = useState('all');
   const [auditPortfolioFilter, setAuditPortfolioFilter] = useState('all');
   const [auditRegionFilter, setAuditRegionFilter] = useState('all');
-  const [auditTableSort, setAuditTableSort] = useState({ key: 'riskTier', direction: 'desc' });
+  const [auditTableSort, setAuditTableSort] = useState({ key: 'propertyRiskScore', direction: 'desc' });
   const [auditReviewTab, setAuditReviewTab] = useState('overview');
   const [auditFindingWorkflowState, setAuditFindingWorkflowState] = useState(() => readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
   const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState('');
@@ -2265,8 +2262,8 @@ const DashboardApp = ({
   const [selectedHeatmapDevice, setSelectedHeatmapDevice] = useState('desktop');
   const [highlightedHeatmapTarget, setHighlightedHeatmapTarget] = useState(null);
   const [heatmapClickSignalTab, setHeatmapClickSignalTab] = useState('top');
-  const heatmapPageOptions = heatmapPagesData?.pages || [];
-  const auditPageOptions = siteAuditPagesData?.pages || [];
+  const heatmapPageOptions = useMemo(() => heatmapPagesData?.pages || [], [heatmapPagesData]);
+  const auditPageOptions = useMemo(() => siteAuditPagesData?.pages || [], [siteAuditPagesData]);
   const selectedAuditPage = useMemo(() => (
     auditPageOptions.find((page) => (page.path || '/') === selectedHeatmapPath) || auditPageOptions[0] || null
   ), [auditPageOptions, selectedHeatmapPath]);
@@ -5059,20 +5056,6 @@ const DashboardApp = ({
     return statuses;
   }, [allCanonicalLeadItems]);
 
-  // Lead sources breakdown
-  const leadSourceBreakdown = useMemo(() => {
-    const sources = {};
-    allCanonicalLeadItems.forEach(l => {
-      const s = l.leadSource || l.internetListingService || 'Unknown';
-      sources[s] = (sources[s] || 0) + 1;
-    });
-    // Sort by count, take top 5
-    return Object.entries(sources)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([name, value]) => ({ name: name.length > 20 ? name.slice(0, 20) + '…' : name, value }));
-  }, [allCanonicalLeadItems]);
-
   // Marketing cost from invoices
   const totalPerformanceMarketingCost = useMemo(() => {
     let total = 0;
@@ -5109,9 +5092,6 @@ const DashboardApp = ({
       .sort((a, b) => b.amount - a.amount);
   }, [allMarketingInvoices, excludedMarketingSpendKeySet, rangeDates]);
 
-  const activeMarketingSpendLineCount = useMemo(() => (
-    marketingSpendBreakdown.filter((item) => !item.excluded).length
-  ), [marketingSpendBreakdown]);
 
   const actualMarketingSpendBreakdown = useMemo(() => {
     const groupedSpend = new Map();
@@ -5144,19 +5124,9 @@ const DashboardApp = ({
     activeApprovedMarketingBudget - actualMarketingSpendLast30
   ), [activeApprovedMarketingBudget, actualMarketingSpendLast30]);
 
-  const specialItems = useMemo(() => {
-    return extractSpecialItems(specialsSnapshot);
-  }, [specialsSnapshot]);
-
-  const floorplanItems = useMemo(() => {
-    return Array.isArray(availabilityPricingSnapshot?.floorplans) ? availabilityPricingSnapshot.floorplans : [];
-  }, [availabilityPricingSnapshot]);
-
-  const propertyUnitItems = useMemo(() => {
-    return Array.isArray(availabilityPricingSnapshot?.units) ? availabilityPricingSnapshot.units : [];
-  }, [availabilityPricingSnapshot]);
-
   const availabilitySummary = useMemo(() => {
+    const floorplanItems = Array.isArray(availabilityPricingSnapshot?.floorplans) ? availabilityPricingSnapshot.floorplans : [];
+    const propertyUnitItems = Array.isArray(availabilityPricingSnapshot?.units) ? availabilityPricingSnapshot.units : [];
     const units = propertyUnitItems.flatMap(getPropertyUnitSpaces);
     const pricedUnits = units
       .map((unit) => {
@@ -5182,47 +5152,7 @@ const DashboardApp = ({
       maxPrice: pricedUnits.length ? Math.max(...pricedUnits) : null,
       nextAvailableDate: datedUnits[0] || null,
     };
-  }, [propertyUnitItems, floorplanItems]);
-
-  const floorplanTableRows = useMemo(() => {
-    return [...floorplanItems]
-      .sort((a, b) => {
-        const availableA = Number.parseInt(a?.DisplayedUnitsAvailable || a?.UnitsAvailable || '0', 10) > 0 ? 0 : 1;
-        const availableB = Number.parseInt(b?.DisplayedUnitsAvailable || b?.UnitsAvailable || '0', 10) > 0 ? 0 : 1;
-        if (availableA !== availableB) return availableA - availableB;
-        const priceA = getFloorplanPriceRange(a).min ?? Number.MAX_SAFE_INTEGER;
-        const priceB = getFloorplanPriceRange(b).min ?? Number.MAX_SAFE_INTEGER;
-        return priceA - priceB;
-      })
-      .slice(0, 14);
-  }, [floorplanItems]);
-
-  const unitTableRows = useMemo(() => {
-    if (propertyUnitItems.length > 0) {
-      return propertyUnitItems
-        .flatMap((unit) => {
-          const attrs = unit?.['@attributes'] || {};
-          return getPropertyUnitSpaces(unit).map((space, index) => ({
-            ...space,
-            _unitAttrs: attrs,
-            _spaceKey: `${attrs.Id || attrs.UnitNumber || 'unit'}-${space?.['@attributes']?.Id || index}`,
-          }));
-        })
-        .sort((a, b) => {
-          const statusA = String(getAvailabilityStatus(a)).toLowerCase();
-          const statusB = String(getAvailabilityStatus(b)).toLowerCase();
-          const availableA = statusA.includes('available') ? 0 : 1;
-          const availableB = statusB.includes('available') ? 0 : 1;
-          if (availableA !== availableB) return availableA - availableB;
-          const priceA = getPropertyUnitPriceRange(a).min ?? Number.MAX_SAFE_INTEGER;
-          const priceB = getPropertyUnitPriceRange(b).min ?? Number.MAX_SAFE_INTEGER;
-          return priceA - priceB;
-        })
-        .slice(0, 14);
-    }
-
-    return [];
-  }, [propertyUnitItems]);
+  }, [availabilityPricingSnapshot]);
 
   const roiTotals = useMemo(() => {
     const totals = {
@@ -5285,47 +5215,6 @@ const DashboardApp = ({
       }))
       .sort((a, b) => b.netEffectiveRevenue - a.netEffectiveRevenue);
   }, [excludedMarketingSpendKeySet, roiDailyItems]);
-
-  // Daily chart data
-  const dailyChartData = useMemo(() => {
-    const dateMap = {};
-    for (
-      let cursor = new Date(rangeDates.start.getFullYear(), rangeDates.start.getMonth(), rangeDates.start.getDate());
-      cursor <= rangeDates.end;
-      cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1)
-    ) {
-      const dateKey = formatDateInputValue(cursor);
-      dateMap[dateKey] = { date: dateKey, leads: 0, leases: 0, applications: 0 };
-    }
-
-    // Count leads per day
-    allCanonicalLeadItems.forEach(l => {
-      if (l._date && dateMap[l._date]) {
-        dateMap[l._date].leads += 1;
-      }
-    });
-
-    completedApplicationRecords.forEach((record) => {
-      const dateKey = record.date ? formatDateInputValue(record.date) : null;
-      if (dateKey && dateMap[dateKey]) {
-        dateMap[dateKey].applications += 1;
-      }
-    });
-
-    approvedLeaseRecords.forEach((record) => {
-      const dateKey = record.date ? formatDateInputValue(record.date) : null;
-      if (dateKey && dateMap[dateKey]) {
-        dateMap[dateKey].leases += 1;
-      }
-    });
-
-    return Object.values(dateMap)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(d => ({
-        ...d,
-        label: new Date(d.date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
-      }));
-  }, [rangeDates, allCanonicalLeadItems, completedApplicationRecords, approvedLeaseRecords]);
 
   // Conversion rates
   const attributedLeaseCount = roiTotals.attributedLeases;
@@ -5801,16 +5690,16 @@ const DashboardApp = ({
       .filter((panel) => !hiddenIds.has(panel.id));
   }, [reportingLayoutDraft]);
 
-  const updateWebsiteManagerField = (field, value) => {
+  const updateWebsiteManagerField = useCallback((field, value) => {
     setWebsiteManagerNotice(null);
     setWebsiteManagerError(null);
     setWebsiteManagerDraft((current) => ({
       ...current,
       [field]: value
     }));
-  };
+  }, []);
 
-  const updateWebsiteManagerContentField = (field, value) => {
+  const updateWebsiteManagerContentField = useCallback((field, value) => {
     setWebsiteManagerNotice(null);
     setWebsiteManagerError(null);
     setWebsiteManagerDraft((current) => ({
@@ -5820,7 +5709,7 @@ const DashboardApp = ({
         [field]: value
       }
     }));
-  };
+  }, []);
 
   const insertWebsiteManagerSnippet = useCallback((fieldKey, snippet) => {
     const currentValue = String(websiteManagerDraft.content[fieldKey] || '');
@@ -6599,10 +6488,8 @@ const DashboardApp = ({
   const reputationReviewCount = reputationOverview.reviewCount ?? null;
   const reputationResponseRate = reputationOverview.responseRate ?? null;
   const reputationSentimentScore = reputationOverview.sentimentScore ?? null;
-  const reputationRecentReviews = reputationData?.recentReviews || [];
   const reputationSummary = reputationData?.summary || [];
   const reputationWindow = reputationData?.window || null;
-  const reputationRawKeys = reputationData?.rawTopLevelKeys || [];
 
   const ga4AcquisitionChannels = ga4Data?.Acquisition?.channels || [];
   const ga4TopSources = ga4Data?.Acquisition?.topSources || [];
@@ -6625,53 +6512,6 @@ const DashboardApp = ({
   const ga4Sessions = ga4Data?.Acquisition?.totals?.current?.sessions ?? null;
   const ga4NewUsers = ga4Data?.Acquisition?.totals?.current?.newUsers ?? null;
   const ga4EventTotal = ga4Data?.Conversion?.totals?.currentEventCount ?? null;
-  const ga4OutcomeChartData = useMemo(() => (
-    ga4ConversionEvents.map((item) => ({
-      name: shortenLabel(item.eventName, 18),
-      value: Number(item.current.eventCount || 0),
-    }))
-  ), [ga4ConversionEvents]);
-  const ga4AcquisitionChartData = useMemo(() => (
-    ga4AcquisitionChannels.slice(0, 6).map((item) => ({
-      name: shortenLabel(item.channel, 16),
-      sessions: Number(item.current.sessions || 0),
-      engagement: Number(item.current.engagementRate || 0),
-    }))
-  ), [ga4AcquisitionChannels]);
-  const ga4TrafficByMonthChartData = useMemo(() => (
-    ga4TrafficByMonth.map((item) => ({
-      name: String(item.month || ''),
-      sessions: Number(item.sessions || 0),
-      newUsers: Number(item.newUsers || 0),
-    }))
-  ), [ga4TrafficByMonth]);
-  const ga4MarketChartData = useMemo(() => (
-    ga4Cities.slice(0, 6).map((item) => ({
-      name: shortenLabel(item.city || '(not set)', 16),
-      users: Number(item.current.totalUsers || 0),
-      keyEvents: Number(item.current.keyEvents || 0),
-    }))
-  ), [ga4Cities]);
-  const ga4DiagnosticChartData = useMemo(() => (
-    ga4TopPages.slice(0, 6).map((item) => ({
-      name: shortenLabel(item.pagePath || '(not set)', 18),
-      views: Number(item.current.screenPageViews || 0),
-      engagement: Number(item.current.engagementRate || 0),
-    }))
-  ), [ga4TopPages]);
-  const ga4PathStartChartData = useMemo(() => (
-    (ga4PathExploration?.startPages || []).slice(0, 5).map((item) => ({
-      name: shortenLabel(item.pagePath || '(not set)', 18),
-      users: Number(item.activeUsers || 0),
-    }))
-  ), [ga4PathExploration]);
-  const ga4ConversionByDayChartData = useMemo(() => (
-    ga4ConversionsByDay.slice(-14).map((item) => ({
-      name: String(item.date || '').slice(4, 8),
-      keyEvents: Number(item.keyEvents || 0),
-      conversionRate: Number(item.conversionRate || 0),
-    }))
-  ), [ga4ConversionsByDay]);
   const googleAdsOverview = googleAdsData?.Overview?.current || null;
   const googleAdsOverviewDelta = googleAdsData?.Overview?.delta || null;
   const googleAdsCampaigns = googleAdsData?.Campaigns || [];
@@ -6710,15 +6550,6 @@ const DashboardApp = ({
   const localFalconGridPoints = Array.isArray(localFalconGrid?.points) ? localFalconGrid.points : [];
   const localFalconGridSize = Number(localFalconGrid?.size || localFalconLatestScan?.gridSize || 0);
   const localFalconCompetitors = Array.isArray(localFalconData?.Competitors) ? localFalconData.Competitors : [];
-  const localFalconTrends = Array.isArray(localFalconData?.Trends) ? localFalconData.Trends : [];
-  const localFalconTrendChartData = useMemo(() => (
-    localFalconTrends.map((item) => ({
-      name: String(item.label || item.date || '').slice(0, 10),
-      arp: Number(item.arp || 0),
-      atrp: Number(item.atrp || 0),
-      solv: Number(item.solv || 0),
-    }))
-  ), [localFalconTrends]);
   const localFalconHeatmapUrl = localFalconOverview?.heatmap || localFalconLatestReport?.heatmap || localFalconLatestScan?.raw?.heatmap;
   const localFalconMapImageUrl = localFalconOverview?.image || localFalconLatestReport?.image || localFalconLatestScan?.raw?.image;
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
@@ -6840,63 +6671,6 @@ const DashboardApp = ({
   const callPrepMetricsLoading = callPrepLoading && !callPrepOverview && !callPrepSummary;
   const callPrepPortfolioLoading = callPrepLoading && !callPrepPortfolioOverview && !callPrepSummary;
   const heatmapTotals = heatmapSummaryData?.totals || {};
-  const trackerHealth = heatmapTrackerHealthData?.health || {};
-  const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
-    ? heatmapTrackerHealthData.recommendations
-    : [];
-  const trackerHealthStatuses = trackerHealth.statuses || {};
-  const trackerHealthStatusRows = [
-    ['Script detected', trackerHealthStatuses.scriptDetected],
-    ['Sample accepted', trackerHealthStatuses.sampleAccepted],
-    ['Consent/DNT allowed', trackerHealthStatuses.consentDntAllowed],
-    ['Last collect accepted', trackerHealthStatuses.lastCollectAccepted],
-    ['Domain accepted', trackerHealthStatuses.domainAccepted],
-    ['Events stored', trackerHealthStatuses.eventsStored],
-  ];
-  const heatmapScrollSummary = heatmapSummaryData?.scroll || {};
-  const heatmapScrollMilestones = heatmapScrollSummary.milestones || {};
-  const heatmapScrollReach = heatmapScrollSummary.reach || heatmapScrollMilestones || {};
-  const heatmapTopSections = Array.isArray(heatmapScrollSummary.topSections) ? heatmapScrollSummary.topSections : [];
-  const heatmapBandDurations = heatmapScrollSummary.bandDurationsMs || {};
-  const heatmapCursorSummary = heatmapSummaryData?.cursor || {};
-  const heatmapTopAttentionAreas = Array.isArray(heatmapCursorSummary.topAttentionAreas) ? heatmapCursorSummary.topAttentionAreas : [];
-  const topScrollBand = Object.entries(heatmapBandDurations)
-    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))[0] || null;
-  const heatmapPoints = useMemo(() => (
-    (heatmapSummaryData?.points || [])
-      .filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice)
-  ), [heatmapSummaryData, selectedHeatmapDevice]);
-  const heatmapCells = useMemo(() => (
-    (heatmapSummaryData?.cells || [])
-      .filter((cell) => !cell.deviceType || cell.deviceType === selectedHeatmapDevice)
-  ), [heatmapSummaryData, selectedHeatmapDevice]);
-  const heatmapCoordinateDiagnostics = useMemo(() => {
-    const allPoints = Array.isArray(heatmapSummaryData?.points) ? heatmapSummaryData.points : [];
-    const allCells = Array.isArray(heatmapSummaryData?.cells) ? heatmapSummaryData.cells : [];
-    const selectedDevicePoints = allPoints.filter((point) => !point.deviceType || point.deviceType === selectedHeatmapDevice);
-    const deviceMismatchCount = allPoints.length - selectedDevicePoints.length;
-    const parseCoordinate = (value) => {
-      if (value === null || value === undefined || value === '') return null;
-      const parsed = Number(value);
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-    const hasRendererCoordinate = (point) => {
-      const xPct = parseCoordinate(point.xPct);
-      const yPct = parseCoordinate(point.yPct);
-      if (xPct === null || yPct === null) return false;
-      if (xPct <= 0.001 && yPct <= 0.001 && !point.targetLabel && !point.targetHref) return false;
-      return true;
-    };
-    const coordinateCount = selectedDevicePoints.filter((point) => point.xPct != null || point.yPct != null).length;
-    const rendererAcceptedCount = selectedDevicePoints.filter(hasRendererCoordinate).length;
-    const aggregateCoordinateCount = allCells.filter((cell) => cell.xPct != null && cell.yPct != null).length;
-    return {
-      rawEvents: Number(heatmapTotals.events || 0),
-      withCoordinates: aggregateCoordinateCount || coordinateCount,
-      rejectedFromRenderer: Math.max(0, coordinateCount - rendererAcceptedCount),
-      deviceMismatch: Math.max(0, deviceMismatchCount),
-    };
-  }, [heatmapSummaryData, selectedHeatmapDevice, heatmapTotals.events]);
   useEffect(() => {
     setHeatmapLayersTouched(false);
     setHighlightedHeatmapTarget(null);
@@ -6916,200 +6690,6 @@ const DashboardApp = ({
     }
     setHeatmapLayers({ click: false, cursor: false, scroll: false, engagement: false });
   }, [heatmapLayersTouched, heatmapSummaryData, heatmapSummaryLoading, heatmapTotals.clicks, heatmapTotals.ctaClicks, heatmapTotals.scrolls, heatmapTotals.maxScrollDepthPct]);
-  const heatmapClickAnomalies = useMemo(() => {
-    const serverAnomalies = heatmapSummaryData?.anomalies;
-    if (serverAnomalies) {
-      return {
-        deadClicks: Number(serverAnomalies.deadClicks?.count || 0),
-        rageClusters: Number(serverAnomalies.rageClicks?.count || 0),
-        ctaFrustrations: Number(serverAnomalies.ctaFrustration?.count || 0),
-        deadClickTargets: serverAnomalies.deadClicks?.targets || [],
-        rageClickClusters: serverAnomalies.rageClicks?.clusters || [],
-        ctaFrustrationClusters: serverAnomalies.ctaFrustration?.clusters || [],
-      };
-    }
-    const clickPoints = heatmapPoints.filter((point) => ['click', 'pointerdown', 'touchstart'].includes(point.type));
-    const deadClicks = clickPoints.filter((point) => !point.targetHref && !point.targetLabel && !point.targetTrackId && !point.targetSelector).length;
-    const clusterMap = new Map();
-    clickPoints.forEach((point) => {
-      const x = Math.round(Number(point.xPct || 0) * 25);
-      const y = Math.round(Number(point.yPct || 0) * 25);
-      const key = `${point.sessionKey || 'unknown'}:${point.targetTrackId || point.targetSelector || point.targetLabel || point.targetId || point.targetTag || 'unknown'}:${x}:${y}`;
-      clusterMap.set(key, (clusterMap.get(key) || 0) + 1);
-    });
-    const rageClusters = Array.from(clusterMap.values()).filter((count) => count >= 3).length;
-    return { deadClicks, rageClusters, ctaFrustrations: 0, deadClickTargets: [], rageClickClusters: [], ctaFrustrationClusters: [] };
-  }, [heatmapPoints, heatmapSummaryData]);
-  const heatmapTopTargets = heatmapSummaryData?.topTargets || [];
-  const heatmapSignalKey = (item) => (
-    item?.targetKey || item?.trackId || item?.targetTrackId || item?.selector || item?.targetSelector || item?.label || item?.path || 'unknown-target'
-  );
-  const heatmapDeadClickTargets = useMemo(() => {
-    const enrichedTargets = heatmapTopTargets
-      .filter((item) => Number(item.deadClicks || 0) > 0)
-      .map((item) => ({ ...item, signalCount: Number(item.deadClicks || 0), signalLabel: 'dead clicks' }));
-    if (enrichedTargets.length) return enrichedTargets;
-    return (heatmapClickAnomalies.deadClickTargets || []).map((item) => ({
-      ...item,
-      signalCount: Number(item.count || item.deadClicks || 0),
-      signalLabel: 'dead clicks',
-      label: item.label || item.targetLabel || item.path || 'Dead click target',
-    }));
-  }, [heatmapTopTargets, heatmapClickAnomalies.deadClickTargets]);
-  const heatmapRageClickTargets = useMemo(() => {
-    const enrichedTargets = heatmapTopTargets
-      .filter((item) => Number(item.rageClicks || 0) > 0)
-      .map((item) => ({ ...item, signalCount: Number(item.rageClicks || 0), signalLabel: 'rage clicks' }));
-    if (enrichedTargets.length) return enrichedTargets;
-    return (heatmapClickAnomalies.rageClickClusters || []).map((item) => ({
-      ...item,
-      signalCount: Number(item.count || item.rageClicks || 0),
-      signalLabel: 'rage clicks',
-      label: item.label || item.targetLabel || item.path || 'Rage click cluster',
-    }));
-  }, [heatmapTopTargets, heatmapClickAnomalies.rageClickClusters]);
-  const heatmapClickSignalTabs = useMemo(() => ([
-    {
-      key: 'top',
-      label: 'Top clicked',
-      count: heatmapTopTargets.length,
-      empty: 'No clicked elements collected yet for this page and date range.',
-      items: heatmapTopTargets.map((item) => ({
-        ...item,
-        signalCount: Number(item.clicks || 0) + Number(item.ctaClicks || 0),
-        signalLabel: 'clicks',
-      })),
-    },
-    {
-      key: 'dead',
-      label: 'Dead clicks',
-      count: heatmapClickAnomalies.deadClicks,
-      empty: 'No dead clicks detected for this page and date range.',
-      items: heatmapDeadClickTargets,
-    },
-    {
-      key: 'rage',
-      label: 'Rage clicks',
-      count: heatmapClickAnomalies.rageClusters,
-      empty: 'No rage click clusters detected for this page and date range.',
-      items: heatmapRageClickTargets,
-    },
-  ]), [heatmapTopTargets, heatmapClickAnomalies.deadClicks, heatmapClickAnomalies.rageClusters, heatmapDeadClickTargets, heatmapRageClickTargets]);
-  const activeHeatmapClickSignalTab = heatmapClickSignalTabs.find((tab) => tab.key === heatmapClickSignalTab) || heatmapClickSignalTabs[0];
-  const heatmapOverviewPages = useMemo(() => (
-    (heatmapPageOptions || [])
-      .map((page) => ({
-        ...page,
-        events: Number(page.events || 0),
-        sessions: Number(page.sessions || 0),
-        clicks: Number(page.clicks || 0) + Number(page.ctaClicks || 0),
-        deadClicks: Number(page.deadClicks || 0),
-        rageClicks: Number(page.rageClicks || 0),
-      }))
-      .sort((a, b) => (b.sessions - a.sessions) || (b.events - a.events))
-  ), [heatmapPageOptions]);
-  const heatmapDeviceBreakdown = useMemo(() => (
-    (heatmapPagesData?.deviceBreakdown || [])
-      .map((item) => ({
-        ...item,
-        deviceType: item.deviceType || 'unknown',
-        sessions: Number(item.sessions || 0),
-        events: Number(item.events || 0),
-      }))
-      .sort((a, b) => b.events - a.events)
-  ), [heatmapPagesData]);
-  const heatmapFrictionPages = useMemo(() => {
-    const fromApi = Array.isArray(heatmapPagesData?.frictionPages) ? heatmapPagesData.frictionPages : [];
-    if (fromApi.length) return fromApi;
-    return heatmapOverviewPages
-      .filter((page) => Number(page.deadClicks || 0) > 0 || Number(page.rageClicks || 0) > 0)
-      .sort((a, b) => (Number(b.deadClicks || 0) + Number(b.rageClicks || 0)) - (Number(a.deadClicks || 0) + Number(a.rageClicks || 0)))
-      .slice(0, 6);
-  }, [heatmapPagesData, heatmapOverviewPages]);
-  const heatmapRageSignals = useMemo(() => (
-    (heatmapClickAnomalies.rageClickClusters || [])
-      .map((item, index) => ({
-        label: item.label || item.targetLabel || item.path || `Cluster ${index + 1}`,
-        count: Number(item.count || item.rageClicks || 0),
-      }))
-      .filter((item) => item.count > 0)
-      .slice(0, 7)
-  ), [heatmapClickAnomalies.rageClickClusters]);
-  const heatmapFrictionTotals = useMemo(() => {
-    const pageDeadClicks = heatmapOverviewPages.reduce((total, page) => total + Number(page.deadClicks || 0), 0);
-    const pageRageClicks = heatmapOverviewPages.reduce((total, page) => total + Number(page.rageClicks || 0), 0);
-    return {
-      deadClicks: pageDeadClicks || Number(heatmapClickAnomalies.deadClicks || 0),
-      rageClicks: pageRageClicks || Number(heatmapClickAnomalies.rageClusters || 0),
-    };
-  }, [heatmapClickAnomalies.deadClicks, heatmapClickAnomalies.rageClusters, heatmapOverviewPages]);
-  const selectedHeatmapPageOverview = heatmapOverviewPages.find((page) => (page.path || '/') === selectedHeatmapPath) || heatmapOverviewPages[0] || null;
-  const latestAudit = siteAuditSummaryData?.audit || null;
-  const latestAuditRawData = latestAudit?.raw_data || latestAudit?.rawData || {};
-  const aiAuditMeta = latestAuditRawData?.aiAudit || {};
-  const isAiAudit = String(latestAuditRawData?.algorithm || '').includes('ai') || ['ok', 'partial'].includes(aiAuditMeta?.status);
-  const auditModeLabel = isAiAudit ? 'AI screenshot audit' : 'Deterministic audit';
-  const auditPageResult = useMemo(() => {
-    const pages = Array.isArray(latestAudit?.pages) ? latestAudit.pages : [];
-    return pages.find((page) => (page.path || '/') === selectedHeatmapPath) || pages[0] || null;
-  }, [latestAudit, selectedHeatmapPath]);
-  const auditIssues = auditPageResult?.issues || latestAudit?.issues || [];
-  const auditRecommendations = auditPageResult?.recommendations || latestAudit?.recommendations || [];
-  const auditStaleDates = auditPageResult?.staleDateStrings || latestAudit?.stale_date_findings || latestAudit?.staleDateFindings || [];
-  const auditBrokenLinks = auditPageResult?.suspiciousLinks || latestAudit?.broken_links || latestAudit?.brokenLinks || [];
-  const aiAuditChecklist = useMemo(() => {
-    const directChecklist = auditPageResult?.aiAudit?.checklist;
-    if (Array.isArray(directChecklist)) return directChecklist;
-    const note = (latestAudit?.performance_notes || latestAudit?.performanceNotes || [])
-      .find((item) => item?.path === auditPageResult?.path || item?.path === selectedHeatmapPath);
-    return Array.isArray(note?.aiChecklist) ? note.aiChecklist : [];
-  }, [auditPageResult, latestAudit, selectedHeatmapPath]);
-  const auditCategoryScores = useMemo(() => {
-    const rawCategories = latestAudit?.raw_data?.categoryScores || latestAudit?.rawData?.categoryScores;
-    if (Array.isArray(rawCategories) && rawCategories.length) return rawCategories;
-    const pageCategories = auditPageResult?.categoryScores;
-    if (pageCategories && typeof pageCategories === 'object') {
-      const labels = {
-        seoBasics: 'SEO basics',
-        ctaClarity: 'CTA clarity',
-        staleDates: 'Stale dates',
-        internalLinks: 'Internal links',
-        pageStructure: 'Page structure',
-        performanceProxy: 'Performance proxy',
-        page_load_desktop_mobile: 'Desktop/mobile load',
-        application_flow_visible: 'Application flow',
-        floor_plan_availability: 'Floor plan availability',
-        pricing_accuracy: 'Pricing',
-        homepage_cta: 'Homepage CTA',
-        homepage_value_add: 'Homepage value-add',
-        special_offers_current: 'Special offers',
-        leasing_verbiage: 'Leasing verbiage',
-        contact_info_hours: 'Contact/hours',
-      };
-      return Object.entries(pageCategories).map(([key, score]) => ({
-        key,
-        label: labels[key] || key,
-        score,
-      })).filter((item) => item.score != null);
-    }
-    return [
-      { key: 'ctaClarity', label: 'CTA clarity', score: latestAudit?.urgency_score },
-      { key: 'staleDates', label: 'Stale dates', score: latestAudit?.freshness_score },
-      { key: 'internalLinks', label: 'Internal links', score: latestAudit?.link_score },
-    ].filter((item) => item.score != null);
-  }, [latestAudit, auditPageResult]);
-  const lastTrackerEventAt = useMemo(() => {
-    const latestPoint = heatmapPoints
-      .map((point) => point.occurredAt)
-      .filter(Boolean)
-      .sort()
-      .pop();
-    return latestPoint || selectedAuditPage?.lastSeenAt || '';
-  }, [heatmapPoints, selectedAuditPage]);
-  const selectedPortfolioAudit = useMemo(
-    () => portfolioAuditProperties.find((property) => property.propertyId === selectedPropertyId) || portfolioAuditProperties[0] || null,
-    [portfolioAuditProperties, selectedPropertyId]
-  );
   const updateAuditFindingWorkflow = useCallback((findingKey, status) => {
     if (!findingKey || !AUDIT_FINDING_WORKFLOW_STATUS_IDS.includes(status)) return;
     setAuditFindingWorkflowState((current) => ({
@@ -7120,149 +6700,6 @@ const DashboardApp = ({
       },
     }));
   }, []);
-  const auditPortfolioOptions = useMemo(() => (
-    [...new Set(portfolioAuditProperties.map((property) => property.portfolio).filter(Boolean))]
-      .sort((a, b) => String(a).localeCompare(String(b)))
-  ), [portfolioAuditProperties]);
-  const auditRegionOptions = useMemo(() => (
-    [...new Set(portfolioAuditProperties.map((property) => [property.state, property.city].filter(Boolean).join(' / ')).filter(Boolean))]
-      .sort((a, b) => String(a).localeCompare(String(b)))
-  ), [portfolioAuditProperties]);
-  const filteredPortfolioAuditProperties = useMemo(() => {
-    const sortMultiplier = auditTableSort.direction === 'asc' ? 1 : -1;
-    const getSortValue = (property) => {
-      if (auditTableSort.key === 'propertyName') return String(property.propertyName || '').toLowerCase();
-      if (auditTableSort.key === 'riskTier') return AUDIT_RISK_ORDER[property.riskTier] || 0;
-      if (auditTableSort.key === 'performanceScore') return property.performanceScore == null ? -1 : Number(property.performanceScore);
-      if (auditTableSort.key === 'scoreChange') return property.scoreChange == null ? -999 : Number(property.scoreChange);
-      if (auditTableSort.key === 'trend') return (Number(property.newIssueCount || 0) * 4) + (Number(property.regressedIssueCount || 0) * 5) - (Number(property.resolvedIssueCount || 0) * 2) - Number(property.scoreChange || 0);
-      if (auditTableSort.key === 'topFailingRubric') return Number(property.topFailingRubric?.score ?? 101);
-      if (auditTableSort.key === 'auditedAt') return property.auditedAt ? new Date(property.auditedAt).getTime() : 0;
-      if (auditTableSort.key === 'issueCount') return Number(property.issueCount || 0);
-      if (auditTableSort.key === 'confidence') return Number(property.confidence?.score || 0);
-      if (auditTableSort.key === 'auditStatus') return String(property.auditStatus || '').toLowerCase();
-      return 0;
-    };
-    return portfolioAuditProperties
-      .filter((property) => propertyMatchesAuditFilter(property, auditTableFilter))
-      .filter((property) => auditPortfolioFilter === 'all' || property.portfolio === auditPortfolioFilter)
-      .filter((property) => auditRegionFilter === 'all' || [property.state, property.city].filter(Boolean).join(' / ') === auditRegionFilter)
-      .sort((a, b) => {
-        const left = getSortValue(a);
-        const right = getSortValue(b);
-        if (typeof left === 'string' || typeof right === 'string') {
-          return String(left).localeCompare(String(right)) * sortMultiplier;
-        }
-        if (left === right) return String(a.propertyName || '').localeCompare(String(b.propertyName || ''));
-        return (Number(left) - Number(right)) * sortMultiplier;
-      });
-  }, [auditPortfolioFilter, auditRegionFilter, auditTableFilter, auditTableSort, portfolioAuditProperties]);
-  const selectedAuditReasonPool = useMemo(() => {
-    const portfolioReasons = Array.isArray(selectedPortfolioAudit?.flaggedReasons) ? selectedPortfolioAudit.flaggedReasons : [];
-    const baseReasons = portfolioReasons.length ? portfolioReasons : (auditIssues || []).map((item) => ({
-      category: 'Website QA',
-      issue: typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding',
-      evidence: typeof item === 'string' ? 'Detected in latest audit output.' : item.evidence || item.path || 'Detected in latest audit output.',
-      recommendation: typeof item === 'string' ? 'Review the affected page and update website content as needed.' : item.recommendation || 'Review the affected page and update website content as needed.',
-      confidence: selectedPortfolioAudit?.confidence?.label || 'Medium',
-    }));
-    return baseReasons.map((reason, index) => {
-      const workflowKey = getAuditFindingKey(selectedPortfolioAudit?.propertyId || selectedPropertyId, reason, index);
-      const workflow = auditFindingWorkflowState[workflowKey] || { status: 'new' };
-      return {
-        ...reason,
-        workflowKey,
-        workflowStatus: workflow.status || 'new',
-        workflowUpdatedAt: workflow.updatedAt || null,
-      };
-    });
-  }, [auditFindingWorkflowState, auditIssues, selectedPortfolioAudit, selectedPropertyId]);
-  const selectedAuditFlaggedReasons = useMemo(() => (
-    selectedAuditReasonPool.slice(0, 3)
-  ), [selectedAuditReasonPool]);
-  const auditRubricRows = useMemo(() => {
-    const checklistByKey = new Map(
-      (aiAuditChecklist || [])
-        .filter((item) => item && item.key)
-        .map((item) => [item.key, item])
-    );
-    const categoryByKey = new Map(
-      (auditCategoryScores || [])
-        .filter((item) => item && item.key)
-        .map((item) => [item.key, item])
-    );
-    return AUDIT_RUBRIC_ITEMS.map((rubric) => {
-      const checklistItem = checklistByKey.get(rubric.key);
-      const fallbackCategory = categoryByKey.get(AUDIT_RUBRIC_FALLBACK_MAP[rubric.key]);
-      const score = checklistItem?.score ?? fallbackCategory?.score;
-      const status = normalizeAuditRubricStatus(checklistItem?.status, score);
-      const source = checklistItem
-        ? 'AI screenshot audit'
-        : fallbackCategory
-          ? 'Deterministic metadata proxy'
-          : 'Not evaluated';
-      return {
-        key: rubric.key,
-        label: checklistItem?.label || rubric.label,
-        status,
-        score,
-        evidence: checklistItem?.evidence || (fallbackCategory ? `${fallbackCategory.label || rubric.label} proxy score ${formatNumber(fallbackCategory.score, 0)}.` : 'No evidence captured for this rubric item yet.'),
-        source,
-        confidence: checklistItem ? selectedPortfolioAudit?.confidence?.label || 'Medium' : fallbackCategory ? 'Medium' : 'Low',
-        recommendation: checklistItem?.recommendation || (status === 'pass' ? 'No immediate fix needed.' : 'Run a fresh AI screenshot audit or manually verify this item.'),
-      };
-    });
-  }, [aiAuditChecklist, auditCategoryScores, selectedPortfolioAudit]);
-  const auditScreenshotAnnotations = useMemo(() => {
-    const rubricAnnotations = auditRubricRows
-      .filter((row) => row.status === 'fail' || row.status === 'warn')
-      .map((row) => {
-        const label = {
-          homepage_cta: 'CTA missing above fold',
-          pricing_accuracy: 'Pricing not visible here',
-          application_flow_visible: 'Application path needs review',
-          floor_plan_availability: 'Availability not clear',
-          special_offers_current: 'Special offer mismatch',
-          page_load_desktop_mobile: 'Device/load issue',
-          homepage_value_add: 'Value-add unclear',
-          leasing_verbiage: 'Leasing copy needs review',
-          contact_info_hours: 'Contact info/hours need review',
-        }[row.key] || row.label;
-        return {
-          label,
-          status: row.status,
-          evidence: row.evidence,
-          source: row.source,
-        };
-      });
-    const reasonAnnotations = selectedAuditReasonPool.map((reason) => ({
-      label: reason.category || reason.rubricLabel || 'Audit finding',
-      status: String(reason.severity || '').toLowerCase() === 'high' ? 'fail' : 'warn',
-      evidence: reason.evidence || getAuditReasonText(reason),
-      source: 'Ranked audit finding',
-    }));
-    const seen = new Set();
-    return [...rubricAnnotations, ...reasonAnnotations].filter((item) => {
-      const key = `${item.label}-${item.evidence}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 5);
-  }, [auditRubricRows, selectedAuditReasonPool]);
-  const portfolioAuditSummary = useMemo(() => {
-    const totalProperties = portfolioAuditProperties.length;
-    const missingAudits = portfolioAuditProperties.filter((property) => !property.hasAudit).length;
-    const urgentProperties = portfolioAuditProperties.filter((property) => property.riskTier === 'Critical' || Number(property.performanceScore ?? 101) < 70).length;
-    const brokenLinkProperties = portfolioAuditProperties.filter((property) => Number(property.brokenLinkCount || 0) > 0).length;
-    const staleDateProperties = portfolioAuditProperties.filter((property) => Number(property.staleDateCount || 0) > 0).length;
-    return {
-      totalProperties,
-      missingAudits,
-      urgentProperties,
-      brokenLinkProperties,
-      staleDateProperties,
-    };
-  }, [portfolioAuditProperties]);
   const redListAdminRows = useMemo(() => (
     redListPortfolioSummaries
       .filter((summary) => summary?.is_red_list)
@@ -7295,557 +6732,71 @@ const DashboardApp = ({
         return bRisk - aRisk;
       })
   ), [redListPortfolioSummaries, taskPropertyById]);
-  const reportingPanelSummaries = useMemo(() => ({
-    executive: `${formatCurrency(roiTotals.netEffectiveRevenue)} net revenue | ${formatCurrency(totalBlendedMarketingSpend)} spend`,
-    roi: blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}% ROI | ${blendedRoas != null ? `${blendedRoas.toFixed(2)}x ROAS` : 'ROAS pending'}` : 'Waiting on spend and revenue data',
-    budget: `${activeMarketingSpendLineCount} active spend lines | ${formatCurrency(totalPerformanceMarketingCost)} paid media`,
-    entrata: `${totalLeads} leads | ${totalApplications} apps | ${totalLeases} leases`,
-    'lead-deficit': isConventionalLeadDeficitPanel
-      ? conventionalLeadDeficitMetrics.targetUnitCount > 0
-        ? `${formatNumber(conventionalLeadDeficitMetrics.availableUnitsIn60Days)} units exposed | ${formatPercent(conventionalLeadDeficitMetrics.forecastOccupancyRate, 1)} forecast occupancy`
-        : 'Waiting on unit capacity'
-      : studentLeadDeficitMetrics.targetLeaseCount > 0
-        ? `${formatNumber(studentLeadDeficitMetrics.leasesRemaining)} leases remaining | ${formatNumber(studentLeadDeficitMetrics.leadDeficitAtCurrentClose)} lead gap`
-        : 'Waiting on prelease target capacity',
-    'google-ads': googleAdsLoading ? 'Loading paid search metrics' : googleAdsStatusMessage ? 'Google Ads connection needs attention' : `${formatNumber(googleAdsOverview?.clicks)} clicks | ${formatCurrency(googleAdsOverview?.cost)} spend`,
-    ga4: ga4Loading ? 'Loading analytics metrics' : ga4Blocked ? 'GA4 access required' : `${formatNumber(ga4Sessions)} sessions | ${formatNumber(ga4EventTotal)} tracked events`,
-    opiniion: reputationLoading ? 'Loading reputation metrics' : `${formatNumber(reputationReviewCount)} reviews | ${formatNumber(reputationAverageRating, 2)} avg rating`,
-    'local-falcon': localFalconLoading ? 'Loading local SEO metrics' : localFalconStatusMessage ? 'Local Falcon mapping needed' : `${formatNumber(localFalconOverview?.avgSolv, 2)} SoLV | ${formatNumber(localFalconOverview?.scanCount)} scans`,
-    'meta-ads': metaAdsLoading ? 'Loading paid social metrics' : `${formatNumber(metaAdsOverview?.clicks)} clicks | ${formatCurrency(metaAdsOverview?.spend)} spend`,
-    'heatmaps-audit': heatmapSummaryLoading ? 'Loading website experience data' : `${formatNumber(heatmapTotals.sessions)} sessions | ${formatNumber(heatmapTotals.clicks)} clicks`
-  }), [
-    blendedRoi,
-    blendedRoas,
-    ga4Blocked,
-    ga4EventTotal,
-    ga4Loading,
-    ga4Sessions,
-    googleAdsLoading,
-    googleAdsOverview,
-    googleAdsStatusMessage,
-    localFalconLoading,
-    localFalconOverview,
-    localFalconStatusMessage,
-    activeMarketingSpendLineCount,
-    metaAdsLoading,
-    metaAdsOverview,
-    heatmapSummaryLoading,
-    heatmapTotals.clicks,
-    heatmapTotals.sessions,
-    reputationAverageRating,
-    reputationLoading,
-    reputationReviewCount,
-    roiTotals.netEffectiveRevenue,
-    conventionalLeadDeficitMetrics.availableUnitsIn60Days,
-    conventionalLeadDeficitMetrics.forecastOccupancyRate,
-    conventionalLeadDeficitMetrics.targetUnitCount,
-    isConventionalLeadDeficitPanel,
-    studentLeadDeficitMetrics.leadDeficitAtCurrentClose,
-    studentLeadDeficitMetrics.leasesRemaining,
-    studentLeadDeficitMetrics.targetLeaseCount,
-    totalApplications,
-    totalBlendedMarketingSpend,
-    totalLeads,
-    totalLeases,
-    totalPerformanceMarketingCost
-  ]);
-  const googleAdsCampaignChartData = useMemo(() => (
-    googleAdsCampaigns.slice(0, 6).map((item) => ({
-      name: shortenLabel(item.campaignName, 18),
-      clicks: Number(item.current?.clicks || 0),
-      conversions: Number(item.current?.conversions || 0),
-    }))
-  ), [googleAdsCampaigns]);
-  const googleAdsDailyChartData = useMemo(() => (
-    googleAdsDailyPerformance.slice(-14).map((item) => ({
-      name: String(item.date || '').slice(5),
-      clicks: Number(item.clicks || 0),
-      cost: Number(item.cost || 0),
-      conversions: Number(item.conversions || 0),
-    }))
-  ), [googleAdsDailyPerformance]);
-  const googleAdsKeywordChartData = useMemo(() => (
-    googleAdsKeywords.slice(0, 6).map((item) => ({
-      name: shortenLabel(item.keywordText, 18),
-      clicks: Number(item.clicks || 0),
-      cost: Number(item.cost || 0),
-    }))
-  ), [googleAdsKeywords]);
-  const metaAdsCampaignChartData = useMemo(() => (
-    metaAdsCampaigns.slice(0, 6).map((item) => ({
-      name: shortenLabel(item.campaignName, 18),
-      spend: Number(item.current?.spend || 0),
-      clicks: Number(item.current?.clicks || 0),
-    }))
-  ), [metaAdsCampaigns]);
-  const metaAdsDailyChartData = useMemo(() => (
-    metaAdsDailyPerformance.slice(-14).map((item) => ({
-      name: String(item.date || '').slice(5),
-      spend: Number(item.spend || 0),
-      clicks: Number(item.clicks || 0),
-    }))
-  ), [metaAdsDailyPerformance]);
   const metaAdsTopPreview = metaAdsTopAds[0] || null;
   const showLoader = loading || invoiceLoading || roiLoading;
 
   const renderPropertyInfo = () => (
-    <div className="property-info-view">
-      <div className="property-info-hero">
-        <div>
-          <div className="property-info-kicker">Entrata Property Info</div>
-          <div className="property-info-headline">{selectedPropertyLabel}</div>
-          <div className="property-info-subhead">
-            Current specials plus the newest availability snapshot in the selected window, paired with the live lead, application, lease, and cost metrics already flowing into the dashboard.
-          </div>
-        </div>
-        <div className="property-info-pill-row">
-          <div className="property-info-pill">Entrata ID {selectedPropertyId}</div>
-          <div className="property-info-pill">Specials synced {formatNumber(specialItems.length)}</div>
-          <div className="property-info-pill">
-            Availability snapshot {latestAvailabilityDate ? formatReadableDate(latestAvailabilityDate) : 'Not loaded'}
-          </div>
-        </div>
-      </div>
-
-      <div className="property-info-grid">
-        <div className="property-info-card">
-          <div className="property-info-card__label">Active Marketing Items</div>
-          <div className="property-info-card__value">{renderMetricValue(marketingBudgetLoading, formatNumber(activeMarketingBudgetItems.length))}</div>
-          <div className="property-info-card__meta">
-            Marketing items with Active status
-          </div>
-        </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Available Units</div>
-          <div className="property-info-card__value">{renderMetricValue(propertyInfoLoading, formatNumber(availabilitySummary.availableCount))}</div>
-          <div className="property-info-card__meta">
-            {formatNumber(availabilitySummary.unitCount)} units across {formatNumber(availabilitySummary.floorplanCount)} floorplans
-          </div>
-        </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Price Range</div>
-          <div className="property-info-card__value">
-            {renderMetricValue(propertyInfoLoading, availabilitySummary.minPrice != null ? `${formatCurrency(availabilitySummary.minPrice)} - ${formatCurrency(availabilitySummary.maxPrice)}` : 'No pricing')}
-          </div>
-          <div className="property-info-card__meta">
-            Next available {availabilitySummary.nextAvailableDate ? formatReadableDate(availabilitySummary.nextAvailableDate) : '—'}
-          </div>
-        </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Funnel Snapshot</div>
-          <div className="property-info-card__value">{renderMetricValue(loading, `${formatNumber(totalLeads)} / ${formatNumber(totalApplications)} / ${formatNumber(totalLeases)}`)}</div>
-          <div className="property-info-card__meta">Leads / apps / leases in selected range</div>
-        </div>
-          <div className="property-info-card">
-            <div className="property-info-card__label">Scheduled Spend</div>
-            <div className="property-info-card__value">{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</div>
-          <div className="property-info-card__meta">{formatNumber(activeMarketingBudgetItems.length)} active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</div>
-          </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Last 30 GL Spend</div>
-          <div className="property-info-card__value">{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</div>
-          <div className="property-info-card__meta">From posted marketing invoices</div>
-        </div>
-      </div>
-
-      <div className="property-info-panels">
-        <div className="property-info-panel property-info-panel--marketing-budget">
-          <div className="property-info-panel__header">
-            <div>
-              <div className="property-info-panel__eyebrow">Approved Marketing Budget</div>
-              <div className="property-info-panel__title">Property budget items</div>
-              <div className="property-info-panel__subhead">
-                Track approved monthly spend, listing links, contracts, notes, active status, and the last modified date for this property.
-              </div>
-            </div>
-            <button type="button" className="property-budget-refresh" onClick={loadMarketingBudgetItems} disabled={marketingBudgetLoading || marketingBudgetSaving}>
-              Refresh
-            </button>
-          </div>
-
-          {marketingBudgetError && <div className="property-budget-alert property-budget-alert--error">{marketingBudgetError}</div>}
-          {marketingBudgetNotice && <div className="property-budget-alert">{marketingBudgetNotice}</div>}
-          {actualMarketingSpendError && <div className="property-budget-alert property-budget-alert--error">{actualMarketingSpendError}</div>}
-
-          <div className="property-budget-summary-grid">
-            <div className="property-budget-summary-card">
-              <span>Budgeted spend now</span>
-              <strong>{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</strong>
-              <small>
-                {formatNumber(activeMarketingBudgetItems.length)} active item{activeMarketingBudgetItems.length === 1 ? '' : 's'}
-                {futureMarketingBudgetItems.length > 0 ? ` | ${formatNumber(futureMarketingBudgetItems.length)} future/new` : ''}
-              </small>
-            </div>
-            <div className="property-budget-summary-card">
-              <span>Actual GL spend, last 30 days</span>
-              <strong>{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</strong>
-              <small>{formatCurrency(actualPerformanceMarketingSpendLast30)} performance marketing | {formatNumber(actualMarketingSpendBreakdown.length)} GL line{actualMarketingSpendBreakdown.length === 1 ? '' : 's'}</small>
-            </div>
-            <div className="property-budget-summary-card">
-              <span>Budget less actual</span>
-              <strong>{renderMetricValue(actualMarketingSpendLoading || marketingBudgetLoading, formatCurrency(marketingBudgetVarianceLast30))}</strong>
-              <small>Budget uses Active status rows; actuals use posted invoice allocation.</small>
-            </div>
-          </div>
-
-          <div className="property-budget-create">
-            <label className="property-budget-field property-budget-field--item">
-              <span>Item name</span>
-              <input
-                type="text"
-                value={marketingBudgetDraft.itemName}
-                onChange={(event) => updateMarketingBudgetDraft('itemName', event.target.value)}
-                placeholder="Apartments.com listing"
-              />
-            </label>
-            <label className="property-budget-field">
-              <span>Status</span>
-              <select
-                value={marketingBudgetDraft.status}
-                onChange={(event) => updateMarketingBudgetDraft('status', event.target.value)}
-              >
-                {MARKETING_BUDGET_STATUSES.map((status) => (
-                  <option key={status.id} value={status.id}>{status.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="property-budget-field">
-              <span>Start date</span>
-              <input
-                type="date"
-                value={marketingBudgetDraft.startDate}
-                onChange={(event) => updateMarketingBudgetDraft('startDate', event.target.value)}
-              />
-            </label>
-            <label className="property-budget-field">
-              <span>End date</span>
-              <input
-                type="date"
-                value={marketingBudgetDraft.endDate}
-                onChange={(event) => updateMarketingBudgetDraft('endDate', event.target.value)}
-              />
-            </label>
-            <label className="property-budget-field">
-              <span>Monthly amount</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={marketingBudgetDraft.monthlyAmount}
-                onChange={(event) => updateMarketingBudgetDraft('monthlyAmount', event.target.value)}
-                placeholder="1000"
-              />
-            </label>
-            <label className="property-budget-field property-budget-field--url">
-              <span>Listing link</span>
-              <input
-                type="url"
-                value={marketingBudgetDraft.listingUrl}
-                onChange={(event) => updateMarketingBudgetDraft('listingUrl', event.target.value)}
-                placeholder="https://www.apartments.com/..."
-              />
-            </label>
-            <label className="property-budget-field property-budget-field--notes">
-              <span>Notes</span>
-              <textarea
-                value={marketingBudgetDraft.notes}
-                onChange={(event) => updateMarketingBudgetDraft('notes', event.target.value)}
-                rows={2}
-                placeholder="Package level, terms, renewal notes"
-              />
-            </label>
-            <label className="property-budget-upload">
-              <input
-                type="file"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] || null;
-                  event.target.value = '';
-                  updateMarketingBudgetDraft('contractFile', file);
-                }}
-              />
-              <Upload size={15} />
-              {marketingBudgetDraft.contractFile?.name || 'Attach contract'}
-            </label>
-            <button
-              type="button"
-              className="property-budget-save"
-              onClick={() => saveMarketingBudgetItem(marketingBudgetDraft, marketingBudgetDraft.contractFile)}
-              disabled={marketingBudgetSaving || marketingBudgetLoading}
-            >
-              <Plus size={15} />
-              Add row
-            </button>
-          </div>
-
-          <div className="property-budget-items">
-            <button
-              type="button"
-              className={`property-budget-items-toggle ${propertyBudgetItemsExpanded ? 'is-expanded' : ''}`}
-              onClick={() => setPropertyBudgetItemsExpanded((current) => !current)}
-              aria-expanded={propertyBudgetItemsExpanded}
-            >
-              <span>
-                <strong>Budget item table</strong>
-                <small>{formatNumber(marketingBudgetItems.length)} total row{marketingBudgetItems.length === 1 ? '' : 's'} | {formatNumber(activeMarketingBudgetItems.length)} active</small>
-              </span>
-              <ChevronDown size={18} />
-            </button>
-
-            {propertyBudgetItemsExpanded && (
-              marketingBudgetLoading ? (
-                <div className="property-info-empty">Loading approved budget items…</div>
-              ) : marketingBudgetItems.length === 0 ? (
-                <div className="property-info-empty">No approved marketing budget items are stored for this property yet.</div>
-              ) : (
-                <div className="property-budget-table-wrap">
-                  <table className="property-budget-table">
-                    <thead>
-                      <tr>
-                        <th aria-sort={getPropertyBudgetAriaSort('status')}>{renderPropertyBudgetSortHeader('status', 'Status')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('itemName')}>{renderPropertyBudgetSortHeader('itemName', 'Item')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('startDate')}>{renderPropertyBudgetSortHeader('startDate', 'Start')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('endDate')}>{renderPropertyBudgetSortHeader('endDate', 'End')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('monthlyAmount')}>{renderPropertyBudgetSortHeader('monthlyAmount', 'Monthly')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('contractFileName')}>{renderPropertyBudgetSortHeader('contractFileName', 'Contract')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('listingUrl')}>{renderPropertyBudgetSortHeader('listingUrl', 'Listing')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('notes')}>{renderPropertyBudgetSortHeader('notes', 'Notes')}</th>
-                        <th aria-sort={getPropertyBudgetAriaSort('updatedAt')}>{renderPropertyBudgetSortHeader('updatedAt', 'Modified On')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedMarketingBudgetItems.map((item) => {
-                        const listingUrl = normalizeExternalUrl(item.listingUrl);
-                        return (
-                          <tr key={item.id} className={`property-budget-row property-budget-row--${item.status}`}>
-                            <td>
-                              <select
-                                value={item.status}
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'status', event.target.value)}
-                              >
-                                {MARKETING_BUDGET_STATUSES.map((status) => (
-                                  <option key={status.id} value={status.id}>{status.label}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td>
-                              <input
-                                type="text"
-                                value={item.itemName}
-                                disabled={Boolean(item.id)}
-                                title="Locked after creation"
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'itemName', event.target.value)}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="date"
-                                value={item.startDate}
-                                disabled={Boolean(item.id)}
-                                title="Locked after creation"
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'startDate', event.target.value)}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="date"
-                                value={item.endDate}
-                                disabled={Boolean(item.id)}
-                                title="Locked after creation"
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'endDate', event.target.value)}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={item.monthlyAmount}
-                                disabled={Boolean(item.id)}
-                                title="Locked after creation"
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'monthlyAmount', event.target.value)}
-                              />
-                            </td>
-                            <td>
-                              <div className="property-budget-file-actions">
-                                {item.contractStoragePath ? (
-                                  <>
-                                    <button type="button" onClick={() => openMarketingBudgetContract(item)}>
-                                      <FileCheck size={14} />
-                                      Open
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="property-budget-remove-file"
-                                      onClick={() => removeMarketingBudgetContract(item)}
-                                      disabled={marketingBudgetSaving}
-                                    >
-                                      <Trash2 size={14} />
-                                      Remove
-                                    </button>
-                                  </>
-                                ) : (
-                                  <span>No file</span>
-                                )}
-                                <label>
-                                  <input
-                                    type="file"
-                                    onChange={async (event) => {
-                                      const file = event.target.files?.[0] || null;
-                                      event.target.value = '';
-                                      if (file) await saveMarketingBudgetItem(item, file);
-                                    }}
-                                  />
-                                  <Upload size={14} />
-                                  Upload
-                                </label>
-                              </div>
-                              {item.contractFileName && <small>{item.contractFileName}</small>}
-                            </td>
-                            <td>
-                              <input
-                                type="url"
-                                value={item.listingUrl}
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'listingUrl', event.target.value)}
-                                placeholder="https://"
-                              />
-                              {listingUrl && (
-                                <a className="property-budget-link" href={listingUrl} target="_blank" rel="noreferrer">
-                                  <ExternalLink size={13} />
-                                  View
-                                </a>
-                              )}
-                            </td>
-                            <td>
-                              <textarea
-                                value={item.notes}
-                                onChange={(event) => updateMarketingBudgetField(item.id, 'notes', event.target.value)}
-                                rows={3}
-                              />
-                            </td>
-                            <td>
-                              <div className="property-budget-modified">{formatReadableDate(item.updatedAt)}</div>
-                              <div className="property-budget-row-actions">
-                                <button type="button" onClick={() => saveMarketingBudgetItem(item)} disabled={marketingBudgetSaving}>
-                                  <Save size={14} />
-                                  Save
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            )}
-          </div>
-        </div>
-
-        <div className="property-info-panel property-info-panel--specials">
-          <div className="property-info-panel__eyebrow">Specials</div>
-          <div className="property-info-panel__title">Current leasing offers</div>
-          <div className="property-info-panel__subhead">
-            Stored from the daily `getSpecials` sync and only rewritten when the payload changes.
-          </div>
-          {propertyInfoLoading ? (
-            <div className="property-info-empty">Loading specials…</div>
-          ) : specialItems.length === 0 ? (
-            <div className="property-info-empty">No specials are stored for this property yet.</div>
-          ) : (
-            <div className="property-info-list">
-              {specialItems.map((special, index) => {
-                const title = getSpecialTitle(special);
-                const description = getSpecialDescription(special);
-                const dateRange = getSpecialDateRange(special);
-
-                return (
-                  <div key={`${title}-${index}`} className="property-info-list__item">
-                    <div className="property-info-list__title">{title}</div>
-                    <div className="property-info-list__meta"><strong>Description:</strong> {description || 'No description provided'}</div>
-                    <div className="property-info-list__meta"><strong>Active:</strong> {dateRange}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="property-info-panel property-info-panel--units">
-          <div className="property-info-panel__eyebrow">Pricing + Availability</div>
-          <div className="property-info-panel__title">Latest unit snapshot</div>
-          <div className="property-info-panel__subhead">
-            Stored from the dedicated `getUnitsAvailabilityAndPricing` availability/pricing snapshot.
-          </div>
-          {floorplanTableRows.length > 0 && (
-            <div className="property-info-table">
-              <div className="property-info-table__head">Floorplan</div>
-              <div className="property-info-table__head">Beds/Baths</div>
-              <div className="property-info-table__head">Units</div>
-              <div className="property-info-table__head">Available</div>
-              <div className="property-info-table__head">Rent Range</div>
-              {floorplanTableRows.map((floorplan, index) => {
-                const price = getFloorplanPriceRange(floorplan);
-                const deposit = getFloorplanDepositRange(floorplan);
-                return (
-                  <React.Fragment key={`${floorplan?.Identification?.IDValue || floorplan?.Name || index}`}>
-                    <div className="property-info-table__cell">
-                      {floorplan?.Name || '—'}
-                      {deposit.min != null ? ` · Deposit ${formatCurrency(deposit.min)}` : ''}
-                    </div>
-                    <div className="property-info-table__cell">
-                      {getRoomCount(floorplan?.Room, 'Bedroom') || '—'} / {getRoomCount(floorplan?.Room, 'Bathroom') || '—'}
-                    </div>
-                    <div className="property-info-table__cell">{floorplan?.UnitCount || '—'}</div>
-                    <div className="property-info-table__cell">{floorplan?.DisplayedUnitsAvailable || floorplan?.UnitsAvailable || '0'}</div>
-                    <div className="property-info-table__cell">
-                      {price.min != null ? `${formatCurrency(price.min)} - ${formatCurrency(price.max ?? price.min)}` : '—'}
-                    </div>
-                  </React.Fragment>
-                );
-              })}
-            </div>
-          )}
-          {propertyInfoLoading ? (
-            <div className="property-info-empty">Loading availability…</div>
-          ) : unitTableRows.length === 0 ? (
-            <div className="property-info-empty">No availability snapshot is stored for this property yet.</div>
-          ) : (
-            <div className="property-info-table">
-              <div className="property-info-table__head">Unit</div>
-              <div className="property-info-table__head">Floorplan</div>
-              <div className="property-info-table__head">Beds/Baths</div>
-              <div className="property-info-table__head">Price</div>
-              <div className="property-info-table__head">Status</div>
-              {unitTableRows.map((unit, index) => (
-                <React.Fragment key={unit._spaceKey || `${unit.unitId || unit.unitNumber || index}`}>
-                  <div className="property-info-table__cell">
-                    {unit._unitAttrs?.UnitNumber || unit?.['@attributes']?.MarketingUnitNumber || unit.unitNumber || unit.name || unit.unitId || '—'}
-                  </div>
-                  <div className="property-info-table__cell">
-                    {unit._unitAttrs?.FloorPlanName || unit.floorplanName || unit.floorPlanName || unit.floorplan || '—'}
-                  </div>
-                  <div className="property-info-table__cell">
-                    {unit._unitAttrs?.OccupancyType || unit.bedCount || unit.beds || '—'} / {unit.bathCount || unit.baths || '—'}
-                  </div>
-                  <div className="property-info-table__cell">
-                    {(() => {
-                      const range = getPropertyUnitPriceRange(unit);
-                      return range.min != null ? `${formatCurrency(range.min)} - ${formatCurrency(range.max ?? range.min)}` : '—';
-                    })()}
-                  </div>
-                  <div className="property-info-table__cell">
-                    {getAvailabilityStatus(unit)}
-                    {getAvailabilityDate(unit) ? ` · ${formatReadableDate(getAvailabilityDate(unit))}` : ''}
-                  </div>
-                </React.Fragment>
-              ))}
-            </div>
-          )}
-        </div>
-
-      </div>
-    </div>
+    <React.Suspense fallback={<div className="reports-empty">Loading property info...</div>}>
+      <PropertyInfoView
+        {...{
+          MARKETING_BUDGET_STATUSES,
+          activeApprovedMarketingBudget,
+          activeMarketingBudgetItems,
+          actualMarketingSpendBreakdown,
+          actualMarketingSpendError,
+          actualMarketingSpendLast30,
+          actualMarketingSpendLoading,
+          actualPerformanceMarketingSpendLast30,
+          availabilityPricingSnapshot,
+          availabilitySummary,
+          deleteMarketingBudgetItem,
+          extractSpecialItems,
+          formatCurrency,
+          formatNumber,
+          formatReadableDate,
+          futureMarketingBudgetItems,
+          getAvailabilityDate,
+          getAvailabilityStatus,
+          getFloorplanDepositRange,
+          getFloorplanPriceRange,
+          getPropertyBudgetAriaSort,
+          getPropertyUnitPriceRange,
+          getPropertyUnitSpaces,
+          getRoomCount,
+          getSpecialDateRange,
+          getSpecialDescription,
+          getSpecialTitle,
+          latestAvailabilityDate,
+          loadMarketingBudgetItems,
+          loading,
+          marketingBudgetDraft,
+          marketingBudgetError,
+          marketingBudgetItems,
+          marketingBudgetLoading,
+          marketingBudgetNotice,
+          marketingBudgetSaving,
+          marketingBudgetVarianceLast30,
+          normalizeExternalUrl,
+          openMarketingBudgetContract,
+          propertyBudgetItemsExpanded,
+          propertyInfoLoading,
+          removeMarketingBudgetContract,
+          renderMetricValue,
+          renderPropertyBudgetSortHeader,
+          saveMarketingBudgetItem,
+          selectedPropertyId,
+          selectedPropertyLabel,
+          setPropertyBudgetItemsExpanded,
+          sortedMarketingBudgetItems,
+          specialsSnapshot,
+          totalApplications,
+          totalLeads,
+          totalLeases,
+          updateMarketingBudgetDraft,
+          updateMarketingBudgetField,
+        }}
+      />
+    </React.Suspense>
   );
 
   const formatPipelineTimestamp = (value) => {
@@ -7895,954 +6846,96 @@ const DashboardApp = ({
     );
   };
 
-  const renderGa4SectionFallback = (label) => (
-    <div className="analytics-placeholder">
-      <div className="analytics-placeholder__title">{label} is waiting on GA4 access</div>
-      <div className="analytics-placeholder__detail">
-        {ga4StatusMessage || 'This section will populate once live GA4 reporting is available for the selected property.'}
-      </div>
-    </div>
-  );
-
   const renderAnalytics = () => (
-    <div className="analytics-view">
-      <div className="analytics-hero">
-        <div className="analytics-hero__top">
-          <div>
-            <div className="analytics-kicker">Behavioral Intelligence Layer</div>
-            <div className="analytics-headline">Analytics</div>
-            <div className="analytics-subhead">
-              Use this layer to understand traffic quality, conversion intent, geographic pull, and where users hesitate before they become leads or applications.
-            </div>
-          </div>
-          <div className="analytics-chip-row">
-            <div className="analytics-chip">{selectedPropertyLabel}</div>
-            <div className="analytics-chip">
-              {selectedProperty?.googleAnalyticsId ? `GA4 ${selectedProperty.googleAnalyticsId}` : 'GA4 ID missing'}
-            </div>
-            <div className="analytics-chip">
-              {selectedProperty?.googleAdsId ? `Google Ads ${selectedProperty.googleAdsId}` : 'Google Ads ID missing'}
-            </div>
-            <div className="analytics-chip">
-              {rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}
-            </div>
-            <div className={analyticsSourceBadge.className}>{analyticsSourceBadge.label}</div>
-          </div>
-        </div>
-
-        <div className="analytics-kpis">
-          <div className="analytics-kpi">
-            <div className="analytics-kpi__label">Sessions</div>
-            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4Sessions))}</div>
-            <div className="analytics-kpi__meta">{ga4Blocked ? 'GA4 access required for this property' : 'Current period traffic volume'}</div>
-          </div>
-          <div className="analytics-kpi">
-            <div className="analytics-kpi__label">New Users</div>
-            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4NewUsers))}</div>
-            <div className="analytics-kpi__meta">{ga4Blocked ? 'Pending GA4 property access' : 'Fresh demand entering the funnel'}</div>
-          </div>
-          <div className="analytics-kpi">
-            <div className="analytics-kpi__label">Tracked Events</div>
-            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal))}</div>
-            <div className="analytics-kpi__meta">{ga4Blocked ? 'Pending GA4 property access' : 'High-intent actions across the site'}</div>
-          </div>
-          <div className="analytics-kpi">
-            <div className="analytics-kpi__label">Apply Drop-off</div>
-            <div className="analytics-kpi__value">{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatPercent(ga4ApplyPage?.abandonmentRate, 0))}</div>
-            <div className="analytics-kpi__meta">{ga4Blocked ? 'Pending GA4 property access' : 'Proxy for friction on the apply flow'}</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="analytics-grid">
-      {ga4Blocked && (
-        <div className="analytics-status analytics-status--warning" style={{ gridColumn: 'span 4' }}>
-          <div className="analytics-status__title">GA4 access status</div>
-          <div className="analytics-status__detail">{ga4StatusMessage}</div>
-        </div>
-      )}
-      <div className="analytics-panel analytics-panel--dark" style={{ gridColumn: 'span 2' }}>
-        <div className="analytics-panel__eyebrow">Outcome View</div>
-        <div className="analytics-panel__title">What users actually did</div>
-        <div className="analytics-panel__subhead">
-          Focus on the actions that indicate real leasing intent, plus the entry pages and devices that triggered them.
-        </div>
-        {ga4Loading ? (
-          <div className="analytics-note">Loading conversion analytics…</div>
-        ) : ga4Blocked ? (
-          renderGa4SectionFallback('Outcome view')
-        ) : (
-          <div className="analytics-stack">
-            {ga4OutcomeChartData.length > 0 && (
-              <MeasuredChart className="analytics-chart">
-                {({ width, height }) => (
-                  <BarChart width={width} height={height} data={ga4OutcomeChartData} margin={CHART_MARGIN_STANDARD}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
-                    <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar dataKey="value" fill={CHART_COLOR_GOLD} radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                )}
-              </MeasuredChart>
-            )}
-            {ga4ConversionByDayChartData.length > 0 && (
-              <MeasuredChart className="analytics-chart">
-                {({ width, height }) => (
-                  <LineChart width={width} height={height} data={ga4ConversionByDayChartData} margin={CHART_MARGIN_STANDARD}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar yAxisId="left" dataKey="keyEvents" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="conversionRate" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_SECONDARY_TAN }} />
-                  </LineChart>
-                )}
-              </MeasuredChart>
-            )}
-            {ga4ConversionEvents.map((item) => (
-              <div key={item.eventName} className="analytics-row analytics-row--split">
-                <div>
-                  <div className="analytics-row__title">{item.eventName}</div>
-                  <div className="analytics-row__detail">High-intent action volume in the selected window.</div>
-                </div>
-                <div style={{ display: 'grid', gap: '0.4rem', justifyItems: 'end' }}>
-                  <div className="analytics-row__metric">{formatNumber(item.current.eventCount)} current</div>
-                  <div className={`analytics-pill analytics-pill--${getDeltaTone(item.delta.eventCount)}`}>
-                    {formatSignedPercent(item.delta.eventCount, 1)} vs prior
-                  </div>
-                </div>
-              </div>
-            ))}
-            {ga4LandingPages.slice(0, 3).map((item) => (
-              <div key={item.landingPagePlusQueryString || '(not set)'} className="analytics-row">
-                <div className="analytics-row__title">{item.landingPagePlusQueryString || '(not set)'}</div>
-                <div className="analytics-row__detail">
-                  Top landing page by tracked conversion actions with {formatNumber(item.current.eventCount)} event-driven conversions.
-                </div>
-              </div>
-            ))}
-            {ga4DeviceBreakdown.length > 0 && (
-              <div className="analytics-row">
-                <div className="analytics-row__title">Device conversion mix</div>
-                <div className="analytics-row__detail">
-                  {ga4DeviceBreakdown.map((item) => `${item.deviceCategory} ${formatNumber(item.current.eventCount)}`).join(' | ')}
-                </div>
-              </div>
-            )}
-            {ga4ConversionByMedium.slice(0, 4).map((item) => (
-              <div key={item.firstUserMedium} className="analytics-row analytics-row--split">
-                <div>
-                  <div className="analytics-row__title">First user medium: {item.firstUserMedium}</div>
-                  <div className="analytics-row__detail">{formatNumber(item.keyEvents)} key events across {formatNumber(item.totalUsers)} users</div>
-                </div>
-                <div className="analytics-row__metric">{formatPercent(item.conversionRate, 1)}</div>
-              </div>
-            ))}
-            {ga4OrganicConversionBreakdown.slice(0, 5).map((item) => (
-              <div key={item.eventName} className="analytics-row analytics-row--split">
-                <div className="analytics-row__title">Organic event: {item.eventName}</div>
-                <div className="analytics-row__metric">{formatNumber(item.eventCount)}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="analytics-panel analytics-panel--dark" style={{ gridColumn: 'span 2' }}>
-        <div className="analytics-panel__eyebrow">Acquisition View</div>
-        <div className="analytics-panel__title">Is the traffic quality right?</div>
-        <div className="analytics-panel__subhead">
-          Compare channels by volume, freshness, and engagement so the team can tell whether demand is merely arriving or actually paying attention.
-        </div>
-        {ga4Loading ? (
-          <div className="analytics-note">Loading acquisition analytics…</div>
-        ) : ga4Blocked ? (
-          renderGa4SectionFallback('Acquisition view')
-        ) : (
-          <div className="analytics-stack">
-            {ga4AcquisitionChartData.length > 0 && (
-              <MeasuredChart className="analytics-chart analytics-chart--tall">
-                {({ width, height }) => (
-                  <LineChart width={width} height={height} data={ga4AcquisitionChartData} margin={CHART_MARGIN_TALL}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
-                    <YAxis yAxisId="left" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar yAxisId="left" dataKey="sessions" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="engagement" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_SECONDARY_TAN }} />
-                  </LineChart>
-                )}
-              </MeasuredChart>
-            )}
-            {ga4TrafficByMonthChartData.length > 0 && (
-              <MeasuredChart className="analytics-chart">
-                {({ width, height }) => (
-                  <AreaChart width={width} height={height} data={ga4TrafficByMonthChartData} margin={CHART_MARGIN_STANDARD}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Area type="monotone" dataKey="sessions" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} strokeWidth={2} />
-                    <Line type="monotone" dataKey="newUsers" stroke={CHART_COLOR_SECONDARY_TAN} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_SECONDARY_TAN }} />
-                  </AreaChart>
-                )}
-              </MeasuredChart>
-            )}
-            {ga4AcquisitionChannels.slice(0, 6).map((item) => (
-              <div key={item.channel} className="analytics-row analytics-row--triple">
-                <div>
-                  <div className="analytics-row__title">{item.channel}</div>
-                  <div className="analytics-row__detail">{formatNumber(item.current.newUsers)} new users</div>
-                </div>
-                <div className="analytics-row__metric">{formatNumber(item.current.sessions)} sessions</div>
-                <div style={{ display: 'grid', gap: '0.35rem', justifyItems: 'end' }}>
-                  <div className="analytics-row__metric">{formatPercent(item.current.engagementRate, 1)} engaged</div>
-                  <div className={`analytics-pill analytics-pill--${getDeltaTone(item.delta.sessions)}`}>
-                    {formatSignedPercent(item.delta.sessions, 1)}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {ga4TopSources.slice(0, 4).map((item) => (
-              <div key={`${item.sessionSource}-${item.sessionMedium}`} className="analytics-row analytics-row--split">
-                <div>
-                  <div className="analytics-row__title">{item.sessionSource} / {item.sessionMedium}</div>
-                  <div className="analytics-row__detail">
-                    {formatNumber(item.current.screenPageViews)} views | {formatPercent(item.current.engagementRate, 1)} engagement | {formatPercent(item.conversionRate, 1)} conversion rate
-                  </div>
-                </div>
-                <div className={`analytics-pill analytics-pill--${getDeltaTone(item.delta.sessions)}`}>
-                  {formatSignedPercent(item.delta.sessions, 1)}
-                </div>
-              </div>
-            ))}
-            {ga4LlmTraffic.length > 0 && (
-              <div className="analytics-row">
-                <div className="analytics-row__title">LLM traffic</div>
-                <div className="analytics-row__detail">
-                  {ga4LlmTraffic.map((item) => `${item.dimensions?.sessionSource || '(not set)'} ${formatNumber(item.metrics?.sessions || 0)} sessions`).join(' | ')}
-                </div>
-              </div>
-            )}
-            {ga4TrafficBySessionSource.length > 0 && (
-              <div className="analytics-row">
-                <div className="analytics-row__title">Organic traffic by search source</div>
-                <div className="analytics-row__detail">
-                  {ga4TrafficBySessionSource.slice(0, 5).map((item) => `${item.sessionSource} ${formatNumber(item.sessions)}`).join(' | ')}
-                </div>
-              </div>
-            )}
-            <div className="analytics-note">
-              Search Console query-level intent is the next recommended feed for branded vs generic search analysis.
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="analytics-panel analytics-panel--light" style={{ gridColumn: 'span 2' }}>
-        <div className="analytics-panel__eyebrow">Market View</div>
-        <div className="analytics-panel__title">Where demand is pulling from</div>
-        <div className="analytics-panel__subhead">
-          Geographic concentration helps regional teams spot relocation corridors, neighboring-city lift, and out-of-market curiosity worth acting on.
-        </div>
-        {ga4Loading ? (
-          <div className="analytics-note">Loading market analytics…</div>
-        ) : ga4Blocked ? (
-          renderGa4SectionFallback('Market view')
-        ) : (
-          <div className="analytics-stack">
-            {ga4MarketChartData.length > 0 && (
-              <MeasuredChart className="analytics-chart analytics-chart--tall">
-                {({ width, height }) => (
-                  <BarChart width={width} height={height} data={ga4MarketChartData} margin={CHART_MARGIN_TALL}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Bar dataKey="users" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="keyEvents" fill={CHART_COLOR_ORANGE} radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                )}
-              </MeasuredChart>
-            )}
-            {ga4Cities.slice(0, 8).map((item) => (
-              <div key={item.city || '(not set)'} className="analytics-row analytics-row--split">
-                <div>
-                  <div className="analytics-row__title">{item.city || '(not set)'}</div>
-                  <div className="analytics-row__detail">
-                    <span className={`analytics-pill analytics-pill--${getDeltaTone(item.delta.totalUsers)}`}>
-                      {formatSignedPercent(item.delta.totalUsers, 1)} users vs prior
-                    </span>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                  <div className="analytics-row__metric">{formatNumber(item.current.totalUsers)} users</div>
-                  <div className="analytics-row__detail">{formatNumber(item.current.keyEvents)} key events</div>
-                </div>
-              </div>
-            ))}
-            <div className="analytics-note">
-              GBP rank, share of local voice, and map heatmap pins can slot into this section next.
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="analytics-panel analytics-panel--light" style={{ gridColumn: 'span 2' }}>
-        <div className="analytics-panel__eyebrow">Diagnostics View</div>
-        <div className="analytics-panel__title">Where users hesitate or leave</div>
-        <div className="analytics-panel__subhead">
-          This is the friction layer: apply-flow weakness, engagement drop-offs, and the pages that deserve UX or messaging attention.
-        </div>
-        {ga4Loading ? (
-          <div className="analytics-note">Loading drop-off diagnostics…</div>
-        ) : ga4Blocked ? (
-          renderGa4SectionFallback('Diagnostics view')
-        ) : (
-          <div className="analytics-stack">
-            <div className="analytics-callout">
-              <div className="analytics-panel__eyebrow">Apply Page</div>
-              <div className="analytics-callout__value">{formatPercent(ga4ApplyPage?.abandonmentRate, 0)}</div>
-              <div className="analytics-row__detail">
-                {formatNumber(ga4ApplyPage?.currentViews)} views | {formatNumber(ga4ApplyPage?.applicationSubmittedEvents)} submitted events
-              </div>
-            </div>
-            {ga4PathExploration && (
-              <div className="analytics-path-module">
-                <div className="analytics-panel__eyebrow">GA4 Path Exploration</div>
-                <div className="analytics-row__detail">
-                  Starting at <strong>{ga4PathExploration.startingPoint}</strong> across {formatNumber(ga4PathExploration.startingUsers)} tracked starts.
-                </div>
-                {ga4PathStartChartData.length > 0 && (
-                  <MeasuredChart className="analytics-chart">
-                    {({ width, height }) => (
-                      <BarChart width={width} height={height} data={ga4PathStartChartData} margin={CHART_MARGIN_STANDARD}>
-                        <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                        <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
-                        <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                        <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                        <Bar dataKey="users" fill={CHART_COLOR_GREEN} radius={[6, 6, 0, 0]} />
-                      </BarChart>
-                    )}
-                  </MeasuredChart>
-                )}
-                <div className="analytics-path-branches">
-                  {(ga4PathExploration.branches || []).slice(0, 4).map((branch) => (
-                    <div key={branch.entryPage} className="analytics-path-branch">
-                      <div className="analytics-path-branch__head">
-                        <div>
-                          <div className="analytics-row__title">{branch.entryPage || '(not set)'}</div>
-                          <div className="analytics-row__detail">
-                            {formatNumber(branch.entryUsers)} starts | {formatPercent(branch.shareOfStarts, 1)} of total starts
-                          </div>
-                        </div>
-                        <div className="analytics-pill analytics-pill--neutral">
-                          {formatPercent(branch.shownContinuationRate, 0)} shown continuation
-                        </div>
-                      </div>
-                      <div className="analytics-path-list">
-                        {(branch.nextSteps || []).slice(0, 4).map((step) => (
-                          <div key={`${branch.entryPage}-${step.pagePath}`} className="analytics-path-step">
-                            <div className="analytics-path-step__meta">
-                              <span className="analytics-row__title">{step.pagePath || '(not set)'}</span>
-                              <span className="analytics-row__metric">{formatNumber(step.activeUsers)}</span>
-                            </div>
-                            <div className="analytics-path-step__bar">
-                              <span style={{ width: `${Math.max(6, Math.round((step.shareOfParent || 0) * 100))}%` }} />
-                            </div>
-                            <div className="analytics-row__detail">{formatPercent(step.shareOfParent, 1)} of this branch</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {ga4PathExploration.note && <div className="analytics-note">{ga4PathExploration.note}</div>}
-              </div>
-            )}
-            {ga4DiagnosticChartData.length > 0 && (
-              <MeasuredChart className="analytics-chart analytics-chart--tall">
-                {({ width, height }) => (
-                  <AreaChart width={width} height={height} data={ga4DiagnosticChartData} margin={CHART_MARGIN_TALL}>
-                    <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                    <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} interval={0} />
-                    <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                    <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} tickFormatter={(value) => `${Math.round(value * 100)}%`} />
-                    <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                    <Area yAxisId="left" type="monotone" dataKey="views" stroke={CHART_COLOR_GOLD} fill={CHART_COLOR_GOLD} fillOpacity={0.14} strokeWidth={2} />
-                    <Line yAxisId="right" type="monotone" dataKey="engagement" stroke={CHART_COLOR_GREEN} strokeWidth={2} dot={{ r: 3, fill: CHART_COLOR_GREEN }} />
-                  </AreaChart>
-                )}
-              </MeasuredChart>
-            )}
-            {ga4TopPages.slice(0, 6).map((item) => (
-              <div key={item.pagePath || '(not set)'} className="analytics-row">
-                <div className="analytics-row__title">{item.pagePath || '(not set)'}</div>
-                <div className="analytics-row__detail">
-                  {formatNumber(item.current.screenPageViews)} views | {formatNumber(item.current.userEngagementDuration, 0)} sec engaged | {formatPercent(item.current.engagementRate, 1)} engagement
-                </div>
-              </div>
-            ))}
-            {ga4DevicesDetailed.slice(0, 3).map((item) => (
-              <div key={item.deviceCategory} className="analytics-row analytics-row--split">
-                <div>
-                  <div className="analytics-row__title">Device: {item.deviceCategory}</div>
-                  <div className="analytics-row__detail">
-                    {formatNumber(item.engagedSessions)} engaged sessions | {formatNumber(item.screenPageViews)} views | {formatNumber(item.screenPageViewsPerSession, 2)} views/session
-                  </div>
-                </div>
-                <div className="analytics-row__metric">{formatPercent(item.engagementRate, 1)}</div>
-              </div>
-            ))}
-            {ga4PagePerformance.slice(0, 4).map((item) => (
-              <div key={item.pageTitle} className="analytics-row analytics-row--split">
-                <div>
-                  <div className="analytics-row__title">{item.pageTitle}</div>
-                  <div className="analytics-row__detail">
-                    {formatNumber(item.sessions)} sessions | {formatNumber(item.userEngagementDuration, 0)} sec engaged | {formatNumber(item.keyEvents)} key events
-                  </div>
-                </div>
-                <div className="analytics-row__metric">{formatPercent(item.engagementRate, 1)}</div>
-              </div>
-            ))}
-            {ga4ApplyPage?.note && <div className="analytics-note">{ga4ApplyPage.note}</div>}
-          </div>
-        )}
-      </div>
-
-      <div className="analytics-panel analytics-panel--search" style={{ gridColumn: 'span 4' }}>
-        <div className="analytics-panel__eyebrow">Paid Search Layer</div>
-        <div className="analytics-panel__title">Google Search Ads</div>
-        <div className="analytics-panel__subhead">
-          Search-only paid media performance, keyword depth, branded demand mix, and the actual ad creative that is showing on desktop.
-        </div>
-        {googleAdsLoading ? (
-          <div className="analytics-note">Loading Google Ads search performance…</div>
-        ) : googleAdsError ? (
-          <div className="analytics-note">{googleAdsError}</div>
-        ) : (
-          <div className="analytics-search-grid">
-            <div className="analytics-search-card analytics-search-card--wide">
-              <div className="analytics-panel__eyebrow">Conversion Actions</div>
-              <div className="analytics-panel__subhead" style={{ marginBottom: 0 }}>
-                Imported and native Google Ads conversion actions, with totals by action type for the selected window.
-              </div>
-              <div className="analytics-conversion-table">
-                <div className="analytics-conversion-table__head">Action</div>
-                <div className="analytics-conversion-table__head">Source</div>
-                <div className="analytics-conversion-table__head">Optimization</div>
-                <div className="analytics-conversion-table__head">Count</div>
-                <div className="analytics-conversion-table__head">Included</div>
-                <div className="analytics-conversion-table__head">All conv.</div>
-                <div className="analytics-conversion-table__head">Value</div>
-                <div className="analytics-conversion-table__head">Repeat</div>
-                {googleAdsConversionActions.slice(0, 12).map((item) => (
-                  <React.Fragment key={item.conversionActionId || item.name}>
-                    <div className="analytics-conversion-table__cell">
-                      <div className="analytics-row__title">{item.name}</div>
-                      <div className="analytics-row__detail">{item.category || item.type || 'Conversion action'}</div>
-                    </div>
-                    <div className="analytics-conversion-table__cell">{item.source || '—'}</div>
-                    <div className="analytics-conversion-table__cell">{item.primaryForGoal ? 'Primary' : 'Secondary'}</div>
-                    <div className="analytics-conversion-table__cell">{item.countingType === 'MANY_PER_CLICK' ? 'Every' : item.countingType === 'ONE_PER_CLICK' ? 'One' : '—'}</div>
-                    <div className="analytics-conversion-table__cell">{item.includeInConversionsMetric ? 'Yes' : 'No'}</div>
-                    <div className="analytics-conversion-table__cell">{formatNumber(item.allConversions, 2)}</div>
-                    <div className="analytics-conversion-table__cell">{formatNumber(item.allConversionsValue, 2)}</div>
-                    <div className="analytics-conversion-table__cell">{item.repeatRateAvailable ? formatNumber(item.repeatRate, 2) : '—'}</div>
-                  </React.Fragment>
-                ))}
-              </div>
-              {googleAdsConversionActionNote && (
-                <div className="analytics-note">{googleAdsConversionActionNote}</div>
-              )}
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Paid Search Overview</div>
-              <div className="analytics-search-kpis">
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Impressions</span>
-                  <strong>{formatNumber(googleAdsOverview?.impressions)}</strong>
-                </div>
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Clicks</span>
-                  <strong>{formatNumber(googleAdsOverview?.clicks)}</strong>
-                </div>
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Cost</span>
-                  <strong>{formatCurrency(googleAdsOverview?.cost)}</strong>
-                </div>
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Conversions</span>
-                  <strong>{formatNumber(googleAdsOverview?.conversions, 1)}</strong>
-                </div>
-              </div>
-              <div className="analytics-search-inline">
-                <span>CTR {formatPercent(googleAdsOverview?.ctr, 1)}</span>
-                <span>Avg CPC {formatCurrency(googleAdsOverview?.avgCpc, 2)}</span>
-                <span>Search IS {formatPercent(googleAdsOverview?.searchImpressionShare, 1)}</span>
-                <span className={`analytics-pill analytics-pill--${getDeltaTone(googleAdsOverviewDelta?.clicks)}`}>
-                  Clicks {formatSignedPercent(googleAdsOverviewDelta?.clicks, 1)}
-                </span>
-              </div>
-              {googleAdsDailyChartData.length > 0 && (
-                <MeasuredChart className="analytics-chart analytics-chart--compact">
-                  {({ width, height }) => (
-                    <AreaChart width={width} height={height} data={googleAdsDailyChartData} margin={CHART_MARGIN_STANDARD}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Area yAxisId="left" type="monotone" dataKey="clicks" stroke={CHART_COLOR_GOLD} fill={CHART_COLOR_GOLD} fillOpacity={0.16} strokeWidth={2} />
-                      <Line yAxisId="right" type="monotone" dataKey="conversions" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
-                    </AreaChart>
-                  )}
-                </MeasuredChart>
-              )}
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Campaign Performance</div>
-              {googleAdsCampaignChartData.length > 0 && (
-                <MeasuredChart className="analytics-chart analytics-chart--compact">
-                  {({ width, height }) => (
-                    <BarChart width={width} height={height} data={googleAdsCampaignChartData} margin={CHART_MARGIN_STANDARD}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Bar dataKey="clicks" fill={CHART_COLOR_GOLD} radius={[6, 6, 0, 0]} />
-                      <Bar dataKey="conversions" fill={CHART_COLOR_ORANGE} radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  )}
-                </MeasuredChart>
-              )}
-              <div className="analytics-stack">
-                {googleAdsCampaigns.slice(0, 5).map((item) => (
-                  <div key={item.campaignName} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{item.campaignName}</div>
-                      <div className="analytics-row__detail">
-                        {formatNumber(item.current.impressions)} impressions | {formatPercent(item.current.ctr, 1)} CTR | {formatCurrency(item.current.avgCpc, 2)} avg CPC
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatNumber(item.current.conversions, 1)} conv.</div>
-                      <div className={`analytics-pill analytics-pill--${getDeltaTone(item.delta?.conversions)}`}>
-                        {formatSignedPercent(item.delta?.conversions, 1)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Keyword Breakdown</div>
-              {googleAdsKeywordChartData.length > 0 && (
-                <MeasuredChart className="analytics-chart analytics-chart--compact">
-                  {({ width, height }) => (
-                    <BarChart width={width} height={height} data={googleAdsKeywordChartData} layout="vertical" margin={CHART_MARGIN_VERTICAL}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} horizontal={false} />
-                      <XAxis type="number" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis type="category" dataKey="name" width={120} stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Bar dataKey="clicks" fill={CHART_COLOR_GOLD} radius={[0, 6, 6, 0]} />
-                    </BarChart>
-                  )}
-                </MeasuredChart>
-              )}
-              <div className="analytics-stack">
-                {googleAdsKeywords.slice(0, 6).map((item) => (
-                  <div key={`${item.keywordText}-${item.matchType}`} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{item.keywordText}</div>
-                      <div className="analytics-row__detail">
-                        {item.matchType} | {item.campaignName} | Search IS {formatPercent(item.searchImpressionShare, 1)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatNumber(item.clicks)} clicks</div>
-                      <div className="analytics-row__detail">{formatCurrency(item.avgCpc, 2)} avg CPC</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Brand vs Non-Brand</div>
-              <div className="analytics-stack">
-                {['brand', 'nonBrand'].map((group) => (
-                  <div key={group} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{group === 'brand' ? 'Brand' : 'Non-brand'}</div>
-                      <div className="analytics-row__detail">
-                        {formatNumber(googleAdsBrandSplit?.[group]?.impressions)} impressions | {formatPercent(googleAdsBrandSplit?.[group]?.searchImpressionShare, 1)} search impression share
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatNumber(googleAdsBrandSplit?.[group]?.conversions, 1)} conv.</div>
-                      <div className="analytics-row__detail">{formatCurrency(googleAdsBrandSplit?.[group]?.cost)}</div>
-                    </div>
-                  </div>
-                ))}
-                <div className="analytics-note">
-                  Brand logic currently keys off the property name tokens: {(googleAdsBrandSplit?.brandTerms || []).join(', ') || 'No brand terms available'}.
-                </div>
-              </div>
-            </div>
-
-            <div className="analytics-search-card analytics-search-card--preview">
-              <div className="analytics-panel__eyebrow">Desktop Ad Preview</div>
-              {googleAdsTopAd ? (
-                <div className="search-ad-preview">
-                  <div className="search-ad-preview__meta">Sponsored</div>
-                  <div className="search-ad-preview__url">{googleAdsTopAd.displayUrl || googleAdsTopAd.finalUrl || 'example.com'}</div>
-                  <div className="search-ad-preview__headline">
-                    {(googleAdsTopAd.headlines || []).slice(0, 3).join(' | ')}
-                  </div>
-                  <div className="search-ad-preview__desc">
-                    {(googleAdsTopAd.descriptions || []).slice(0, 2).join(' ')}
-                  </div>
-                  <div className="search-ad-preview__footer">
-                    <span>{googleAdsTopAd.campaignName}</span>
-                    <span>{formatNumber(googleAdsTopAd.impressions)} impressions</span>
-                    <span>{formatNumber(googleAdsTopAd.clicks)} clicks</span>
-                    <span>{formatPercent(googleAdsTopAd.ctr, 1)} CTR</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="analytics-note">No responsive search ad creative found for the selected window.</div>
-              )}
-              <div className="analytics-stack">
-                {googleAdsAds.slice(0, 3).map((ad) => (
-                  <div key={ad.adId} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{ad.campaignName}</div>
-                      <div className="analytics-row__detail">
-                        {(ad.headlines || []).slice(0, 2).join(' | ')}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatNumber(ad.conversions, 1)} conv.</div>
-                      <div className="analytics-row__detail">{formatCurrency(ad.cost)}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <div className="analytics-panel analytics-panel--search" style={{ gridColumn: 'span 4' }}>
-        <div className="analytics-panel__eyebrow">Paid Social Layer</div>
-        <div className="analytics-panel__title">Meta Ads</div>
-        <div className="analytics-panel__subhead">
-          Active Meta campaigns only, with strict property scoping, conversion actions, ad set and placement detail, plus a creative preview for the top-spend ad.
-        </div>
-        <div className="analytics-search-inline" style={{ marginBottom: '0.9rem' }}>
-          {[
-            ['account_default', 'Account default'],
-            ['7d_click_1d_view', '7d click / 1d view'],
-            ['1d_click', '1d click'],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setMetaAdsAttributionMode(value)}
-              className={`analytics-pill analytics-pill--${metaAdsAttributionMode === value ? 'positive' : 'neutral'}`}
-              style={{ border: 'none', cursor: 'pointer' }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {metaAdsLoading ? (
-          <div className="analytics-note">Loading Meta Ads campaign performance…</div>
-        ) : metaAdsError ? (
-          <div className="analytics-note">{metaAdsError}</div>
-        ) : (
-          <div className="analytics-search-grid">
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Paid Social Overview</div>
-              <div className="analytics-search-kpis">
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Impressions</span>
-                  <strong>{formatNumber(metaAdsOverview?.impressions)}</strong>
-                </div>
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Clicks</span>
-                  <strong>{formatNumber(metaAdsOverview?.clicks)}</strong>
-                </div>
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Spend</span>
-                  <strong>{formatCurrency(metaAdsOverview?.spend)}</strong>
-                </div>
-                <div className="analytics-search-kpi">
-                  <span className="analytics-search-kpi__label">Leads</span>
-                  <strong>{formatNumber(metaAdsKeyMetrics.leads, 1)}</strong>
-                </div>
-              </div>
-              <div className="analytics-search-inline">
-                <span>CTR {formatPercent(metaAdsOverview?.ctr, 1)}</span>
-                <span>CPC {formatCurrency(metaAdsOverview?.cpc, 2)}</span>
-                <span>CPM {formatCurrency(metaAdsOverview?.cpm, 2)}</span>
-                <span>Freq {formatNumber(metaAdsOverview?.frequency, 2)}</span>
-                <span className={`analytics-pill analytics-pill--${getDeltaTone(metaAdsOverviewDelta?.clicks)}`}>
-                  Clicks {formatSignedPercent(metaAdsOverviewDelta?.clicks, 1)}
-                </span>
-              </div>
-              <div className="analytics-stack">
-                <div className="analytics-row analytics-row--split">
-                  <div>
-                    <div className="analytics-row__title">Fixed Funnel Metrics</div>
-                    <div className="analytics-row__detail">
-                      Leads {formatNumber(metaAdsKeyMetrics.leads, 0)} | LPVs {formatNumber(metaAdsKeyMetrics.landingPageViews, 0)} | Link clicks {formatNumber(metaAdsKeyMetrics.linkClicks, 0)} | Outbound clicks {formatNumber(metaAdsKeyMetrics.outboundClicks, 0)}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                    <div className="analytics-row__metric">{formatCurrency(metaAdsOverview?.costPerResult, 2)}</div>
-                    <div className="analytics-row__detail">Primary result: {metaAdsOverview?.resultLabel || '—'}</div>
-                  </div>
-                </div>
-                {metaAdsAttribution?.label && (
-                  <div className="analytics-note">
-                    Attribution mode: {metaAdsAttribution.label}
-                  </div>
-                )}
-                {metaAdsScoping?.note && (
-                  <div className="analytics-note">
-                    {metaAdsScoping.note} Matched campaigns: {formatNumber((metaAdsScoping.matchedCampaignIds || []).length, 0)}.
-                  </div>
-                )}
-              </div>
-              {metaAdsDailyChartData.length > 0 && (
-                <MeasuredChart className="analytics-chart analytics-chart--compact">
-                  {({ width, height }) => (
-                    <AreaChart width={width} height={height} data={metaAdsDailyChartData} margin={CHART_MARGIN_STANDARD}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis yAxisId="left" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis yAxisId="right" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Area yAxisId="left" type="monotone" dataKey="spend" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} strokeWidth={2} />
-                      <Line yAxisId="right" type="monotone" dataKey="clicks" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
-                    </AreaChart>
-                  )}
-                </MeasuredChart>
-              )}
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Active Campaigns</div>
-              {metaAdsCampaignChartData.length > 0 && (
-                <MeasuredChart className="analytics-chart analytics-chart--compact">
-                  {({ width, height }) => (
-                    <BarChart width={width} height={height} data={metaAdsCampaignChartData} margin={CHART_MARGIN_STANDARD}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                      <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <YAxis stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                      <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                      <Bar dataKey="spend" fill={CHART_COLOR_PINK} radius={[8, 8, 0, 0]} barSize={22} />
-                    </BarChart>
-                  )}
-                </MeasuredChart>
-              )}
-              <div className="analytics-stack">
-                {metaAdsCampaigns.slice(0, 6).map((item) => (
-                  <div key={item.campaignId || item.campaignName} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{item.campaignName}</div>
-                      <div className="analytics-row__detail">
-                        {item.effectiveStatus || item.status || 'Status unavailable'} | {item.objective || 'Objective unavailable'} | Freq {formatNumber(item.current?.frequency, 2)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatCurrency(item.current?.spend)}</div>
-                      <div className="analytics-row__detail">
-                        Leads {formatNumber(item.current?.keyMetrics?.leads, 0)} | LPVs {formatNumber(item.current?.keyMetrics?.landingPageViews, 0)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {metaAdsCampaigns.length === 0 && (
-                  <div className="analytics-note">No active Meta campaigns returned for this date range.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Placements</div>
-              <div className="analytics-stack">
-                {metaAdsPlacements.slice(0, 6).map((item, index) => (
-                  <div key={`${item.publisherPlatform}-${item.platformPosition}-${item.impressionDevice}-${index}`} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">
-                        {item.publisherPlatform} / {item.platformPosition}
-                      </div>
-                      <div className="analytics-row__detail">
-                        {item.impressionDevice} | CTR {formatPercent(item.ctr, 1)} | Freq {formatNumber(item.frequency, 2)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatCurrency(item.spend)}</div>
-                      <div className="analytics-row__detail">Leads {formatNumber(item.keyMetrics?.leads, 0)} | LPVs {formatNumber(item.keyMetrics?.landingPageViews, 0)}</div>
-                    </div>
-                  </div>
-                ))}
-                {metaAdsPlacements.length === 0 && (
-                  <div className="analytics-note">No placement breakdown returned for the selected window.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="analytics-search-card">
-              <div className="analytics-panel__eyebrow">Ad Sets</div>
-              <div className="analytics-stack">
-                {metaAdsAdSets.slice(0, 6).map((item) => (
-                  <div key={item.id || item.name} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{item.name}</div>
-                      <div className="analytics-row__detail">
-                        {item.campaign_name || 'Campaign unavailable'} | Freq {formatNumber(item.frequency, 2)} | CTR {formatPercent(item.ctr, 1)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatCurrency(item.spend)}</div>
-                      <div className="analytics-row__detail">
-                        Leads {formatNumber(item.keyMetrics?.leads, 0)} | LPVs {formatNumber(item.keyMetrics?.landingPageViews, 0)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {metaAdsAdSets.length === 0 && (
-                  <div className="analytics-note">No active ad sets returned for the selected window.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="analytics-search-card analytics-search-card--preview">
-              <div className="analytics-panel__eyebrow">Meta Ad Preview</div>
-              {metaAdsTopPreview ? (
-                <div className="search-ad-preview">
-                  <div className="search-ad-preview__meta">
-                    {metaAdsTopPreview.pageName || 'Meta Ad'} | {metaAdsTopPreview.format || 'ad'}
-                  </div>
-                  {metaAdsTopPreview.mediaUrl && metaAdsTopPreview.format !== 'carousel' && (
-                    <img
-                      src={metaAdsTopPreview.mediaUrl}
-                      alt={metaAdsTopPreview.adName || 'Meta creative'}
-                      style={{ width: '100%', borderRadius: '12px', marginBottom: '0.75rem', objectFit: 'cover', maxHeight: '180px', background: 'rgba(16,33,38,0.06)' }}
-                    />
-                  )}
-                  {metaAdsTopPreview.format === 'carousel' && (metaAdsTopPreview.carouselCards || []).length > 0 && (
-                    <div style={{ display: 'grid', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                      {metaAdsTopPreview.carouselCards.slice(0, 3).map((card, index) => (
-                        <div key={`${metaAdsTopPreview.adId}-card-${index}`} style={{ display: 'grid', gridTemplateColumns: card.mediaUrl ? '72px 1fr' : '1fr', gap: '0.75rem', alignItems: 'center', padding: '0.5rem', background: 'rgba(16,33,38,0.04)', borderRadius: '10px' }}>
-                          {card.mediaUrl && (
-                            <img
-                              src={card.mediaUrl}
-                              alt={card.headline || `Carousel card ${index + 1}`}
-                              style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '8px' }}
-                            />
-                          )}
-                          <div>
-                            <div className="analytics-row__title">{card.headline || `Card ${index + 1}`}</div>
-                            <div className="analytics-row__detail">{card.description || card.destinationUrl || 'No card description available'}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="search-ad-preview__headline">
-                    {metaAdsTopPreview.headline || metaAdsTopPreview.adName || 'Untitled Meta ad'}
-                  </div>
-                  <div className="search-ad-preview__desc">
-                    {metaAdsTopPreview.primaryText || metaAdsTopPreview.description || 'Creative text was not available from the API response for this ad.'}
-                  </div>
-                  {metaAdsTopPreview.destinationUrl && (
-                    <div className="search-ad-preview__url" style={{ marginBottom: '0.5rem' }}>
-                      {metaAdsTopPreview.destinationUrl}
-                    </div>
-                  )}
-                  <div className="search-ad-preview__footer">
-                    <span>{metaAdsTopPreview.campaignName}</span>
-                    <span>{metaAdsTopPreview.callToAction || 'CTA unavailable'}</span>
-                    <span>{formatCurrency(metaAdsTopPreview.spend)}</span>
-                    <span>LPVs {formatNumber(metaAdsTopPreview.keyMetrics?.landingPageViews, 0)}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="analytics-note">No active Meta ad creative was available for preview in the selected window.</div>
-              )}
-              <div className="analytics-stack">
-                {metaAdsTopAds.slice(0, 3).map((ad) => (
-                  <div key={ad.adId} className="analytics-row analytics-row--split">
-                    <div>
-                      <div className="analytics-row__title">{ad.headline || ad.adName}</div>
-                      <div className="analytics-row__detail">
-                        {ad.pageName || 'Meta Ad'} | {ad.campaignName} | {ad.callToAction || 'CTA unavailable'}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', display: 'grid', gap: '0.3rem' }}>
-                      <div className="analytics-row__metric">{formatCurrency(ad.spend)}</div>
-                      <div className="analytics-row__detail">{formatNumber(ad.keyMetrics?.landingPageViews, 0)} LPVs</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      {(ga4CoverageGaps || googleAdsCoverage || metaAdsCoverage) && (
-        <div className="analytics-panel analytics-panel--light" style={{ gridColumn: 'span 4' }}>
-          <div className="analytics-panel__eyebrow">Coverage Map</div>
-          <div className="analytics-panel__title">What still needs external connectors</div>
-          <div className="analytics-panel__subhead">
-            The dashboard now covers the GA4-sourced competitor metrics and core Google Search Ads metrics. These remaining items still need dedicated Search Console, Meta, and deeper Google Ads connectors.
-          </div>
-          <div className="analytics-stack">
-            {Object.entries(ga4CoverageGaps || {}).map(([group, items]) => (
-              <div key={group} className="analytics-row">
-                <div className="analytics-row__title">{group}</div>
-                <div className="analytics-row__detail">{items.join(' | ')}</div>
-              </div>
-            ))}
-            {googleAdsCoverage && (
-              <>
-                <div className="analytics-row">
-                  <div className="analytics-row__title">googleAdsIncluded</div>
-                  <div className="analytics-row__detail">{(googleAdsCoverage.included || []).join(' | ')}</div>
-                </div>
-                <div className="analytics-row">
-                  <div className="analytics-row__title">googleAdsRemaining</div>
-                  <div className="analytics-row__detail">{(googleAdsCoverage.remaining || []).join(' | ')}</div>
-                </div>
-              </>
-            )}
-            {metaAdsCoverage && (
-              <>
-                <div className="analytics-row">
-                  <div className="analytics-row__title">metaAdsIncluded</div>
-                  <div className="analytics-row__detail">{(metaAdsCoverage.included || []).join(' | ')}</div>
-                </div>
-                <div className="analytics-row">
-                  <div className="analytics-row__title">metaAdsRemaining</div>
-                  <div className="analytics-row__detail">{(metaAdsCoverage.remaining || []).join(' | ')}</div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-      </div>
-    </div>
+    <React.Suspense fallback={<div className="reports-empty">Loading analytics view...</div>}>
+      <AnalyticsView
+        {...{
+          CHART_AXIS_DARK,
+          CHART_AXIS_DARK_SOFT,
+          CHART_AXIS_LIGHT,
+          CHART_AXIS_LIGHT_SOFT,
+          CHART_COLOR_GOLD,
+          CHART_COLOR_GREEN,
+          CHART_COLOR_ORANGE,
+          CHART_COLOR_PINK,
+          CHART_COLOR_SECONDARY_TAN,
+          CHART_COLOR_TAN,
+          CHART_GRID_DARK,
+          CHART_GRID_LIGHT,
+          CHART_MARGIN_STANDARD,
+          CHART_MARGIN_TALL,
+          CHART_MARGIN_VERTICAL,
+          CHART_TOOLTIP_ITEM_STYLE,
+          CHART_TOOLTIP_LABEL_STYLE,
+          CHART_TOOLTIP_STYLE,
+          MeasuredChart,
+          analyticsSourceBadge,
+          formatCurrency,
+          formatNumber,
+          formatPercent,
+          formatSignedPercent,
+          ga4AcquisitionChannels,
+          ga4ApplyPage,
+          ga4Blocked,
+          ga4Cities,
+          ga4ConversionByMedium,
+          ga4ConversionEvents,
+          ga4CoverageGaps,
+          ga4DeviceBreakdown,
+          ga4DevicesDetailed,
+          ga4EventTotal,
+          ga4LandingPages,
+          ga4LlmTraffic,
+          ga4Loading,
+          ga4NewUsers,
+          ga4OrganicConversionBreakdown,
+          ga4PagePerformance,
+          ga4PathExploration,
+          ga4Sessions,
+          ga4StatusMessage,
+          ga4TopPages,
+          ga4TopSources,
+          ga4TrafficByMonth,
+          ga4TrafficBySessionSource,
+          ga4ConversionsByDay,
+          getDeltaTone,
+          googleAdsAds,
+          googleAdsBrandSplit,
+          googleAdsCampaigns,
+          googleAdsConversionActionNote,
+          googleAdsConversionActions,
+          googleAdsCoverage,
+          googleAdsDailyPerformance,
+          googleAdsError,
+          googleAdsKeywords,
+          googleAdsLoading,
+          googleAdsOverview,
+          googleAdsOverviewDelta,
+          googleAdsTopAd,
+          metaAdsAdSets,
+          metaAdsAttribution,
+          metaAdsAttributionMode,
+          metaAdsCampaigns,
+          metaAdsCoverage,
+          metaAdsDailyPerformance,
+          metaAdsError,
+          metaAdsKeyMetrics,
+          metaAdsLoading,
+          metaAdsOverview,
+          metaAdsOverviewDelta,
+          metaAdsPlacements,
+          metaAdsScoping,
+          metaAdsTopAds,
+          metaAdsTopPreview,
+          rangeDates,
+          renderMetricValue,
+          selectedProperty,
+          selectedPropertyLabel,
+          setMetaAdsAttributionMode,
+          shortenLabel,
+        }}
+      />
+    </React.Suspense>
   );
 
   const renderCallPrep = () => (
@@ -8895,1847 +6988,302 @@ const DashboardApp = ({
   // ──────────────── RENDER ────────────────
 
   const renderDashboard = () => (
-    <div className="grid-layout">
-      {/* ── KPI Tiles ── */}
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Users size={16} style={{ opacity: 0.6 }} />
-        <div className="card-title">Total Leads</div>
-        </div>
-        <div className="card-value">{renderMetricValue(loading, formatNumber(totalLeads))}</div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Apps: {formatNumber(totalApplications)} | Leases: {formatNumber(totalLeases)}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <FileCheck size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Applications Completed</div>
-        </div>
-        <div className="card-value">{renderMetricValue(loading, formatNumber(totalApplications))}</div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Lead-to-completed-app: {applicationConversion}% | {funnelMetricSource}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Home size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Leases Approved</div>
-        </div>
-        <div className="card-value">{renderMetricValue(loading, formatNumber(totalLeases))}</div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          App-to-approved-lease: {applicationToLeaseConversion}% | Lead-to-lease: {leaseConversion}%
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <DollarSign size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Lead-to-Lease Conversion</div>
-        </div>
-        <div className="card-value">
-          {renderMetricValue(loading, `${leaseConversion}%`)}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Leads: {formatNumber(totalLeads)} | Leases: {formatNumber(totalLeases)}
-        </div>
-      </div>
-
-      <div className="card" style={{ background: 'var(--pop-red)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <DollarSign size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Marketing Cost</div>
-        </div>
-        <div className="card-value">
-          {renderMetricValue(loading || invoiceLoading, totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data')}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Marketing spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'} | CPL: {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <DollarSign size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Cost Per Lead</div>
-        </div>
-        <div className="card-value">
-          {renderMetricValue(loading || invoiceLoading, costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend')}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Leads: {formatNumber(totalLeads)} | Marketing spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <TrendingUp size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">Cost Per Lease</div>
-        </div>
-        <div className="card-value">
-          {renderMetricValue(roiLoading || invoiceLoading, costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend')}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          ROI: {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases: {formatNumber(totalLeases)}
-        </div>
-      </div>
-
-      <div className="card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <TrendingUp size={16} style={{ opacity: 0.6 }} />
-          <div className="card-title">ROAS</div>
-        </div>
-        <div className="card-value">
-          {renderMetricValue(roiLoading || invoiceLoading, blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend')}
-        </div>
-        <div style={{ fontSize: '0.75rem', marginTop: '0.5rem', opacity: 0.7 }}>
-          Net revenue: {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend: {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}
-        </div>
-      </div>
-
-      <div className="card span-2">
-        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>Marketing Plays</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '0.75rem', fontSize: '0.85rem' }}>
-          {totalLeads > 0 && totalApplications / totalLeads < 0.15 && (
-            <p>• <strong>Low App Rate</strong>: Only {((totalApplications / totalLeads) * 100).toFixed(0)}% of leads applied. Consider follow-up campaigns.</p>
-          )}
-          {totalLeads === 0 && (
-            <p>• <strong>No Data</strong>: Expand the date range to see metrics.</p>
-          )}
-          {totalLeads > 0 && (
-            <p>• <strong>Top Source</strong>: {leadSourceBreakdown[0]?.name || 'N/A'} drives {leadSourceBreakdown[0]?.value || 0} leads ({totalLeads > 0 ? ((leadSourceBreakdown[0]?.value / totalLeads) * 100).toFixed(0) : 0}%).</p>
-          )}
-          {adjustedMarketingSpend > 0 && (
-            <p>• <strong>Cost per Lease</strong>: {costPerLease !== '—' ? `$${costPerLease}` : '—'} based on adjusted all-marketing spend for this range.</p>
-          )}
-          {totalBlendedMarketingSpend > 0 && (
-            <p>• <strong>Total Marketing Spend</strong>: ${totalBlendedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} allocated across the selected days from tracked monthly marketing invoices.</p>
-          )}
-          {blendedRoi != null && (
-            <p>• <strong>Blended ROI</strong>: {(blendedRoi * 100).toFixed(0)}% from ${roiTotals.netEffectiveRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })} net effective revenue on ${adjustedMarketingSpend.toLocaleString(undefined, { maximumFractionDigits: 0 })} adjusted spend.</p>
-          )}
-          {attributedLeaseCount > 0 && (
-            <p>• <strong>Attribution Match Rate</strong>: {attributionMatchRate}% of tracked leases are tied back to a lead record for this range.</p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Lead Source Breakdown ── */}
-      <div className="card span-2">
-        <div className="card-title">Top Lead Sources</div>
-        {leadSourceBreakdown.length > 0 ? (
-          <MeasuredChart className="analytics-chart analytics-chart--compact" fixedHeight={160}>
-            {({ width, height }) => (
-            <BarChart width={width} height={height} data={leadSourceBreakdown} layout="vertical" margin={CHART_MARGIN_VERTICAL}>
-              <XAxis type="number" hide />
-              <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-              <Bar dataKey="value" fill={CHART_COLOR_ORANGE} radius={[0, 4, 4, 0]} barSize={14} />
-            </BarChart>
-            )}
-          </MeasuredChart>
-        ) : (
-          <div style={{ opacity: 0.5, fontSize: '0.85rem', marginTop: '1rem' }}>No source data</div>
-        )}
-      </div>
-
-      {/* ── Performance Trends Chart ── */}
-      <div className="chart-container span-4">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h3 style={{ color: 'white', margin: 0 }}>Daily Performance Trends</h3>
-          <div style={{ display: 'flex', gap: '1rem', fontSize: '0.75rem' }}>
-            <span style={{ color: 'var(--chart-pink)' }}>● Leads</span>
-            <span style={{ color: 'var(--chart-secondary-tan)' }}>● Applications</span>
-            <span style={{ color: 'var(--chart-green)' }}>● Leases</span>
-          </div>
-        </div>
-        {dailyChartData.length > 0 ? (
-          <MeasuredChart className="analytics-chart analytics-chart--tall" fixedHeight={300}>
-            {({ width, height }) => (
-            <AreaChart width={width} height={height} data={dailyChartData} margin={CHART_MARGIN_TALL}>
-              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_DARK} vertical={false} />
-              <XAxis dataKey="label" stroke={CHART_AXIS_DARK} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-              <YAxis stroke={CHART_AXIS_DARK_SOFT} tick={{ fill: CHART_COLOR_TAN }} />
-              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-              <Area type="monotone" dataKey="leads" stroke={CHART_COLOR_PINK} fill={CHART_COLOR_PINK} fillOpacity={0.16} name="Leads" />
-              <Area type="monotone" dataKey="applications" stroke={CHART_COLOR_SECONDARY_TAN} fill={CHART_COLOR_SECONDARY_TAN} fillOpacity={0.18} name="Applications" />
-              <Bar dataKey="leases" fill={CHART_COLOR_GREEN} barSize={6} radius={[4, 4, 0, 0]} name="Leases" />
-            </AreaChart>
-            )}
-          </MeasuredChart>
-        ) : (
-          <div style={{ color: 'var(--primary-tan)', opacity: 0.5, textAlign: 'center', paddingTop: '4rem' }}>
-            {loading ? 'Loading chart data…' : 'No data for this date range'}
-          </div>
-        )}
-      </div>
-
-      <div className="card span-4" style={{ background: 'var(--panel-soft)', color: 'var(--white)' }}>
-        <div className="card-title" style={{ color: 'var(--primary-tan)', fontWeight: 'bold' }}>Marketing Spend Breakdown</div>
-        {marketingSpendBreakdown.length > 0 ? (
-          <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.75rem' }}>
-            {marketingSpendBreakdown.map((item) => (
-              <div
-                key={item.label}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: '1rem',
-                  paddingBottom: '0.75rem',
-                  borderBottom: '1px solid var(--panel-border)',
-                  opacity: item.excluded ? 0.48 : 1
-                }}
-              >
-                <div style={{ maxWidth: '75%' }}>{item.label}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
-                  <button
-                    type="button"
-                    className={`marketing-spend-toggle ${item.excluded ? 'is-excluded' : 'is-included'}`}
-                    aria-pressed={!item.excluded}
-                    onClick={() => toggleMarketingSpendLine(item.label)}
-                    title={item.excluded ? 'Include this spend line' : 'Exclude this spend line from totals'}
-                  >
-                    <span className="marketing-spend-toggle__track">
-                      <span className="marketing-spend-toggle__knob" />
-                    </span>
-                    <span>{item.excluded ? 'Excluded' : 'Included'}</span>
-                  </button>
-                  <div style={{ fontWeight: 600, whiteSpace: 'nowrap', textDecoration: item.excluded ? 'line-through' : 'none' }}>
-                    ${item.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ opacity: 0.6, marginTop: '1rem' }}>No marketing spend rows found for this date range.</div>
-        )}
-      </div>
-
-    </div>
+    <React.Suspense fallback={<div className="reports-empty">Loading dashboard view...</div>}>
+      <DashboardView
+        {...{
+          CHART_AXIS_DARK,
+          CHART_AXIS_DARK_SOFT,
+          CHART_COLOR_GREEN,
+          CHART_COLOR_ORANGE,
+          CHART_COLOR_PINK,
+          CHART_COLOR_SECONDARY_TAN,
+          CHART_COLOR_TAN,
+          CHART_GRID_DARK,
+          CHART_MARGIN_TALL,
+          CHART_MARGIN_VERTICAL,
+          CHART_TOOLTIP_ITEM_STYLE,
+          CHART_TOOLTIP_LABEL_STYLE,
+          CHART_TOOLTIP_STYLE,
+          DollarSign,
+          FileCheck,
+          Home,
+          MeasuredChart,
+          TrendingUp,
+          Users,
+          adjustedMarketingSpend,
+          activeRedListStatus,
+          allCanonicalLeadItems,
+          applicationConversion,
+          applicationToLeaseConversion,
+          approvedLeaseRecords,
+          attributedLeaseCount,
+          attributionMatchRate,
+          blendedRoas,
+          blendedRoi,
+          completedApplicationRecords,
+          conventionalLeadDeficitMetrics,
+          costPerLead,
+          costPerLease,
+          formatCurrency,
+          formatDateInputValue,
+          formatNumber,
+          formatPercent,
+          formatReadableDate,
+          formatSignedPercent,
+          funnelMetricSource,
+          invoiceLoading,
+          isConventionalLeadDeficitPanel,
+          leaseConversion,
+          loading,
+          marketingSpendBreakdown,
+          rangeDates,
+          redListSummary,
+          renderMetricValue,
+          roiLoading,
+          roiTotals,
+          studentLeadDeficitMetrics,
+          toggleMarketingSpendLine,
+          totalApplications,
+          totalBlendedMarketingSpend,
+          totalLeads,
+          totalLeases,
+        }}
+      />
+    </React.Suspense>
   );
 
-  const getAuditItemText = (item, fallback = 'Review latest audit finding') => {
-    if (typeof item === 'string') return item;
-    if (!item || typeof item !== 'object') return fallback;
-    return item.issue || item.recommendation || item.text || item.message || item.url || fallback;
-  };
-
-  const getAuditStatus = ({ score, issueCount = 0, warnCount = 0, healthyWhenZero = false }) => {
-    if (issueCount > 0) return { label: 'Issue found', tone: 'danger' };
-    if (healthyWhenZero && issueCount === 0 && warnCount === 0) return { label: 'Healthy', tone: 'healthy' };
-    if (score == null) return { label: 'Needs review', tone: 'warning' };
-    const numericScore = Number(score);
-    if (!Number.isFinite(numericScore)) return { label: 'Needs review', tone: 'warning' };
-    if (numericScore >= 90) return { label: 'Healthy', tone: 'healthy' };
-    if (numericScore >= 70) return { label: 'Needs review', tone: 'warning' };
-    return { label: 'Issue found', tone: 'danger' };
-  };
-
-  const renderAuditActionCard = ({ title, status, count, finding, details = [] }) => {
-    const safeDetails = (details || []).map((item) => getAuditItemText(item)).filter(Boolean);
-    return (
-      <details className="heatmap-audit-card">
-        <summary>
-          <div>
-            <div className="heatmap-audit-card__title-row">
-              <strong>{title}</strong>
-              <span className={`heatmap-audit-badge heatmap-audit-badge--${status.tone}`}>{status.label}</span>
-            </div>
-            <small>{finding}</small>
-          </div>
-          <div className="heatmap-audit-card__count">{count}</div>
-        </summary>
-        <div className="heatmap-audit-card__details">
-          {safeDetails.length > 0 ? (
-            safeDetails.slice(0, 5).map((item, index) => <p key={`${title}-detail-${index}`}>{item}</p>)
-          ) : (
-            <p>No additional details for this check.</p>
-          )}
-        </div>
-      </details>
-    );
-  };
-
-  const renderHeatmapAuditPanel = () => (
-    <section id="reporting-panel-heatmaps-audit" className="reports-panel">
-      <div className="reports-panel__eyebrow">Website Experience</div>
-      <div className="reports-panel__title">Heatmaps + Site Audit</div>
-      {heatmapPanelError && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{heatmapPanelError}</div>}
-      {siteAuditNotice && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{siteAuditNotice}</div>}
-
-      <div className="heatmap-audit-controls">
-        <label className="website-manager-field">
-          <span className="website-manager-field__label">Page</span>
-          <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
-            {heatmapPageOptions.map((page) => <option key={page.path || page.id} value={page.path || '/'}>{page.title || page.path || '/'}</option>)}
-            {heatmapPageOptions.length === 0 && <option value="">No pages tracked yet</option>}
-          </select>
-        </label>
-        <label className="website-manager-field">
-          <span className="website-manager-field__label">Device</span>
-          <select className="website-manager-field__input" value={selectedHeatmapDevice} onChange={(event) => setSelectedHeatmapDevice(event.target.value)}>
-            {HEATMAP_DEVICE_OPTIONS.map((device) => <option key={device} value={device}>{device}</option>)}
-          </select>
-        </label>
-        <div style={{ display: 'flex', alignItems: 'end' }}>
-          <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading}>
-            {siteAuditRunning ? 'Queueing…' : 'Queue AI Audit'}
-          </button>
-        </div>
-      </div>
-
-      <div className="website-experience-kpis">
-        {[
-          ['Tracked sessions', formatNumber(heatmapTotals.sessions || 0), `${formatNumber(heatmapTotals.events || 0)} events`],
-          ['Avg. page duration', formatDurationMs(heatmapTotals.avgPageDurationMs), `${formatNumber(heatmapTotals.pageDurationEvents || 0)} duration events`],
-          ['Avg. scroll depth', `${Math.round(Number(heatmapTotals.avgScrollDepthPct || 0) * 100)}%`, `Max ${Math.round(Number(heatmapTotals.maxScrollDepthPct || 0) * 100)}%`],
-          ['Clicks / taps', `${formatNumber(Number(heatmapTotals.clicks || 0) + Number(heatmapTotals.ctaClicks || 0))} / ${formatNumber(heatmapTotals.taps || 0)}`, `${formatNumber(heatmapTotals.ctaClicks || 0)} CTA clicks`],
-          ['Rage clicks', formatNumber(heatmapFrictionTotals.rageClicks), heatmapFrictionTotals.rageClicks ? 'Across tracked pages' : 'No rage signals yet'],
-          ['Dead clicks', formatNumber(heatmapFrictionTotals.deadClicks), heatmapFrictionTotals.deadClicks ? 'Across tracked pages' : 'No dead clicks yet'],
-        ].map(([label, value, meta]) => (
-          <div key={label} className="website-experience-kpi">
-            <span>{label}</span>
-            <strong>{value}</strong>
-            <small>{meta}</small>
-          </div>
-        ))}
-      </div>
-
-      <div className="website-experience-dashboard">
-        <div className="website-experience-card website-experience-card--list">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Top pages</strong>
-              <small>Ranked by tracked sessions, then events.</small>
-            </div>
-          </div>
-          {heatmapOverviewPages.slice(0, 5).map((page) => {
-            const share = Number(heatmapTotals.events || 0) > 0 ? Math.min(1, Number(page.events || 0) / Number(heatmapTotals.events || 1)) : 0;
-            return (
-              <button
-                key={page.path || page.id}
-                type="button"
-                className="website-experience-page-row"
-                onClick={() => setSelectedHeatmapPath(page.path || '/')}
-              >
-                <div>
-                  <strong>{page.title || page.path || '/'}</strong>
-                  <small>{page.path || '/'} · {formatNumber(page.sessions || 0)} sessions</small>
-                  <span style={{ '--bar-width': `${Math.round(share * 100)}%` }} />
-                </div>
-                <em>{formatNumber(page.events || 0)} events</em>
-              </button>
-            );
-          })}
-          {heatmapOverviewPages.length === 0 && <div className="heatmap-audit-compact-empty">No page traffic has been collected yet.</div>}
-        </div>
-
-        <div className="website-experience-card website-experience-page-overview">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Page overview</strong>
-              <small>{selectedHeatmapPageOverview?.path || selectedHeatmapPath || '/'}</small>
-            </div>
-            <button type="button" className="website-experience-link-button" onClick={() => document.getElementById('heatmap-detail-view')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
-              View heatmap
-            </button>
-          </div>
-          <div className="website-experience-preview-card">
-            {screenshotPreviewUrl ? (
-              <img src={screenshotPreviewUrl} alt="" />
-            ) : (
-              <div className="website-experience-preview-empty">No screenshot yet</div>
-            )}
-            <div>
-              <span>{formatNumber(selectedHeatmapPageOverview?.sessions || 0)}</span>
-              <small>Sessions</small>
-            </div>
-            <div>
-              <span>{formatNumber(selectedHeatmapPageOverview?.clicks || 0)}</span>
-              <small>Clicks</small>
-            </div>
-            <div>
-              <span>{Math.round(Number(selectedHeatmapPageOverview?.maxScrollDepthPct || heatmapTotals.maxScrollDepthPct || 0) * 100)}%</span>
-              <small>Max scroll</small>
-            </div>
-          </div>
-        </div>
-
-        <div className="website-experience-card">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Rage click signals</strong>
-              <small>Cluster severity for the selected page.</small>
-            </div>
-          </div>
-          <div className="website-experience-mini-bars">
-            {heatmapRageSignals.map((item) => {
-              const maxCount = Math.max(1, ...heatmapRageSignals.map((signal) => signal.count));
-              return (
-                <div key={item.label}>
-                  <span>{item.label}</span>
-                  <i style={{ '--bar-width': `${Math.round((item.count / maxCount) * 100)}%` }} />
-                  <strong>{formatNumber(item.count)}</strong>
-                </div>
-              );
-            })}
-            {heatmapRageSignals.length === 0 && <div className="heatmap-audit-compact-empty">No rage click clusters detected for the selected page.</div>}
-          </div>
-        </div>
-
-        <div className="website-experience-card">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Pages with friction</strong>
-              <small>Dead click page signals from the click target aggregate.</small>
-            </div>
-          </div>
-          <div className="website-experience-mini-list">
-            {heatmapFrictionPages.slice(0, 5).map((page) => (
-              <button key={page.path} type="button" onClick={() => setSelectedHeatmapPath(page.path || '/')}>
-                <span>{page.title || page.path || '/'}</span>
-                <strong>{formatNumber(Number(page.deadClicks || 0) + Number(page.rageClicks || 0))}</strong>
-              </button>
-            ))}
-            {heatmapFrictionPages.length === 0 && <div className="heatmap-audit-compact-empty">No page-level rage or dead click signals yet.</div>}
-          </div>
-        </div>
-
-        <div className="website-experience-card">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Device breakdown</strong>
-              <small>Tracked events and sessions by viewport type.</small>
-            </div>
-          </div>
-          <div className="website-experience-device-list">
-            {heatmapDeviceBreakdown.map((device) => {
-              const share = Number(heatmapTotals.events || 0) > 0 ? Math.min(1, Number(device.events || 0) / Number(heatmapTotals.events || 1)) : 0;
-              return (
-                <div key={device.deviceType}>
-                  <span>{device.deviceType}</span>
-                  <i style={{ '--bar-width': `${Math.round(share * 100)}%` }} />
-                  <strong>{formatNumber(device.sessions)} sessions</strong>
-                </div>
-              );
-            })}
-            {heatmapDeviceBreakdown.length === 0 && <div className="heatmap-audit-compact-empty">Device data will appear after events are collected.</div>}
-          </div>
-        </div>
-
-        <div className="website-experience-card website-experience-card--muted">
-          <strong>Audience + traffic context</strong>
-          <small>New vs returning users and top referrers can be added once the tracker stores visitor classification and referrer/channel enrichment.</small>
-        </div>
-      </div>
-
-      <div className="heatmap-audit-status-grid">
-        <div className={`heatmap-audit-status-card ${selectedScreenshot ? 'is-healthy' : 'is-pending'}`}>
-          <span>{selectedScreenshot ? 'Screenshot captured' : 'Screenshot pending'}</span>
-          <strong>{selectedScreenshot ? `${selectedScreenshot.deviceType || selectedHeatmapDevice} screenshot` : 'Waiting for capture'}</strong>
-          <small>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No screenshot stored for this page/device yet.'}</small>
-        </div>
-        <div className={`heatmap-audit-status-card ${latestAudit ? 'is-healthy' : 'is-pending'}`}>
-          <span>{latestAudit ? 'Audit complete' : 'Audit pending'}</span>
-          <strong>{latestAudit ? `Score ${auditPageResult?.score ?? latestAudit?.performance_score ?? '—'}` : 'Run audit'}</strong>
-          <small>{latestAudit?.audited_at ? `${auditModeLabel} · ${getSnapshotTimestampLabel(latestAudit.audited_at)}` : 'Audit data is separate from heatmap traffic.'}</small>
-        </div>
-        <div className={`heatmap-audit-status-card ${Number(heatmapTotals.events || 0) > 0 ? 'is-healthy' : 'is-pending'}`}>
-          <span>{Number(heatmapTotals.events || 0) > 0 ? 'Heatmap traffic active' : 'Heatmap traffic pending'}</span>
-          <strong>{heatmapSummaryLoading ? 'Loading…' : `${formatNumber(heatmapTotals.events || 0)} events`}</strong>
-          <small>{Number(heatmapTotals.events || 0) > 0 ? `${formatNumber(heatmapTotals.sessions || 0)} tracked sessions in range.` : 'Audit and screenshots can be ready before visitor interaction data arrives.'}</small>
-        </div>
-        <div className={`heatmap-audit-status-card ${selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'is-healthy' : 'is-pending'}`}>
-          <span>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Snapshot captured' : 'Snapshot pending'}</span>
-          <strong>{selectedAuditPage?.capturedAt || selectedAuditPage?.latestSnapshotId ? 'Page snapshot' : 'Waiting for snapshot'}</strong>
-          <small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : selectedAuditPage?.latestSnapshotId ? 'Snapshot record available.' : 'No page snapshot yet.'}</small>
-        </div>
-        <div className={`heatmap-audit-status-card ${trackerHealth.trackerScriptObserved || lastTrackerEventAt ? 'is-healthy' : 'is-pending'}`}>
-          <span>{trackerHealth.trackerScriptObserved || lastTrackerEventAt ? 'Tracker event seen' : 'Tracker event pending'}</span>
-          <strong>{heatmapTrackerHealthLoading ? 'Checking…' : trackerHealth.latestCollectStatus || (lastTrackerEventAt ? 'Tracker active' : 'No event yet')}</strong>
-          <small>{trackerHealth.latestEventAt ? getSnapshotTimestampLabel(trackerHealth.latestEventAt) : lastTrackerEventAt ? getSnapshotTimestampLabel(lastTrackerEventAt) : 'No tracker event observed for this page yet.'}</small>
-        </div>
-      </div>
-
-      {reportingAdminEnabled && (
-        <div className="heatmap-coordinate-diagnostics">
-          <div className="heatmap-coordinate-diagnostics__heading">
-            <strong>Coordinate diagnostics</strong>
-            <small>Admin-only tracker validation for the selected page/device/range.</small>
-          </div>
-          <div className="heatmap-coordinate-diagnostics__grid" style={{ marginBottom: '0.75rem' }}>
-            {trackerHealthStatusRows.map(([label, status]) => (
-              <div key={label}>
-                <span>{label}</span>
-                <strong style={{ color: status?.ok ? 'var(--success-green)' : 'var(--primary-tan)' }}>{status?.label || 'Unknown'}</strong>
-                <small>{status?.detail || 'No signal yet'}</small>
-              </div>
-            ))}
-          </div>
-          <div className="reports-empty" style={{ marginBottom: '0.75rem' }}>
-            <strong>Top missing-data reason:</strong> {trackerHealth.topMissingReason || 'No tracker health result yet.'}
-          </div>
-          <div className="heatmap-coordinate-diagnostics__grid">
-            <div><span>Raw events received</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rawEvents)}</strong></div>
-            <div><span>Events with coordinates</span><strong>{formatNumber(heatmapCoordinateDiagnostics.withCoordinates)}</strong></div>
-            <div><span>Rejected from renderer</span><strong>{formatNumber(heatmapCoordinateDiagnostics.rejectedFromRenderer)}</strong></div>
-            <div><span>Device mismatch count</span><strong>{formatNumber(heatmapCoordinateDiagnostics.deviceMismatch)}</strong></div>
-            <div><span>Tracker diagnostics</span><strong>{formatNumber(trackerHealth.countsByType?.tracker_diagnostic || 0)}</strong></div>
-            <div><span>Deduped taps</span><strong>{formatNumber(trackerHealth.dedupedTapEvents || 0)}</strong></div>
-            <div><span>Sample rate</span><strong>{trackerHealth.sampleRate != null ? `${Math.round(Number(trackerHealth.sampleRate || 0) * 100)}%` : '—'}</strong></div>
-            <div><span>DNT respected</span><strong>{trackerHealth.respectDnt ? 'Yes' : 'No'}</strong></div>
-            <div><span>Allowed domains</span><strong>{formatNumber((trackerHealth.allowedDomains || []).length)}</strong></div>
-          </div>
-          {trackerRecommendations.length > 0 && (
-            <div className="heatmap-tracker-health-list">
-              {trackerRecommendations.slice(0, 4).map((item) => <span key={item}>{item}</span>)}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div id="heatmap-detail-view" className="heatmap-audit-layout">
-        <div className="heatmap-audit-preview">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Page preview</strong>
-              <small>{selectedHeatmapPath || '/'} · {selectedHeatmapDevice}</small>
-            </div>
-            <span>{screenshotPreviewLoading ? 'Loading screenshot' : selectedScreenshot ? 'Screenshot available' : 'No screenshot yet'}</span>
-          </div>
-          <HeatmapRenderer
-            points={heatmapPoints}
-            cells={heatmapCells}
-            totals={heatmapTotals}
-            deviceType={selectedHeatmapDevice}
-            screenshotUrl={screenshotPreviewUrl}
-            screenshot={selectedScreenshot}
-            loading={screenshotPreviewLoading || heatmapSummaryLoading}
-            error={screenshotPreviewError}
-            activeLayers={heatmapLayers}
-            onLayerChange={updateHeatmapLayer}
-            highlightedTarget={highlightedHeatmapTarget}
-            targetHotspots={heatmapTopTargets}
-            scrollSummary={heatmapScrollSummary}
-            formatNumber={formatNumber}
-          />
-        </div>
-        <div className="reports-list heatmap-audit-rail">
-          <div className="heatmap-audit-section-heading">
-            <div>
-              <strong>Audit summary</strong>
-              <small>{latestAudit?.audited_at ? `Last audited ${getSnapshotTimestampLabel(latestAudit.audited_at)}` : 'Audit pending'}</small>
-            </div>
-          </div>
-          <div className="heatmap-audit-rail-score">
-            <span>Combined score</span>
-            <strong>{renderMetricValue(siteAuditLoading, auditPageResult?.score ?? latestAudit?.performance_score ?? '—')}</strong>
-            <small>{latestAudit ? auditModeLabel : 'Run audit to score this page'}</small>
-          </div>
-          {renderAuditActionCard({
-            title: 'Audit score',
-            status: getAuditStatus({ score: auditPageResult?.score ?? latestAudit?.performance_score, issueCount: (auditIssues || []).length }),
-            count: siteAuditLoading ? <MiniMetricLoader /> : auditPageResult?.score ?? latestAudit?.performance_score ?? '—',
-            finding: latestAudit
-              ? isAiAudit
-                ? `AI reviewed ${formatNumber(aiAuditMeta?.pagesScored || 0)} screenshot page${Number(aiAuditMeta?.pagesScored || 0) === 1 ? '' : 's'} against the website audit rubric.`
-                : 'Weighted score across SEO, CTA, freshness, links, structure, and performance proxy.'
-              : 'Run an audit to generate a score.',
-            details: auditCategoryScores.length
-              ? auditCategoryScores.map((item) => `${item.label}: ${formatNumber(item.score, 1)}${item.weight != null ? ` (${Math.round(Number(item.weight) * 100)}% weight)` : ''}`)
-              : auditIssues.length ? auditIssues : auditRecommendations,
-          })}
-          {isAiAudit && auditPageResult?.aiSummary && (
-            <div className="reports-empty">{auditPageResult.aiSummary}</div>
-          )}
-          {aiAuditChecklist.length > 0 && (
-            <div className="heatmap-audit-category-grid">
-              {aiAuditChecklist.map((item) => (
-                <div key={item.key || item.label} className="heatmap-audit-category">
-                  <span>{item.label || item.key}</span>
-                  <strong>{formatNumber(item.score, 1)}</strong>
-                  <small>{[item.status, item.severity].filter(Boolean).join(' | ') || 'AI checklist'}</small>
-                  <small>{item.recommendation || item.evidence || 'No additional note.'}</small>
-                </div>
-              ))}
-            </div>
-          )}
-          {auditCategoryScores.length > 0 && (
-            <div className="heatmap-audit-category-grid">
-              {auditCategoryScores.map((item) => (
-                <div key={item.key || item.label} className="heatmap-audit-category">
-                  <span>{item.label}</span>
-                  <strong>{formatNumber(item.score, 1)}</strong>
-                  <small>{item.weight != null ? `${Math.round(Number(item.weight) * 100)}% weight` : 'Category score'}</small>
-                </div>
-              ))}
-            </div>
-          )}
-          {renderAuditActionCard({
-            title: 'CTA / urgency',
-            status: getAuditStatus({
-              score: latestAudit?.urgency_score,
-              issueCount: (auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0) > 0 ? 0 : 1,
-            }),
-            count: auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0,
-            finding: `${auditPageResult?.ctaCount ?? selectedAuditPage?.ctas?.length ?? 0} CTA-like elements detected.`,
-            details: selectedAuditPage?.ctas || auditRecommendations,
-          })}
-          {renderAuditActionCard({
-            title: 'Broken/internal links',
-            status: getAuditStatus({ score: latestAudit?.link_score, issueCount: Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : 0, healthyWhenZero: true }),
-            count: formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : 0),
-            finding: Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected.',
-            details: auditBrokenLinks,
-          })}
-          <div className="reports-list__row"><div><strong>Last captured / audited</strong><small>{selectedAuditPage?.capturedAt ? getSnapshotTimestampLabel(selectedAuditPage.capturedAt) : 'No page capture yet'}</small></div><div>{latestAudit?.audited_at ? getSnapshotTimestampLabel(latestAudit.audited_at) : '—'}</div></div>
-          {renderAuditActionCard({
-            title: 'Stale date findings',
-            status: getAuditStatus({ issueCount: (auditStaleDates || []).length, healthyWhenZero: true }),
-            count: formatNumber((auditStaleDates || []).length),
-            finding: (auditStaleDates || []).length ? 'Potential stale or expired dates found.' : 'None detected.',
-            details: auditStaleDates,
-          })}
-          {renderAuditActionCard({
-            title: 'Recommendations',
-            status: getAuditStatus({ warnCount: (auditRecommendations || []).length, score: (auditRecommendations || []).length ? 75 : 100 }),
-            count: formatNumber((auditRecommendations || []).length),
-            finding: (auditRecommendations || []).length ? 'Suggested improvements are available.' : 'No recommendations generated for this page.',
-            details: auditRecommendations,
-          })}
-          {!latestAudit && <div className="reports-empty">Run an audit after page snapshots are collected to populate recommendations.</div>}
-        </div>
-      </div>
-
-      <div className="heatmap-audit-interactions">
-        <div className="heatmap-audit-section-heading">
-          <div>
-            <strong>Click and engagement signals</strong>
-            <small>Rage clicks, dead clicks, and the top clicked elements for the selected page.</small>
-          </div>
-        </div>
-        <div className="heatmap-audit-interaction-grid">
-          <div className="reports-list__row"><div><strong>Rage click clusters</strong><small>Repeated clicks in the same session, element, and page area.</small></div><div>{formatNumber(heatmapClickAnomalies.rageClusters)}</div></div>
-          <div className="reports-list__row"><div><strong>Dead clicks</strong><small>Clicks without a CTA label or href signal.</small></div><div>{formatNumber(heatmapClickAnomalies.deadClicks)}</div></div>
-          <div className="reports-list__row"><div><strong>CTA frustration</strong><small>Repeated CTA clicks without a page transition signal.</small></div><div>{formatNumber(heatmapClickAnomalies.ctaFrustrations)}</div></div>
-          <div className="reports-list__row"><div><strong>Cursor movement</strong><small>Movement samples represented in the cursor density layer.</small></div><div>{formatNumber(heatmapCursorSummary.movementSamples || heatmapTotals.cursorSamples || 0)}</div></div>
-          <div className="reports-list__row"><div><strong>Stationary dwell</strong><small>Cursor rest points with average dwell duration.</small></div><div>{formatNumber(heatmapCursorSummary.dwellPoints || 0)} · {Math.round(Number(heatmapCursorSummary.avgDwellMs || 0) / 100) / 10}s</div></div>
-          <div className="heatmap-audit-top-clicks">
-            <div className="heatmap-click-tabs" role="tablist" aria-label="Click signal lists">
-              {heatmapClickSignalTabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={heatmapClickSignalTab === tab.key}
-                  className={`heatmap-click-tab${heatmapClickSignalTab === tab.key ? ' is-active' : ''}`}
-                  onClick={() => setHeatmapClickSignalTab(tab.key)}
-                >
-                  <span>{tab.label}</span>
-                  <strong>{formatNumber(tab.count || 0)}</strong>
-                </button>
-              ))}
-            </div>
-            <div className="heatmap-audit-list-heading">{activeHeatmapClickSignalTab.label}</div>
-            {activeHeatmapClickSignalTab.items.slice(0, 8).map((item, index) => (
-              <button
-                key={`${activeHeatmapClickSignalTab.key}-${heatmapSignalKey(item)}-${index}`}
-                type="button"
-                className="reports-list__row heatmap-target-row"
-                onMouseEnter={() => setHighlightedHeatmapTarget(item)}
-                onMouseLeave={() => setHighlightedHeatmapTarget(null)}
-                onFocus={() => setHighlightedHeatmapTarget(item)}
-                onBlur={() => setHighlightedHeatmapTarget(null)}
-                onClick={() => setHighlightedHeatmapTarget((current) => (
-                  heatmapSignalKey(current) === heatmapSignalKey(item) ? null : item
-                ))}
-              >
-                <div>
-                  <strong>{item.label || item.trackId || item.selector || item.path || 'Tracked element'}</strong>
-                  <small>{[item.category, item.trackId ? `ID: ${item.trackId}` : '', item.selector && !item.trackId ? item.selector : '', item.sessions ? `${formatNumber(item.sessions)} sessions` : ''].filter(Boolean).join(' · ') || 'Tracked click target'}</small>
-                </div>
-                <div>{formatNumber(item.signalCount ?? item.clicks ?? item.count ?? 0)}</div>
-              </button>
-            ))}
-            {activeHeatmapClickSignalTab.items.length === 0 && <div className="heatmap-audit-compact-empty">{activeHeatmapClickSignalTab.empty}</div>}
-          </div>
-          <div className="heatmap-audit-top-clicks">
-            <div className="heatmap-audit-list-heading">Top attention areas</div>
-            {heatmapTopAttentionAreas.slice(0, 6).map((item, index) => (
-              <div key={`${item.sectionLabel || item.selector || item.label || 'attention'}-${index}`} className="reports-list__row">
-                <div>
-                  <strong>{item.sectionLabel || item.label || item.selector || 'Attention area'}</strong>
-                  <small>{[
-                    item.category,
-                    item.sessions ? `${formatNumber(item.sessions)} sessions` : '',
-                    item.dwellPoints ? `${formatNumber(item.dwellPoints)} dwell points` : '',
-                    item.cursorSamples ? `${formatNumber(item.cursorSamples)} movement samples` : '',
-                  ].filter(Boolean).join(' · ') || 'Cursor attention area'}</small>
-                </div>
-                <div>{Math.round(Number(item.totalDwellMs || 0) / 1000)}s</div>
-              </div>
-            ))}
-            {heatmapTopAttentionAreas.length === 0 && <div className="heatmap-audit-compact-empty">No cursor attention areas collected yet for this page and date range.</div>}
-          </div>
-        </div>
-      </div>
-
-      <div className="heatmap-audit-interactions">
-        <div className="heatmap-audit-section-heading">
-          <div>
-            <strong>Scroll behavior</strong>
-            <small>Milestones, abandonment depth, scroll bands, and visible page sections.</small>
-          </div>
-        </div>
-        <div className="heatmap-audit-interaction-grid">
-          <div className="reports-list__row">
-            <div><strong>Reach thresholds</strong><small>10 / 50 / 90 / 100 percent scroll depth.</small></div>
-            <div>{['10', '50', '90', '100'].map((key) => {
-              const value = heatmapScrollReach[key] || heatmapScrollMilestones[key] || 0;
-              if (value && typeof value === 'object') {
-                return `${Math.round(Number(value.percent || 0) * 100)}%`;
-              }
-              return formatNumber(value || 0);
-            }).join(' / ')}</div>
-          </div>
-          <div className="reports-list__row">
-            <div><strong>Abandonment depth</strong><small>Average final depth from page duration/exit events.</small></div>
-            <div>{Math.round(Number(heatmapTotals.avgAbandonmentDepthPct || 0) * 100)}%</div>
-          </div>
-          <div className="reports-list__row">
-            <div><strong>First meaningful scroll</strong><small>Tracked once users move beyond the first viewport threshold.</small></div>
-            <div>{formatNumber(heatmapTotals.firstMeaningfulScrolls || 0)}</div>
-          </div>
-          <div className="reports-list__row">
-            <div><strong>Top scroll band</strong><small>Band with the most accumulated viewport time.</small></div>
-            <div>{topScrollBand ? `${topScrollBand[0]} · ${Math.round(Number(topScrollBand[1] || 0) / 1000)}s` : '—'}</div>
-          </div>
-          <div className="heatmap-audit-top-clicks">
-            <div className="heatmap-audit-list-heading">Most viewed sections</div>
-            {heatmapTopSections.slice(0, 6).map((item) => (
-              <div key={item.label} className="reports-list__row">
-                <div>
-                  <strong>{item.label}</strong>
-                  <small>{Math.round(Number(item.maxVisiblePct || 0) * 100)}% max visible</small>
-                </div>
-                <div>{Math.round(Number(item.visibleMs || 0) / 1000)}s</div>
-              </div>
-            ))}
-            {heatmapTopSections.length === 0 && <div className="heatmap-audit-compact-empty">No section exposure data collected yet for this page and date range.</div>}
-          </div>
-        </div>
-      </div>
-    </section>
+  const renderAuditCommandCenter = () => (
+    <React.Suspense fallback={<div className="reports-empty">Loading audit view...</div>}>
+      <AuditView
+        {...{
+          AUDIT_FINDING_WORKFLOW_STATUSES,
+          AUDIT_RISK_ORDER,
+          AUDIT_RUBRIC_FALLBACK_MAP,
+          AUDIT_RUBRIC_ITEMS,
+          AUDIT_REVIEW_TABS,
+          AUDIT_TABLE_FILTERS,
+          AuditScoreSparkline,
+          HEATMAP_DEVICE_OPTIONS,
+          auditFindingWorkflowState,
+          auditPageOptions,
+          auditPortfolioFilter,
+          auditRegionFilter,
+          auditReviewTab,
+          auditTableFilter,
+          auditTableSort,
+          formatAuditScoreChange,
+          formatNumber,
+          getAuditFindingKey,
+          getAuditFindingWorkflowLabel,
+          getAuditReasonText,
+          getAuditRiskClass,
+          getAuditRubricStatusLabel,
+          getDeltaTone,
+          getSnapshotTimestampLabel,
+          normalizeAuditRubricStatus,
+          portfolioAuditError,
+          portfolioAuditLoading,
+          portfolioAuditProperties,
+          propertyMatchesAuditFilter,
+          renderMetricValue,
+          runSiteAudit,
+          screenshotPreviewUrl,
+          selectedHeatmapDevice,
+          selectedHeatmapPath,
+          selectedPropertyId,
+          selectedPropertyLabel,
+          selectedScreenshot,
+          setAuditPortfolioFilter,
+          setAuditRegionFilter,
+          setAuditReviewTab,
+          setAuditTableFilter,
+          setAuditTableSort,
+          setSelectedHeatmapDevice,
+          setSelectedHeatmapPath,
+          setSelectedPropertyId,
+          siteAuditSummaryData,
+          siteAuditLoading,
+          siteAuditNotice,
+          siteAuditRunning,
+          updateAuditFindingWorkflow,
+        }}
+      />
+    </React.Suspense>
   );
-
-  const renderAuditCommandCenter = () => {
-    const sortButton = (key, label) => (
-      <button
-        type="button"
-        className="audit-table__sort"
-        onClick={() => setAuditTableSort((current) => ({
-          key,
-          direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc',
-        }))}
-      >
-        <span>{label}</span>
-        <span aria-hidden="true">{auditTableSort.key === key ? (auditTableSort.direction === 'desc' ? 'v' : '^') : ''}</span>
-      </button>
-    );
-    const activeAuditReviewTab = AUDIT_REVIEW_TABS.some((tab) => tab.id === auditReviewTab) ? auditReviewTab : 'overview';
-    const selectAuditProperty = (propertyId) => {
-      setSelectedPropertyId(propertyId);
-      setAuditReviewTab('overview');
-    };
-    const renderAuditTrendPanel = () => (
-      <div className="audit-trend-panel">
-        <div className="audit-trend-panel__chart">
-          <AuditScoreSparkline points={selectedPortfolioAudit?.scoreHistory || selectedPortfolioAudit?.trend?.scoreHistory || []} />
-          <div>
-            <strong>{formatAuditScoreChange(selectedPortfolioAudit?.scoreChange)}</strong>
-            <small>{selectedPortfolioAudit?.lastChangeReason || selectedPortfolioAudit?.trend?.lastChangeReason || 'No prior audit comparison yet.'}</small>
-          </div>
-        </div>
-        <div className="audit-trend-panel__counts">
-          <span><strong>{formatNumber(selectedPortfolioAudit?.newIssueCount || 0)}</strong> new</span>
-          <span><strong>{formatNumber(selectedPortfolioAudit?.regressedIssueCount || 0)}</strong> regressed</span>
-          <span><strong>{formatNumber(selectedPortfolioAudit?.resolvedIssueCount || 0)}</strong> resolved</span>
-        </div>
-      </div>
-    );
-    const renderAuditWorkflowQueue = () => (
-      <div className="audit-workflow-queue">
-        <div className="audit-workflow-queue__header">
-          <strong>Finding workflow</strong>
-          <small>Move each active finding through the operating queue.</small>
-        </div>
-        {selectedAuditReasonPool.length > 0 ? selectedAuditReasonPool.map((reason, index) => (
-          <div key={reason.workflowKey || `${reason.category}-${index}`} className="audit-workflow-row">
-            <div>
-              <strong>{reason.issue || reason.rubricLabel || reason.category || `Finding ${index + 1}`}</strong>
-              <small>{getAuditFindingWorkflowLabel(reason.workflowStatus)}{reason.workflowUpdatedAt ? ` · updated ${getSnapshotTimestampLabel(reason.workflowUpdatedAt)}` : ''}</small>
-            </div>
-            <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
-              {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
-            </select>
-          </div>
-        )) : (
-          <div className="reports-empty">No active findings are available for this property yet.</div>
-        )}
-      </div>
-    );
-    const renderAuditWhyPanel = ({ includeWorkflowQueue = false } = {}) => (
-      <div className="audit-why-panel">
-        <div className="audit-why-panel__header">
-          <div>
-            <strong>Why this is flagged</strong>
-            <small>Top problems ranked by resident and business impact.</small>
-          </div>
-          <span>{formatNumber(selectedAuditFlaggedReasons.length)} shown</span>
-        </div>
-        {selectedAuditFlaggedReasons.length > 0 ? selectedAuditFlaggedReasons.map((reason, index) => (
-          <div key={`${reason.category || 'reason'}-${index}`} className="audit-why-row">
-            <div className="audit-why-row__rank">{index + 1}</div>
-            <div>
-              <div className="audit-why-row__topline">
-                <strong>{reason.issue || reason.rubricLabel || 'Review website finding'}</strong>
-                <span>{reason.category || 'Website QA'} · {reason.severity || 'medium'} · {reason.confidence || selectedPortfolioAudit?.confidence?.label || 'Medium'} confidence</span>
-              </div>
-              <small>{reason.evidence || 'Evidence is available in the latest audit output.'}</small>
-              {reason.recommendation && <em>{reason.recommendation}</em>}
-            </div>
-            <label className="audit-workflow-select">
-              <span>Workflow</span>
-              <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
-                {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
-              </select>
-            </label>
-          </div>
-        )) : (
-          <div className="reports-empty">No ranked reasons are available yet. Run or refresh the audit to populate impact-based findings.</div>
-        )}
-        {includeWorkflowQueue && renderAuditWorkflowQueue()}
-      </div>
-    );
-    const renderAuditRubricPanel = () => (
-      <div className="audit-rubric-panel">
-        <div className="audit-rubric-panel__header">
-          <div>
-            <strong>9-point audit rubric</strong>
-            <small>Compact evidence rows for the selected page and latest property audit.</small>
-          </div>
-          <span>{auditModeLabel}</span>
-        </div>
-        <div className="audit-rubric-table">
-          {auditRubricRows.map((row) => (
-            <div key={row.key} className="audit-rubric-row">
-              <div className="audit-rubric-row__status">
-                <span className={`audit-rubric-status audit-rubric-status--${row.status}`}>{getAuditRubricStatusLabel(row.status)}</span>
-                <strong>{row.score != null ? Math.round(row.score) : '—'}</strong>
-              </div>
-              <div className="audit-rubric-row__main">
-                <strong>{row.label}</strong>
-                <small>{row.evidence}</small>
-              </div>
-              <div className="audit-rubric-row__meta">
-                <span>{row.source}</span>
-                <span>{row.confidence} confidence</span>
-              </div>
-              <div className="audit-rubric-row__fix">{row.recommendation}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-    const renderAuditScreenshotPanel = () => (
-      <div className="audit-detail-grid">
-        <div className="audit-screenshot-card">
-          <div className="audit-screenshot-card__header">
-            <div>
-              <strong>Screenshot review</strong>
-              <small>Full-page scroll preview with audit callouts.</small>
-            </div>
-            <div className="audit-device-tabs" role="tablist" aria-label="Screenshot device">
-              {HEATMAP_DEVICE_OPTIONS.map((device) => (
-                <button
-                  key={device}
-                  type="button"
-                  role="tab"
-                  aria-selected={selectedHeatmapDevice === device}
-                  className={`audit-device-tab${selectedHeatmapDevice === device ? ' is-active' : ''}`}
-                  onClick={() => setSelectedHeatmapDevice(device)}
-                >
-                  {device}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="audit-screenshot-card__viewport">
-            {screenshotPreviewUrl ? (
-              <div className="audit-screenshot-card__scroll">
-                <img src={screenshotPreviewUrl} alt={`${selectedPortfolioAudit?.propertyName || selectedPropertyLabel} site screenshot`} className="audit-screenshot-card__image" />
-                {auditScreenshotAnnotations.length > 0 && (
-                  <div className="audit-screenshot-card__annotations" aria-label="Screenshot annotations">
-                    {auditScreenshotAnnotations.slice(0, 3).map((annotation, index) => (
-                      <div key={`${annotation.label}-${index}`} className={`audit-screenshot-annotation audit-screenshot-annotation--${annotation.status}`}>
-                        <strong>{annotation.label}</strong>
-                        <span>{annotation.evidence}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="audit-screenshot-card__empty">No screenshot preview stored for this page and device yet.</div>
-            )}
-          </div>
-          <div className="audit-screenshot-card__meta">
-            <strong>Screenshot</strong>
-            <span>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No capture yet'}</span>
-          </div>
-          <div className="audit-screenshot-callouts">
-            {auditScreenshotAnnotations.length > 0 ? auditScreenshotAnnotations.map((annotation, index) => (
-              <div key={`${annotation.source}-${annotation.label}-${index}`} className="audit-screenshot-callout">
-                <span className={`audit-rubric-status audit-rubric-status--${annotation.status}`}>{getAuditRubricStatusLabel(annotation.status)}</span>
-                <div>
-                  <strong>{annotation.label}</strong>
-                  <small>{annotation.source} · {annotation.evidence}</small>
-                </div>
-              </div>
-            )) : (
-              <div className="audit-screenshot-callout">
-                <span className="audit-rubric-status audit-rubric-status--pass">Pass</span>
-                <div>
-                  <strong>No visual callouts yet</strong>
-                  <small>Run an AI screenshot audit to attach page-specific visual findings.</small>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="audit-focus-list">
-          <div className="reports-list__row">
-            <div>
-              <strong>Call to action</strong>
-              <small>{auditPageResult?.ctaCount ?? 0} CTA-like elements detected on the selected page.</small>
-            </div>
-            <div>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</div>
-          </div>
-          <div className="reports-list__row">
-            <div>
-              <strong>Outdated dates</strong>
-              <small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'No stale dates flagged yet.'}</small>
-            </div>
-            <div>{formatNumber((auditStaleDates || []).length || selectedPortfolioAudit?.staleDateCount || 0)}</div>
-          </div>
-          <div className="reports-list__row">
-            <div>
-              <strong>Broken links</strong>
-              <small>{Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected in the latest audit.'}</small>
-            </div>
-            <div>{formatNumber((auditBrokenLinks || []).length || selectedPortfolioAudit?.brokenLinkCount || 0)}</div>
-          </div>
-          <div className="reports-list__row">
-            <div>
-              <strong>Value add</strong>
-              <small>{(auditRecommendations || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.recommendation || item.text || '')).filter(Boolean).join(' | ') || 'Run a fresh audit to generate recommendations for stronger leasing value.'}</small>
-            </div>
-            <div>{formatNumber((auditRecommendations || []).length || selectedPortfolioAudit?.recommendationCount || 0)}</div>
-          </div>
-          {(auditIssues || []).slice(0, 4).map((item, index) => (
-            <div key={`audit-command-issue-${index}`} className="reports-list__row">
-              <div>
-                <strong>Issue</strong>
-                <small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding'}</small>
-              </div>
-              <div>Fix</div>
-            </div>
-          ))}
-          {!latestAudit && !siteAuditLoading && (
-            <div className="reports-empty">Select a property from the table, then run an audit if this property has not been scored yet.</div>
-          )}
-        </div>
-      </div>
-    );
-
-    return (
-      <div className="audit-view">
-        <div className="audit-shell">
-          <div className="audit-hero">
-            <div>
-              <div className="reports-kicker">Internal Command Center</div>
-              <div className="reports-headline">Website audit priorities across every property.</div>
-              <div className="reports-subhead">
-                Rank sites by risk tier, confidence, audit movement, failing rubric, and issue load so web cleanup starts with the properties most likely to cost leases.
-              </div>
-            </div>
-            <div className="reports-chip-row">
-              <div className="reports-chip">All properties</div>
-              <div className="reports-chip">{portfolioAuditSummary.urgentProperties} urgent</div>
-              <div className="reports-chip">{portfolioAuditSummary.missingAudits} awaiting first audit</div>
-            </div>
-          </div>
-
-          <div className="audit-kpi-grid">
-            <div className="reports-kpi-card">
-              <div className="reports-kpi-card__label">Properties tracked</div>
-              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.totalProperties)}</div>
-              <div className="reports-kpi-card__meta">Every property visible in this internal-only queue</div>
-            </div>
-            <div className="reports-kpi-card">
-              <div className="reports-kpi-card__label">Needs urgent cleanup</div>
-              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.urgentProperties)}</div>
-              <div className="reports-kpi-card__meta">Critical risk or audit score below 70</div>
-            </div>
-            <div className="reports-kpi-card">
-              <div className="reports-kpi-card__label">Broken link risk</div>
-              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.brokenLinkProperties)}</div>
-              <div className="reports-kpi-card__meta">Properties with suspicious internal links</div>
-            </div>
-            <div className="reports-kpi-card">
-              <div className="reports-kpi-card__label">Outdated date risk</div>
-              <div className="reports-kpi-card__value">{formatNumber(portfolioAuditSummary.staleDateProperties)}</div>
-              <div className="reports-kpi-card__meta">Properties with stale or expiring date copy</div>
-            </div>
-          </div>
-
-          <div className="audit-workspace">
-            <section className="reports-panel audit-table-panel">
-              <div className="reports-panel__eyebrow">Priority Table</div>
-              <div className="reports-panel__title">Sortable audit triage</div>
-              <div className="audit-filter-bar">
-                <div className="audit-filter-tabs" aria-label="Audit risk filters">
-                  {AUDIT_TABLE_FILTERS.map((filter) => (
-                    <button
-                      key={filter.id}
-                      type="button"
-                      className={`audit-filter-tab${auditTableFilter === filter.id ? ' is-active' : ''}`}
-                      onClick={() => setAuditTableFilter(filter.id)}
-                    >
-                      {filter.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="audit-filter-selects">
-                  <label className="website-manager-field">
-                    <span className="website-manager-field__label">Portfolio</span>
-                    <select className="website-manager-field__input" value={auditPortfolioFilter} onChange={(event) => setAuditPortfolioFilter(event.target.value)}>
-                      <option value="all">All portfolios</option>
-                      {auditPortfolioOptions.map((portfolio) => <option key={portfolio} value={portfolio}>{portfolio}</option>)}
-                    </select>
-                  </label>
-                  <label className="website-manager-field">
-                    <span className="website-manager-field__label">Region</span>
-                    <select className="website-manager-field__input" value={auditRegionFilter} onChange={(event) => setAuditRegionFilter(event.target.value)}>
-                      <option value="all">All regions</option>
-                      {auditRegionOptions.map((region) => <option key={region} value={region}>{region}</option>)}
-                    </select>
-                  </label>
-                </div>
-              </div>
-              {portfolioAuditError && <div className="reports-empty">{portfolioAuditError}</div>}
-              {!portfolioAuditError && (
-                <div className="audit-table-wrap">
-                  {portfolioAuditLoading && <div className="reports-empty">Loading portfolio audit data…</div>}
-                  {!portfolioAuditLoading && (
-                    <table className="audit-table">
-                      <thead>
-                        <tr>
-                          <th>{sortButton('propertyName', 'Property')}</th>
-                          <th>{sortButton('riskTier', 'Risk')}</th>
-                          <th>{sortButton('performanceScore', 'Score')}</th>
-                          <th>{sortButton('scoreChange', 'Change')}</th>
-                          <th>{sortButton('trend', 'Trend')}</th>
-                          <th>{sortButton('topFailingRubric', 'Top failing rubric')}</th>
-                          <th>{sortButton('auditedAt', 'Last audited')}</th>
-                          <th>{sortButton('issueCount', 'Issues')}</th>
-                          <th>{sortButton('confidence', 'Confidence')}</th>
-                          <th>{sortButton('auditStatus', 'Status')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredPortfolioAuditProperties.map((property) => {
-                          const isActive = property.propertyId === selectedPortfolioAudit?.propertyId;
-                          const riskClass = getAuditRiskClass(property.riskTier);
-                          return (
-                            <tr
-                              key={property.propertyId}
-                              className={isActive ? 'is-active' : ''}
-                              onClick={() => selectAuditProperty(property.propertyId)}
-                            >
-                              <td>
-                                <button
-                                  type="button"
-                                  className="audit-table__property"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    selectAuditProperty(property.propertyId);
-                                  }}
-                                >
-                                  <strong>{property.propertyName}</strong>
-                                  <span>{[property.city, property.state].filter(Boolean).join(', ') || 'Location pending'}</span>
-                                </button>
-                              </td>
-                              <td><span className={`audit-risk-pill audit-risk-pill--${riskClass}`}>{property.riskTier || 'Unknown'}</span></td>
-                              <td><strong>{property.performanceScore != null ? Math.round(property.performanceScore) : '—'}</strong></td>
-                              <td><span className={`audit-delta audit-delta--${getDeltaTone(property.scoreChange)}`}>{formatAuditScoreChange(property.scoreChange)}</span></td>
-                              <td>
-                                <div className="audit-trend-cell">
-                                  <AuditScoreSparkline points={property.scoreHistory || property.trend?.scoreHistory || []} />
-                                  <span>
-                                    +{formatNumber(property.newIssueCount || 0)} new · {formatNumber(property.regressedIssueCount || 0)} regressed · {formatNumber(property.resolvedIssueCount || 0)} resolved
-                                  </span>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="audit-table__rubric">
-                                  <strong>{property.topFailingRubric?.label || '—'}</strong>
-                                  <span>{property.topFailingRubric?.score != null ? `${Math.round(property.topFailingRubric.score)} score` : property.hasAudit ? 'No failing rubric' : 'Audit needed'}</span>
-                                </div>
-                              </td>
-                              <td>{property.auditedAt ? getSnapshotTimestampLabel(property.auditedAt) : 'Never'}</td>
-                              <td>{formatNumber(property.issueCount || 0)}</td>
-                              <td>
-                                <div className="audit-table__confidence">
-                                  <strong>{property.confidence?.label || 'None'}</strong>
-                                  <span>{property.confidence?.score != null ? `${formatNumber(property.confidence.score)}%` : '—'}</span>
-                                </div>
-                              </td>
-                              <td>{property.auditStatus || (property.hasAudit ? 'ok' : 'not started')}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                  {!portfolioAuditLoading && filteredPortfolioAuditProperties.length === 0 && (
-                    <div className="reports-empty">No properties match the selected audit filters.</div>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <section className="reports-panel audit-review-panel">
-              <div className="reports-panel__eyebrow">Selected Property</div>
-              <div className="reports-panel__title">
-                {selectedPortfolioAudit?.propertyName || selectedPropertyLabel || 'Choose a property'}
-              </div>
-              {siteAuditNotice && <div className="reports-empty" style={{ marginBottom: '1rem' }}>{siteAuditNotice}</div>}
-              <div className="audit-detail-toolbar">
-                <label className="website-manager-field">
-                  <span className="website-manager-field__label">Audit page</span>
-                  <select className="website-manager-field__input" value={selectedHeatmapPath} onChange={(event) => setSelectedHeatmapPath(event.target.value)}>
-                    {auditPageOptions.map((page) => <option key={page.path || page.id} value={page.path || '/'}>{page.title || page.path || '/'}</option>)}
-                    {auditPageOptions.length === 0 && <option value="">No audit pages captured yet</option>}
-                  </select>
-                </label>
-                <div style={{ display: 'flex', alignItems: 'end' }}>
-                  <button type="button" className="website-manager-button website-manager-button--primary" onClick={runSiteAudit} disabled={siteAuditRunning || siteAuditLoading || !selectedPropertyId}>
-                    {siteAuditRunning ? 'Queueing…' : 'Queue AI Audit'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="reports-panel__grid reports-panel__grid--three">
-                <div className="reports-stat"><span>Audit Score</span><strong>{renderMetricValue(siteAuditLoading, auditPageResult?.score ?? latestAudit?.performance_score ?? selectedPortfolioAudit?.performanceScore ?? '—')}</strong><small>{selectedPortfolioAudit?.summary || 'Latest site audit snapshot'} · {auditModeLabel}</small></div>
-                <div className="reports-stat"><span>Risk / Confidence</span><strong>{selectedPortfolioAudit?.riskTier || '—'}</strong><small>{selectedPortfolioAudit?.confidence?.label || 'No'} confidence · {selectedPortfolioAudit?.confidence?.detail || 'Audit evidence pending'}</small></div>
-                <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
-              </div>
-
-              <div className="audit-review-tabs" role="tablist" aria-label="Audit review sections">
-                {AUDIT_REVIEW_TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={activeAuditReviewTab === tab.id}
-                    className={`audit-review-tab${activeAuditReviewTab === tab.id ? ' is-active' : ''}`}
-                    onClick={() => setAuditReviewTab(tab.id)}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="audit-review-scroll">
-                {activeAuditReviewTab === 'overview' && (
-                  <>
-                    {renderAuditTrendPanel()}
-                    {renderAuditWhyPanel()}
-                  </>
-                )}
-                {activeAuditReviewTab === 'rubric' && renderAuditRubricPanel()}
-                {activeAuditReviewTab === 'screenshot' && renderAuditScreenshotPanel()}
-                {activeAuditReviewTab === 'workflow' && renderAuditWorkflowQueue()}
-              </div>
-            </section>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   const renderReports = () => (
-    <div className="reports-view">
-      <div className="reports-shell">
-        <div className="reports-hero">
-          <div>
-            <div className="reports-kicker">Reporting Workspace</div>
-            <div className="reports-headline">{selectedPropertyLabel}</div>
-            <div className="reports-subhead">
-              A property-filtered reporting dashboard for asset managers that combines revenue efficiency, budget, funnel, paid media, analytics, and reputation into one configurable view.
-            </div>
-          </div>
-          <div className="reports-chip-row">
-            <div className="reports-chip">Entrata {selectedPropertyId}</div>
-            <div className="reports-chip">{rangeDates.start.toLocaleDateString()} - {rangeDates.end.toLocaleDateString()}</div>
-            <div className="reports-chip">{activeReportingPanels.length} live panels</div>
-            <div className={reportingSourceBadge.className}>{reportingSourceBadge.label}</div>
-            {!isClientReportMode && canEditReportingLayout && clientReportLink && (
-              <button
-                type="button"
-                className="reports-admin-toggle"
-                onClick={copyClientReportLink}
-                title={clientReportLink}
-              >
-                {copiedClientReportLink ? 'Copied Report Link' : 'Copy Client Report Link'}
-              </button>
-            )}
-            {canEditReportingLayout && (
-              <button type="button" className={`reports-admin-toggle ${reportingAdminEnabled ? 'active' : ''}`} onClick={toggleReportingAdminMode}>
-                {reportingAdminEnabled ? 'Exit Admin Layout' : 'Admin Layout Mode'}
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="reports-kpi-grid">
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Total Leads</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(loading, formatNumber(totalLeads))}</div>
-            <div className="reports-kpi-card__meta">Apps {formatNumber(totalApplications)} | Leases {formatNumber(totalLeases)}</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Applications Completed</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(loading, formatNumber(totalApplications))}</div>
-            <div className="reports-kpi-card__meta">Lead-to-completed-app {applicationConversion}% | {funnelMetricSource}</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Leases Approved</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(loading, formatNumber(totalLeases))}</div>
-            <div className="reports-kpi-card__meta">App-to-approved-lease {applicationToLeaseConversion}% | Lead-to-lease {leaseConversion}%</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Marketing Cost</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(loading || invoiceLoading, totalBlendedMarketingSpend > 0 ? formatCurrency(totalBlendedMarketingSpend) : 'No data')}</div>
-            <div className="reports-kpi-card__meta">Marketing spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'} | CPL {costPerLead !== '—' ? formatCurrency(costPerLead, 2) : '—'}</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Lead-to-Lease Conversion</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(loading, `${leaseConversion}%`)}</div>
-            <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Leases {formatNumber(totalLeases)}</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Cost Per Lead</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(loading || invoiceLoading, costPerLead !== '—' ? formatCurrency(costPerLead, 2) : 'No spend')}</div>
-            <div className="reports-kpi-card__meta">Leads {formatNumber(totalLeads)} | Marketing spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">Cost Per Lease</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(roiLoading || invoiceLoading, costPerLease !== '—' ? formatCurrency(costPerLease, 2) : 'No spend')}</div>
-            <div className="reports-kpi-card__meta">ROI {blendedRoi != null ? `${(blendedRoi * 100).toFixed(0)}%` : '—'} | Leases {formatNumber(totalLeases)}</div>
-          </div>
-          <div className="reports-kpi-card">
-            <div className="reports-kpi-card__label">ROAS</div>
-            <div className="reports-kpi-card__value">{renderMetricValue(roiLoading || invoiceLoading, blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : 'No spend')}</div>
-            <div className="reports-kpi-card__meta">Net revenue {roiTotals.netEffectiveRevenue > 0 ? formatCurrency(roiTotals.netEffectiveRevenue) : '—'} | Spend {adjustedMarketingSpend > 0 ? formatCurrency(adjustedMarketingSpend) : '—'}</div>
-          </div>
-        </div>
-
-        <div className="reports-workspace">
-          {!isClientReportMode && (
-            <aside className="reports-minimap">
-              <div className="reports-minimap__header">
-                <div>
-                  <div className="reports-minimap__eyebrow">Mini-Map</div>
-                  <div className="reports-minimap__title">Jump between reporting panels</div>
-                </div>
-              </div>
-              <div className="reports-minimap__list">
-                {reportingLayoutDraft.panelOrder.map((panelId, index) => {
-                  const panel = REPORTING_PANEL_LIBRARY.find((item) => item.id === panelId);
-                  const isHidden = reportingLayoutDraft.hiddenPanelIds.includes(panelId);
-                  if (!panel) return null;
-
-                  return (
-                    <div key={panelId} className={`reports-minimap__item ${isHidden ? 'is-hidden' : ''}`}>
-                      <button type="button" className="reports-minimap__jump" onClick={() => scrollToReportingPanel(panelId)} disabled={isHidden}>
-                        <span className="reports-minimap__index">{String(index + 1).padStart(2, '0')}</span>
-                        <span>
-                          <strong>{panel.title}</strong>
-                          <small>{reportingPanelSummaries[panelId]}</small>
-                        </span>
-                      </button>
-                      {reportingAdminEnabled && (
-                        <div className="reports-minimap__actions">
-                          <button type="button" onClick={() => moveReportingPanel(panelId, -1)} disabled={index === 0}>Up</button>
-                          <button type="button" onClick={() => moveReportingPanel(panelId, 1)} disabled={index === reportingLayoutDraft.panelOrder.length - 1}>Down</button>
-                          <button type="button" onClick={() => toggleReportingPanelVisibility(panelId)}>
-                            {isHidden ? 'Show' : 'Hide'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="reports-minimap__footer">
-                {reportingLayoutLoading && <div className="reports-layout-message">Loading saved layout…</div>}
-                {reportingLayoutError && <div className="reports-layout-message reports-layout-message--error">{reportingLayoutError}</div>}
-                {reportingLayoutNotice && <div className="reports-layout-message reports-layout-message--success">{reportingLayoutNotice}</div>}
-                {reportingAdminEnabled && (
-                  <div className="reports-admin-actions">
-                    <button type="button" onClick={resetReportingLayoutDraft} disabled={!reportingLayoutDirty || reportingLayoutSaving}>Reset</button>
-                    <button type="button" onClick={saveReportingLayoutDraft} disabled={!reportingLayoutDirty || reportingLayoutSaving}>
-                      {reportingLayoutSaving ? 'Saving…' : 'Save Layout'}
-                    </button>
-                  </div>
-                )}
-                {!reportingAdminEnabled && (
-                  <div className="reports-layout-hint">
-                    {canEditReportingLayout
-                      ? 'Admin layout mode unlocks per-property panel ordering and hide/show controls.'
-                      : 'This account can review reporting, but layout changes are reserved for roles with reporting admin access.'}
-                  </div>
-                )}
-              </div>
-            </aside>
-          )}
-
-          <div className="reports-panels">
-            {activeReportingPanels.some((panel) => panel.id === 'roi') && (
-              <section id="reporting-panel-roi" className="reports-panel">
-                <div className="reports-panel__eyebrow">Revenue Efficiency</div>
-                <div className="reports-panel__title">ROAS Metrics</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Net Effective Revenue</span><strong>{formatCurrency(roiTotals.netEffectiveRevenue)}</strong><small>{formatCurrency(roiTotals.grossLeaseValue)} gross lease value</small></div>
-                  <div className="reports-stat"><span>Blended ROAS</span><strong>{blendedRoas != null ? `${blendedRoas.toFixed(2)}x` : '—'}</strong><small>{formatCurrency(adjustedMarketingSpend)} adjusted spend</small></div>
-                  <div className="reports-stat"><span>Cost Per Lease</span><strong>{costPerLease !== '—' ? formatCurrency(costPerLease) : '—'}</strong><small>{formatCurrency(adjustedMarketingSpend)} adjusted spend</small></div>
-                </div>
-                <div className="reports-list">
-                  {roiSourceBreakdown.slice(0, 5).map((item) => (
-                    <div key={item.sourceKey} className="reports-list__row">
-                      <div>
-                        <strong>{item.sourceLabel}</strong>
-                        <small>{item.attributedLeases} leases | {formatCurrency(item.marketingSpend)} spend</small>
-                      </div>
-                      <div>{item.roas != null ? `${item.roas.toFixed(2)}x ROAS` : 'No ROAS yet'}</div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'budget') && (
-              <section id="reporting-panel-budget" className="reports-panel">
-                <div className="reports-panel__eyebrow">Spend Control</div>
-                <div className="reports-panel__title">Budget Tracking</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Total Marketing</span><strong>{formatCurrency(totalBlendedMarketingSpend)}</strong><small>{activeMarketingSpendLineCount} active marketing GL lines</small></div>
-                  <div className="reports-stat"><span>Performance Marketing</span><strong>{formatCurrency(totalPerformanceMarketingCost)}</strong><small>Paid media + PPC management</small></div>
-                  <div className="reports-stat"><span>Tracked Cost Lines</span><strong>{formatNumber(activeMarketingSpendLineCount)}</strong><small>{marketingSpendBreakdown.length - activeMarketingSpendLineCount} excluded from totals</small></div>
-                </div>
-                <div className="reports-list">
-                  {marketingSpendBreakdown.slice(0, 6).map((item) => (
-                    <div key={item.label} className={`reports-list__row marketing-spend-report-row ${item.excluded ? 'is-excluded' : ''}`}>
-                      <div>
-                        <strong>{item.label}</strong>
-                        <small>{item.excluded ? 'Excluded from selected reporting window totals' : 'Included in selected reporting window totals'}</small>
-                      </div>
-                      <div className="marketing-spend-report-row__actions">
-                        <button
-                          type="button"
-                          className={`marketing-spend-toggle ${item.excluded ? 'is-excluded' : 'is-included'}`}
-                          aria-pressed={!item.excluded}
-                          onClick={() => toggleMarketingSpendLine(item.label)}
-                          title={item.excluded ? 'Include this spend line' : 'Exclude this spend line from totals'}
-                        >
-                          <span className="marketing-spend-toggle__track">
-                            <span className="marketing-spend-toggle__knob" />
-                          </span>
-                          <span>{item.excluded ? 'Excluded' : 'Included'}</span>
-                        </button>
-                        <div>{formatCurrency(item.amount)}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {marketingSpendBreakdown.length === 0 && <div className="reports-empty">No marketing spend rows matched this date range.</div>}
-                </div>
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'entrata') && (
-              <section id="reporting-panel-entrata" className="reports-panel">
-                <div className="reports-panel__eyebrow">Leads to Leases</div>
-                <div className="reports-panel__title">Entrata Funnel</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Lead to App</span><strong>{applicationConversion}%</strong><small>{formatNumber(totalApplications)} applications</small></div>
-                  <div className="reports-stat"><span>App to Lease</span><strong>{applicationToLeaseConversion}%</strong><small>{formatNumber(totalLeases)} leases</small></div>
-                  <div className="reports-stat"><span>Lead to Lease</span><strong>{leaseConversion}%</strong><small>{attributedLeaseCount} attributed | {unattributedLeaseCount} unattributed</small></div>
-                </div>
-                <div className="reports-list">
-                  {Object.entries(leadStatusBreakdown).slice(0, 6).map(([status, count]) => (
-                    <div key={status} className="reports-list__row">
-                      <div>
-                        <strong>{status}</strong>
-                        <small>Current lead status count in scope</small>
-                      </div>
-                      <div>{formatNumber(count)}</div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'lead-deficit') && (
-              <section id="reporting-panel-lead-deficit" className="reports-panel">
-                <div className="reports-panel__eyebrow">{isConventionalLeadDeficitPanel ? 'Conventional Occupancy' : 'Student Prelease'}</div>
-                <div className="reports-panel__title">Lead Deficit</div>
-                {isConventionalLeadDeficitPanel ? (
-                  <>
-                    <div className="reports-panel__grid reports-panel__grid--three">
-                      <div className="reports-stat"><span>Red List</span><strong>{activeRedListStatus.label}</strong><small>{activeRedListStatus.detail}</small></div>
-                      <div className="reports-stat"><span>Current Occupancy</span><strong>{formatPercent(conventionalLeadDeficitMetrics.currentOccupancyRate, 1)}</strong><small>{formatNumber(conventionalLeadDeficitMetrics.currentOccupiedUnits)} of {conventionalLeadDeficitMetrics.targetUnitCount > 0 ? formatNumber(conventionalLeadDeficitMetrics.targetUnitCount) : 'target missing'} units active</small></div>
-                      <div className="reports-stat"><span>60-Day Forecast Occupancy</span><strong>{formatPercent(conventionalLeadDeficitMetrics.forecastOccupancyRate, 1)}</strong><small>Forecast date {formatReadableDate(conventionalLeadDeficitMetrics.forecastDate)}</small></div>
-                      <div className="reports-stat"><span>60-Day Exposure</span><strong>{formatPercent(conventionalLeadDeficitMetrics.forecastExposureRate, 1)}</strong><small>{conventionalLeadDeficitMetrics.availableUnitsIn60Days != null ? `${formatNumber(conventionalLeadDeficitMetrics.availableUnitsIn60Days)} units available to rent` : 'Unit target needed'}</small></div>
-                      <div className="reports-stat"><span>Week-over-Week Exposure</span><strong>{formatSignedPercent(conventionalLeadDeficitMetrics.exposureVariance, 1)}</strong><small>{conventionalLeadDeficitMetrics.exposureVariance < 0 ? 'Improving exposure' : conventionalLeadDeficitMetrics.exposureVariance > 0 ? 'Exposure increasing' : 'Flat exposure'} vs {formatReadableDate(conventionalLeadDeficitMetrics.priorWeekDate)}</small></div>
-                      <div className="reports-stat"><span>Leads Last 60 Days</span><strong>{formatNumber(conventionalLeadDeficitMetrics.totalLeads60)}</strong><small>{formatReadableDate(conventionalLeadDeficitMetrics.windowStart)} - {formatReadableDate(rangeDates.end)}</small></div>
-                      <div className="reports-stat"><span>Close Rate Last 60 Days</span><strong>{formatPercent(conventionalLeadDeficitMetrics.currentCloseRate, 1)}</strong><small>{formatNumber(conventionalLeadDeficitMetrics.totalLeases60)} approved leases</small></div>
-                      <div className="reports-stat"><span>Lead Deficit at Current Rate</span><strong>{conventionalLeadDeficitMetrics.leadDeficitAtCurrentClose != null ? formatNumber(conventionalLeadDeficitMetrics.leadDeficitAtCurrentClose) : '—'}</strong><small>{conventionalLeadDeficitMetrics.requiredLeadsAtCurrentClose != null ? `${formatNumber(conventionalLeadDeficitMetrics.requiredLeadsAtCurrentClose)} required leads before 60-day run-rate offset` : 'Close rate needed'}</small></div>
-                      <div className="reports-stat"><span>Lead Deficit at 10%</span><strong>{conventionalLeadDeficitMetrics.leadDeficitAtTenClose != null ? formatNumber(conventionalLeadDeficitMetrics.leadDeficitAtTenClose) : '—'}</strong><small>{conventionalLeadDeficitMetrics.requiredLeadsAtTenClose != null ? `${formatNumber(conventionalLeadDeficitMetrics.requiredLeadsAtTenClose)} required leads before 60-day run-rate offset` : 'Unit target needed'}</small></div>
-                      <div className="reports-stat"><span>Tours Last 60 Days</span><strong>{formatNumber(conventionalLeadDeficitMetrics.totalTours60)}</strong><small>Tour events matched from Entrata activity</small></div>
-                    </div>
-                    <div className="reports-list" style={{ marginTop: '0.9rem' }}>
-                      <div className="reports-list__row"><div><strong>Lead to tour</strong><small>Tours divided by leads in the last 60 days.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.leadToTourRate, 1)}</div></div>
-                      <div className="reports-list__row"><div><strong>Tour to completed application</strong><small>Completed applications divided by tours.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.tourToApplicationRate, 1)}</div></div>
-                      <div className="reports-list__row"><div><strong>Tour to approved lease</strong><small>Approved leases divided by tours.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.tourToLeaseRate, 1)}</div></div>
-                      <div className="reports-list__row"><div><strong>Lead to approved lease</strong><small>Standard 60-day lead-to-lease conversion.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.leadToLeaseRate, 1)}</div></div>
-                      <div className="reports-list__row"><div><strong>Lead to completed application</strong><small>Standard 60-day lead-to-application conversion.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.leadToApplicationRate, 1)}</div></div>
-                      <div className="reports-list__row"><div><strong>Completed application to approved lease</strong><small>Standard 60-day application-to-lease conversion.</small></div><div>{formatPercent(conventionalLeadDeficitMetrics.applicationToLeaseRate, 1)}</div></div>
-                      {conventionalLeadDeficitMetrics.targetUnitCount <= 0 && (
-                        <div className="reports-empty">A unit target could not be inferred from the latest availability snapshot. Add unit capacity to enable occupancy, exposure, and lead deficit calculations.</div>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="reports-panel__grid reports-panel__grid--three">
-                      <div className="reports-stat"><span>Red List</span><strong>{activeRedListStatus.label}</strong><small>{activeRedListStatus.detail}</small></div>
-                      <div className="reports-stat"><span>Current Prelease</span><strong>{studentLeadDeficitMetrics.targetLeaseCount > 0 ? formatPercent(studentLeadDeficitMetrics.currentPreleaseRate, 1) : '—'}</strong><small>{formatNumber(studentLeadDeficitMetrics.currentPreleaseCount)} of {studentLeadDeficitMetrics.targetLeaseCount > 0 ? formatNumber(studentLeadDeficitMetrics.targetLeaseCount) : 'target missing'} fall leases</small></div>
-                      <div className="reports-stat"><span>Leases Remaining</span><strong>{studentLeadDeficitMetrics.leasesRemaining != null ? formatNumber(studentLeadDeficitMetrics.leasesRemaining) : '—'}</strong><small>Fall start {formatReadableDate(studentLeadDeficitMetrics.cycle.fallStart)} | {formatNumber(studentLeadDeficitMetrics.daysToFallStart)} days left</small></div>
-                      <div className="reports-stat"><span>Projected Occupancy</span><strong>{formatPercent(studentLeadDeficitMetrics.projectedOccupancyRate, 1)}</strong><small>{formatNumber(studentLeadDeficitMetrics.projectedAdditionalLeases, 1)} projected additional leases at current pace</small></div>
-                      <div className="reports-stat"><span>Current Leads / Month</span><strong>{formatNumber(studentLeadDeficitMetrics.leadsPerMonth, 1)}</strong><small>{formatNumber(totalLeads)} leads in the selected window</small></div>
-                      <div className="reports-stat"><span>Lead Deficit</span><strong>{studentLeadDeficitMetrics.leadDeficitAtCurrentClose != null ? formatNumber(studentLeadDeficitMetrics.leadDeficitAtCurrentClose) : '—'}</strong><small>{formatPercent(studentLeadDeficitMetrics.currentCloseRate, 1)} current lead-to-lease close rate</small></div>
-                      <div className="reports-stat"><span>Lead Deficit at 30%</span><strong>{studentLeadDeficitMetrics.leadDeficitAtThirtyClose != null ? formatNumber(studentLeadDeficitMetrics.leadDeficitAtThirtyClose) : '—'}</strong><small>{studentLeadDeficitMetrics.leadNeedAtThirtyClose != null ? `${formatNumber(studentLeadDeficitMetrics.leadNeedAtThirtyClose)} required leads before run-rate offset` : 'Target capacity needed'}</small></div>
-                      <div className="reports-stat"><span>Lead Fulfillment</span><strong>{formatPercent(redListSummary?.lead_fulfillment_rate ?? studentLeadDeficitMetrics.leadFulfillmentRate, 1)}</strong><small>{(redListSummary?.leads_needed_per_month_at_thirty_close ?? studentLeadDeficitMetrics.leadsNeededPerMonthAtThirtyClose) != null ? `${formatNumber(redListSummary?.leads_needed_per_month_at_thirty_close ?? studentLeadDeficitMetrics.leadsNeededPerMonthAtThirtyClose, 1)} leads needed/month at 30%` : 'Target capacity needed'}</small></div>
-                      <div className="reports-stat"><span>Lead to App Completed</span><strong>{formatPercent(studentLeadDeficitMetrics.leadToAppRate, 1)}</strong><small>{formatNumber(totalApplications)} completed applications</small></div>
-                      <div className="reports-stat"><span>App Completed to Lease</span><strong>{formatPercent(studentLeadDeficitMetrics.appToLeaseRate, 1)}</strong><small>{formatNumber(totalLeases)} approved leases</small></div>
-                      <div className="reports-stat"><span>Extra Spend Projection</span><strong>{studentLeadDeficitMetrics.extraSpendAtCurrentClose != null ? formatCurrency(studentLeadDeficitMetrics.extraSpendAtCurrentClose) : '—'}</strong><small>CPL {studentLeadDeficitMetrics.costPerLead != null ? formatCurrency(studentLeadDeficitMetrics.costPerLead, 2) : '—'} | 30% case {studentLeadDeficitMetrics.extraSpendAtThirtyClose != null ? formatCurrency(studentLeadDeficitMetrics.extraSpendAtThirtyClose) : '—'}</small></div>
-                    </div>
-                    <div className="reports-list" style={{ marginTop: '0.9rem' }}>
-                      <div className="reports-list__row"><div><strong>Season window</strong><small>Approved fall-start leases counted from the November 10 student prelease update.</small></div><div>{formatReadableDate(studentLeadDeficitMetrics.cycle.cycleStart)} - {formatReadableDate(rangeDates.end)}</div></div>
-                      <div className="reports-list__row"><div><strong>Projected lead supply</strong><small>Current lead pace carried through fall start before calculating the gap.</small></div><div>{formatNumber(studentLeadDeficitMetrics.projectedLeadsBeforeFall)} leads</div></div>
-                      <div className="reports-list__row"><div><strong>Required leads at current close</strong><small>Leases remaining divided by the selected-window lead-to-approved-lease rate.</small></div><div>{studentLeadDeficitMetrics.leadNeedAtCurrentClose != null ? formatNumber(studentLeadDeficitMetrics.leadNeedAtCurrentClose) : '—'}</div></div>
-                      <div className="reports-list__row"><div><strong>Year-over-year prelease</strong><small>Comparable prior-year season through the same update date when historical lease records exist.</small></div><div>{studentLeadDeficitMetrics.priorPreleaseCount > 0 ? `${formatNumber(studentLeadDeficitMetrics.currentPreleaseCount)} vs ${formatNumber(studentLeadDeficitMetrics.priorPreleaseCount)} (${formatSignedPercent(studentLeadDeficitMetrics.yoyDelta, 1)})` : 'No prior year data'}</div></div>
-                      {studentLeadDeficitMetrics.targetLeaseCount <= 0 && (
-                        <div className="reports-empty">A target lease count could not be inferred from the latest availability snapshot. Add bed/unit capacity to enable deficit and occupancy calculations.</div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'heatmaps-audit') && renderHeatmapAuditPanel()}
-
-            {activeReportingPanels.some((panel) => panel.id === 'google-ads') && (
-              <section id="reporting-panel-google-ads" className="reports-panel">
-                <div className="reports-panel__eyebrow">Paid Search</div>
-                <div className="reports-panel__title">Google Ads Metrics</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Clicks</span><strong>{renderMetricValue(googleAdsLoading, formatNumber(googleAdsOverview?.clicks))}</strong><small>{googleAdsLoading ? 'Loading...' : formatNumber(googleAdsOverview?.impressions)} impressions</small></div>
-                  <div className="reports-stat"><span>Spend</span><strong>{renderMetricValue(googleAdsLoading, formatCurrency(googleAdsOverview?.cost))}</strong><small>{googleAdsLoading ? 'Loading...' : formatNumber(googleAdsOverview?.conversions, 1)} conversions</small></div>
-                  <div className="reports-stat"><span>CTR</span><strong>{renderMetricValue(googleAdsLoading, formatPercent(googleAdsOverview?.ctr, 1))}</strong><small>{googleAdsStatusMessage || 'Live paid search view'}</small></div>
-                </div>
-                <div className="reports-list">
-                  {googleAdsCampaigns.slice(0, 5).map((item) => (
-                    <div key={item.campaignName} className="reports-list__row">
-                      <div>
-                        <strong>{item.campaignName}</strong>
-                        <small>{formatCurrency(item.current.cost)} spend | {formatNumber(item.current.conversions, 1)} conversions</small>
-                      </div>
-                      <div>{formatNumber(item.current.clicks)} clicks</div>
-                    </div>
-                  ))}
-                  {googleAdsCampaigns.length === 0 && <div className="reports-empty">{googleAdsStatusMessage || 'No Google Ads campaign data is available for this property.'}</div>}
-                </div>
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'ga4') && (
-              <section id="reporting-panel-ga4" className="reports-panel">
-                <div className="reports-panel__eyebrow">Behavior + Demand</div>
-                <div className="reports-panel__title">Google Analytics Metrics</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Sessions</span><strong>{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4Sessions))}</strong><small>{ga4Loading ? 'Loading...' : ga4Blocked ? ga4StatusMessage : `${formatNumber(ga4NewUsers)} new users`}</small></div>
-                  <div className="reports-stat"><span>Tracked Events</span><strong>{renderMetricValue(ga4Loading, ga4Blocked ? 'Locked' : formatNumber(ga4EventTotal))}</strong><small>{ga4Loading ? 'Loading...' : ga4Blocked ? 'Access required' : formatPercent(ga4ApplyPage?.abandonmentRate, 1)} apply drop-off</small></div>
-                  <div className="reports-stat"><span>Top Channel</span><strong>{ga4AcquisitionChannels[0]?.channel || '—'}</strong><small>{ga4StatusMessage || 'Top GA4 acquisition channel in range'}</small></div>
-                </div>
-                <div className="reports-list">
-                  {ga4AcquisitionChannels.slice(0, 5).map((item) => (
-                    <div key={item.channel} className="reports-list__row">
-                      <div>
-                        <strong>{item.channel}</strong>
-                        <small>{formatPercent(item.current.engagementRate, 1)} engagement | {formatSignedPercent(item.delta.sessions, 1)} vs prior</small>
-                      </div>
-                      <div>{formatNumber(item.current.sessions)} sessions</div>
-                    </div>
-                  ))}
-                  {ga4AcquisitionChannels.length === 0 && <div className="reports-empty">{ga4StatusMessage || 'No GA4 acquisition data is available for this property.'}</div>}
-                </div>
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'opiniion') && (
-              <section id="reporting-panel-opiniion" className="reports-panel">
-                <div className="reports-panel__eyebrow">Resident Sentiment</div>
-                <div className="reports-panel__title">Opiniion Metrics</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Average Rating</span><strong>{renderMetricValue(reputationLoading, formatNumber(reputationAverageRating, 2))}</strong><small>{reputationLoading ? 'Loading...' : formatNumber(reputationReviewCount)} reviews</small></div>
-                  <div className="reports-stat"><span>Response Rate</span><strong>{renderMetricValue(reputationLoading, formatPercent(reputationResponseRate, 1))}</strong><small>{reputationStatusMessage || 'Latest Opiniion response coverage'}</small></div>
-                  <div className="reports-stat"><span>Sentiment Score</span><strong>{renderMetricValue(reputationLoading, formatNumber(reputationSentimentScore, 1))}</strong><small>{reputationWindow?.start_date || 'Current window'} to {reputationWindow?.end_date || 'today'}</small></div>
-                </div>
-                <div className="reports-list">
-                  {reputationSummary.slice(0, 5).map((item, index) => (
-                    <div key={`${item.label || 'summary'}-${index}`} className="reports-list__row">
-                      <div>
-                        <strong>{item.label || 'Summary point'}</strong>
-                        <small>{item.detail || 'Reputation summary insight'}</small>
-                      </div>
-                      <div>{item.value || '—'}</div>
-                    </div>
-                  ))}
-                  {reputationSummary.length === 0 && <div className="reports-empty">{reputationStatusMessage || 'No Opiniion summary metrics are available for this property.'}</div>}
-                </div>
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'local-falcon') && (
-              <section id="reporting-panel-local-falcon" className="reports-panel">
-                <div className="reports-panel__eyebrow">Local SEO</div>
-                <div className="reports-panel__title">Local Falcon Metrics</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Share of Local Voice</span><strong>{renderMetricValue(localFalconLoading, formatNumber(localFalconOverview?.avgSolv, 2))}</strong><small>{localFalconLoading ? 'Loading...' : `${formatNumber(localFalconOverview?.scanCount)} scans in range`}</small></div>
-                  <div className="reports-stat"><span>Average Rank</span><strong>{renderMetricValue(localFalconLoading, formatNumber(localFalconOverview?.avgArp, 2))}</strong><small>{localFalconLoading ? 'Loading...' : `${formatNumber(localFalconOverview?.keywordCount)} tracked keywords`}</small></div>
-                  <div className="reports-stat"><span>Top Rank Position</span><strong>{renderMetricValue(localFalconLoading, formatNumber(localFalconOverview?.avgAtrp, 2))}</strong><small>{localFalconStatusMessage || localFalconOverview?.lastRunDate || localFalconData?.Status?.message || 'Latest Local Falcon scan set'}</small></div>
-                </div>
-                <div className="reports-panel__grid reports-panel__grid--three" style={{ marginTop: '0.9rem' }}>
-                  <div className="reports-stat"><span>Found In</span><strong>{renderMetricValue(localFalconLoading, `${formatNumber(localFalconOverview?.foundInPercent, 1)}%`)}</strong><small>{formatNumber(localFalconOverview?.foundIn)} of {formatNumber(localFalconOverview?.points)} grid points</small></div>
-                  <div className="reports-stat"><span>Latest Keyword</span><strong>{renderMetricValue(localFalconLoading, shortenLabel(localFalconLatestScan?.keyword || localFalconLatestReport?.keyword || '—', 28))}</strong><small>{localFalconLatestScan?.date || localFalconOverview?.lastRunDate || 'Latest scan date pending'}</small></div>
-                  <div className="reports-stat"><span>Grid</span><strong>{renderMetricValue(localFalconLoading, `${formatNumber(localFalconGridSize)}x${formatNumber(localFalconGridSize)}`)}</strong><small>{localFalconLatestScan?.radius ? `${localFalconLatestScan.radius}${localFalconLatestScan.measurement || ''} radius` : 'Grid radius pending'}</small></div>
-                </div>
-
-                {(localFalconReportUrl || localFalconPdfUrl) && (
-                  <div className="local-falcon-report-card">
-                    <div className="local-falcon-report-card__content">
-                      <div className="reports-panel__eyebrow">Latest Scan Detail</div>
-                      <div className="reports-list">
-                        <div className="reports-list__row"><div><strong>{localFalconLatestScan?.keyword || localFalconLatestReport?.keyword || 'Latest Local Falcon scan'}</strong><small>{localFalconLatestScan?.date || localFalconOverview?.lastRunDate || 'Scan date pending'}</small></div><div>{formatNumber(localFalconOverview?.avgSolv, 2)} SoLV</div></div>
-                        <div className="reports-list__row"><div><strong>{localFalconLocation?.match?.name || localFalconLocation?.name || 'Matched Local Falcon location'}</strong><small>{localFalconLocation?.placeId || 'Place ID pending'}</small></div><div>{formatNumber(localFalconCompetitors.length)} competitors</div></div>
-                      </div>
-                      <div className="local-falcon-report-card__actions">
-                        {localFalconReportUrl && <a href={localFalconReportUrl} target="_blank" rel="noreferrer">Open Report</a>}
-                        {localFalconPdfUrl && <a href={localFalconPdfUrl} target="_blank" rel="noreferrer">PDF</a>}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {localFalconGridPoints.length > 0 && (
-                  <div className="local-falcon-section">
-                    <div className="reports-panel__eyebrow">Grid Rank Map</div>
-                    <div
-                      className={`local-falcon-grid-map ${localFalconMapImageUrl ? 'local-falcon-grid-map--with-image' : ''}`}
-                      style={localFalconMapImageUrl ? { backgroundImage: `url(${localFalconMapImageUrl})` } : undefined}
-                    >
-                      <div className="local-falcon-grid-map__shade" />
-                      <div className="local-falcon-grid" style={{ gridTemplateColumns: `repeat(${Math.max(localFalconGridSize, 1)}, minmax(0, 1fr))` }}>
-                        {localFalconGridPoints.map((point) => (
-                          <div key={point.index} className={`local-falcon-grid__cell local-falcon-grid__cell--${getLocalFalconRankTone(point.rank)}`}>
-                            <strong>{point.rankLabel}</strong>
-                            <small>{formatNumber(point.resultCount)} results</small>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="local-falcon-grid-legend">
-                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--strong" /> 1-3 strong</span>
-                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--moderate" /> 4-10 moderate</span>
-                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--weak" /> 11-20 weak</span>
-                      <span><i className="local-falcon-grid-legend__dot local-falcon-grid-legend__dot--missing" /> 20+ missing</span>
-                    </div>
-                  </div>
-                )}
-
-                {localFalconTrendChartData.length > 1 && (
-                  <div className="local-falcon-section">
-                    <div className="reports-panel__eyebrow">Ranking Trend</div>
-                    <MeasuredChart className="analytics-chart analytics-chart--compact">
-                      {({ width, height }) => (
-                        <LineChart width={width} height={height} data={localFalconTrendChartData} margin={CHART_MARGIN_STANDARD}>
-                          <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_LIGHT} vertical={false} />
-                          <XAxis dataKey="name" stroke={CHART_AXIS_LIGHT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                          <YAxis yAxisId="rank" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} reversed />
-                          <YAxis yAxisId="solv" orientation="right" stroke={CHART_AXIS_LIGHT_SOFT} tick={{ fontSize: 11, fill: CHART_COLOR_TAN }} />
-                          <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
-                          <Line yAxisId="rank" type="monotone" dataKey="arp" name="ARP" stroke={CHART_COLOR_GOLD} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_GOLD }} />
-                          <Line yAxisId="rank" type="monotone" dataKey="atrp" name="ATRP" stroke={CHART_COLOR_ORANGE} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_ORANGE }} />
-                          <Line yAxisId="solv" type="monotone" dataKey="solv" name="SoLV" stroke={CHART_COLOR_GREEN} strokeWidth={2} dot={{ r: 2, fill: CHART_COLOR_GREEN }} />
-                        </LineChart>
-                      )}
-                    </MeasuredChart>
-                  </div>
-                )}
-
-                {localFalconCompetitors.length > 0 && (
-                  <div className="local-falcon-section">
-                    <div className="reports-panel__eyebrow">Competitor Comparison</div>
-                    <div className="local-falcon-competitor-table">
-                      <div className="local-falcon-competitor-table__head">Business</div>
-                      <div className="local-falcon-competitor-table__head">ARP</div>
-                      <div className="local-falcon-competitor-table__head">ATRP</div>
-                      <div className="local-falcon-competitor-table__head">SoLV</div>
-                      <div className="local-falcon-competitor-table__head">Found</div>
-                      <div className="local-falcon-competitor-table__head">Rating</div>
-                      {localFalconCompetitors.slice(0, 12).map((item) => (
-                        <React.Fragment key={item.placeId || item.name}>
-                          <div className="local-falcon-competitor-table__cell">
-                            <strong>{item.name || 'Unnamed competitor'}{item.isTarget ? ' (Selected)' : ''}</strong>
-                            <small>{item.address || item.placeId || 'Address unavailable'}</small>
-                          </div>
-                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.arp, 2)}</div>
-                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.atrp, 2)}</div>
-                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.solv, 2)}</div>
-                          <div className="local-falcon-competitor-table__cell">{formatNumber(item.foundIn)} pts</div>
-                          <div className="local-falcon-competitor-table__cell">{item.rating != null ? `${formatNumber(item.rating, 1)} (${formatNumber(item.reviews)})` : '—'}</div>
-                        </React.Fragment>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="reports-list">
-                  {localFalconKeywords.slice(0, 5).map((item) => (
-                    <div key={item.keyword || item.lastScanReportKey} className="reports-list__row">
-                      <div>
-                        <strong>{item.keyword || 'Tracked keyword'}</strong>
-                        <small>SoLV {formatNumber(item.solv, 2)} | ARP {formatNumber(item.arp, 2)} | {formatNumber(item.scanCount)} scans</small>
-                      </div>
-                      <div>{formatNumber(item.solv, 2)} SoLV</div>
-                    </div>
-                  ))}
-                  {localFalconKeywords.length === 0 && localFalconReports.slice(0, 5).map((item) => (
-                    <div key={item.reportKey || item.keyword} className="reports-list__row">
-                      <div>
-                        <strong>{item.keyword || 'Local Falcon scan'}</strong>
-                        <small>{item.date || 'Latest scan'} | {item.gridSize || 'Grid'} {item.radius ? `${item.radius}${item.measurement || ''}` : ''}</small>
-                      </div>
-                      <div>{formatNumber(item.solv, 2)} SoLV</div>
-                    </div>
-                  ))}
-                  {localFalconKeywords.length === 0 && localFalconReports.length === 0 && <div className="reports-empty">{localFalconStatusMessage || 'No Local Falcon reports are available for this property and date range.'}</div>}
-                </div>
-                {(localFalconReportUrl || localFalconHeatmapUrl || localFalconPdfUrl || localFalconLocation?.placeId) && (
-                  <div className="reports-list" style={{ marginTop: '0.9rem' }}>
-                    <div className="reports-list__row">
-                      <div>
-                        <strong>{localFalconLocation?.match?.name || localFalconLocation?.name || 'Matched Local Falcon location'}</strong>
-                        <small>{localFalconLocation?.placeId || 'Place ID pending'}</small>
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        {localFalconReportUrl && <a href={localFalconReportUrl} target="_blank" rel="noreferrer">Open report</a>}
-                        {localFalconHeatmapUrl && <a href={localFalconHeatmapUrl} target="_blank" rel="noreferrer">Heatmap</a>}
-                        {localFalconPdfUrl && <a href={localFalconPdfUrl} target="_blank" rel="noreferrer">PDF</a>}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {activeReportingPanels.some((panel) => panel.id === 'meta-ads') && (
-              <section id="reporting-panel-meta-ads" className="reports-panel">
-                <div className="reports-panel__eyebrow">Paid Social</div>
-                <div className="reports-panel__title">Meta Ads Metrics</div>
-                <div className="reports-panel__grid reports-panel__grid--three">
-                  <div className="reports-stat"><span>Clicks</span><strong>{renderMetricValue(metaAdsLoading, formatNumber(metaAdsOverview?.clicks))}</strong><small>{metaAdsLoading ? 'Loading...' : formatCurrency(metaAdsOverview?.spend)} spend</small></div>
-                  <div className="reports-stat"><span>CTR</span><strong>{renderMetricValue(metaAdsLoading, formatPercent(metaAdsOverview?.ctr, 1))}</strong><small>{metaAdsLoading ? 'Loading...' : formatNumber(metaAdsOverview?.frequency, 2)} frequency</small></div>
-                  <div className="reports-stat"><span>Results</span><strong>{renderMetricValue(metaAdsLoading, formatNumber(metaAdsOverview?.results, 1))}</strong><small>{metaAdsStatusMessage || `${metaAdsOverview?.resultLabel || 'Results'} in range`}</small></div>
-                </div>
-                <div className="reports-list">
-                  {metaAdsCampaigns.slice(0, 5).map((item) => (
-                    <div key={item.campaignName} className="reports-list__row">
-                      <div>
-                        <strong>{item.campaignName}</strong>
-                        <small>{formatCurrency(item.current.spend)} spend | {formatPercent(item.current.ctr, 1)} CTR</small>
-                      </div>
-                      <div>{formatNumber(item.current.clicks)} clicks</div>
-                    </div>
-                  ))}
-                  {metaAdsCampaigns.length === 0 && <div className="reports-empty">{metaAdsStatusMessage || 'No Meta Ads data is available for this property.'}</div>}
-                </div>
-              </section>
-            )}
-
-            <div className="reports-pipeline-grid">
-              {renderPipelineStatusCard('YTD ROI Backfill Status', roiPipelineStatus?.roi_ytd_backfill)}
-              {renderPipelineStatusCard('Daily ROI Refresh Status', roiPipelineStatus?.roi_daily_refresh)}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <React.Suspense fallback={<div className="reports-empty">Loading reports view...</div>}>
+      <ReportsView
+        {...{
+          CHART_AXIS_LIGHT,
+          CHART_AXIS_LIGHT_SOFT,
+          CHART_COLOR_GOLD,
+          CHART_COLOR_GREEN,
+          CHART_COLOR_ORANGE,
+          CHART_COLOR_TAN,
+          CHART_GRID_LIGHT,
+          CHART_MARGIN_STANDARD,
+          CHART_TOOLTIP_ITEM_STYLE,
+          CHART_TOOLTIP_LABEL_STYLE,
+          CHART_TOOLTIP_STYLE,
+          HEATMAP_DEVICE_OPTIONS,
+          MeasuredChart,
+          MiniMetricLoader,
+          REPORTING_PANEL_LIBRARY,
+          activeRedListStatus,
+          activeReportingPanels,
+          adjustedMarketingSpend,
+          applicationConversion,
+          applicationToLeaseConversion,
+          attributedLeaseCount,
+          blendedRoas,
+          blendedRoi,
+          canEditReportingLayout,
+          clientReportLink,
+          conventionalLeadDeficitMetrics,
+          copiedClientReportLink,
+          copyClientReportLink,
+          costPerLead,
+          costPerLease,
+          formatCurrency,
+          formatDurationMs,
+          formatNumber,
+          formatPercent,
+          formatReadableDate,
+          formatSignedPercent,
+          funnelMetricSource,
+          ga4AcquisitionChannels,
+          ga4ApplyPage,
+          ga4Blocked,
+          ga4EventTotal,
+          ga4Loading,
+          ga4NewUsers,
+          ga4Sessions,
+          ga4StatusMessage,
+          getLocalFalconRankTone,
+          getSnapshotTimestampLabel,
+          googleAdsCampaigns,
+          googleAdsLoading,
+          googleAdsOverview,
+          googleAdsStatusMessage,
+          heatmapClickSignalTab,
+          heatmapLayers,
+          heatmapPagesData,
+          heatmapPageOptions,
+          heatmapPanelError,
+          heatmapSummaryData,
+          heatmapSummaryLoading,
+          heatmapTotals,
+          heatmapTrackerHealthData,
+          heatmapTrackerHealthLoading,
+          highlightedHeatmapTarget,
+          invoiceLoading,
+          isClientReportMode,
+          isConventionalLeadDeficitPanel,
+          leadStatusBreakdown,
+          leaseConversion,
+          loading,
+          localFalconCompetitors,
+          localFalconData,
+          localFalconGridPoints,
+          localFalconGridSize,
+          localFalconHeatmapUrl,
+          localFalconKeywords,
+          localFalconLatestReport,
+          localFalconLatestScan,
+          localFalconLoading,
+          localFalconLocation,
+          localFalconMapImageUrl,
+          localFalconOverview,
+          localFalconPdfUrl,
+          localFalconReportUrl,
+          localFalconReports,
+          localFalconStatusMessage,
+          marketingSpendBreakdown,
+          metaAdsCampaigns,
+          metaAdsLoading,
+          metaAdsOverview,
+          metaAdsStatusMessage,
+          moveReportingPanel,
+          rangeDates,
+          redListSummary,
+          renderMetricValue,
+          renderPipelineStatusCard,
+          reportingAdminEnabled,
+          reportingLayoutDirty,
+          reportingLayoutDraft,
+          reportingLayoutError,
+          reportingLayoutLoading,
+          reportingLayoutNotice,
+          reportingLayoutSaving,
+          reportingSourceBadge,
+          reputationAverageRating,
+          reputationLoading,
+          reputationResponseRate,
+          reputationReviewCount,
+          reputationSentimentScore,
+          reputationStatusMessage,
+          reputationSummary,
+          reputationWindow,
+          resetReportingLayoutDraft,
+          roiLoading,
+          roiPipelineStatus,
+          roiSourceBreakdown,
+          roiTotals,
+          runSiteAudit,
+          saveReportingLayoutDraft,
+          screenshotPreviewError,
+          screenshotPreviewLoading,
+          screenshotPreviewUrl,
+          scrollToReportingPanel,
+          selectedAuditPage,
+          selectedHeatmapDevice,
+          selectedHeatmapPath,
+          selectedPropertyId,
+          selectedPropertyLabel,
+          selectedScreenshot,
+          setHeatmapClickSignalTab,
+          setHighlightedHeatmapTarget,
+          setSelectedHeatmapDevice,
+          setSelectedHeatmapPath,
+          shortenLabel,
+          siteAuditSummaryData,
+          siteAuditLoading,
+          siteAuditNotice,
+          siteAuditRunning,
+          studentLeadDeficitMetrics,
+          toggleMarketingSpendLine,
+          toggleReportingAdminMode,
+          toggleReportingPanelVisibility,
+          totalApplications,
+          totalBlendedMarketingSpend,
+          totalLeads,
+          totalLeases,
+          totalPerformanceMarketingCost,
+          unattributedLeaseCount,
+          updateHeatmapLayer,
+        }}
+      />
+    </React.Suspense>
   );
 
   const renderReputation = () => (
-    <div className="reputation-view">
-      <div className="reputation-hero">
-        <div>
-          <div className="reputation-kicker">Resident Sentiment Layer</div>
-          <div className="reputation-headline">Reputation</div>
-          <div className="reputation-subhead">
-            Opiniion-backed reputation monitoring for {selectedPropertyLabel}. This view reads the live connector when available and falls back to the last cached Firestore snapshot if the refresh path is unavailable.
-          </div>
-        </div>
-        <div className="reputation-pill-row">
-          <div className="reputation-pill">{selectedPropertyLabel}</div>
-          <div className="reputation-pill">
-            {reputationWindow?.startDate && reputationWindow?.endDate
-              ? `${reputationWindow.startDate} to ${reputationWindow.endDate}`
-              : `${formatDateInputValue(rangeDates.start)} to ${formatDateInputValue(rangeDates.end)}`}
-          </div>
-          <div className="reputation-pill">
-            {reputationLoading ? 'Refreshing…' : reputationError ? 'Cached / blocked' : 'Live connector'}
-          </div>
-        </div>
-      </div>
-
-      <div className="property-info-grid">
-        <div className="property-info-card">
-          <div className="property-info-card__label">Average Rating</div>
-          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatNumber(reputationAverageRating, 2))}</div>
-          <div className="property-info-card__meta">Normalized from the Opiniion payload when a rating-like field is present.</div>
-        </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Review Count</div>
-          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatNumber(reputationReviewCount))}</div>
-          <div className="property-info-card__meta">Public review volume recognized in the latest response.</div>
-        </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Response Rate</div>
-          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatPercent(reputationResponseRate, 1))}</div>
-          <div className="property-info-card__meta">Management reply coverage if the API exposes a response-rate field.</div>
-        </div>
-        <div className="property-info-card">
-          <div className="property-info-card__label">Sentiment Score</div>
-          <div className="property-info-card__value">{renderMetricValue(reputationLoading, formatPercent(reputationSentimentScore, 1))}</div>
-          <div className="property-info-card__meta">Positive-share / satisfaction-style metric when available.</div>
-        </div>
-      </div>
-
-      <div className="property-info-panels" style={{ marginTop: '1rem' }}>
-        <div className="property-info-panel property-info-panel--wide">
-          <div className="property-info-panel__header">
-            <div>
-              <div className="property-info-panel__eyebrow">Recent Feedback</div>
-              <h3 className="property-info-panel__title">Latest reviews pulled into the dashboard</h3>
-            </div>
-          </div>
-          {reputationLoading ? (
-            <div className="property-info-panel__empty">Loading reputation feed…</div>
-          ) : reputationRecentReviews.length > 0 ? (
-            <div className="reputation-review-list">
-              {reputationRecentReviews.map((review, index) => (
-                <div key={`${review.author}-${review.publishedAt || index}`} className="reputation-review-card">
-                  <div className="reputation-review-card__top">
-                    <div>
-                      <div className="reputation-review-card__author">{review.author || 'Anonymous'}</div>
-                      <div className="reputation-review-card__meta">
-                        {[review.source, review.publishedAt].filter(Boolean).join(' | ') || 'Review item'}
-                      </div>
-                    </div>
-                    <div className="reputation-review-card__rating">
-                      {review.rating != null ? `${formatNumber(review.rating, 1)} / 5` : 'No rating'}
-                    </div>
-                  </div>
-                  <div className="reputation-review-card__body">
-                    {review.message || 'This review row did not include a text body in the normalized payload.'}
-                  </div>
-                  {review.response && (
-                    <div className="reputation-review-card__response">
-                      Management response: {review.response}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="property-info-panel__empty">
-              No recognizable review rows were returned yet. Once we confirm the exact Opiniion reputation route and each property’s location mapping, this section should populate automatically.
-            </div>
-          )}
-        </div>
-
-        <div className="property-info-panel">
-          <div className="property-info-panel__header">
-            <div>
-              <div className="property-info-panel__eyebrow">Connector Status</div>
-              <h3 className="property-info-panel__title">What the integration recognized</h3>
-            </div>
-          </div>
-          <div className="property-info-panel__stack">
-            {reputationError ? (
-              <div className="property-info-panel__empty">{reputationError}</div>
-            ) : (
-              <div className="property-info-panel__empty">
-                Live Opiniion refresh succeeded for this property and date window.
-              </div>
-            )}
-            {reputationSummary.map((line) => (
-              <div key={line} className="property-info-panel__row">
-                <div className="property-info-panel__row-label">{line}</div>
-              </div>
-            ))}
-            <div className="property-info-panel__row">
-              <div className="property-info-panel__row-label">Payload keys</div>
-              <div className="property-info-panel__row-value">
-                {reputationRawKeys.length ? reputationRawKeys.join(', ') : 'No top-level keys captured yet'}
-              </div>
-            </div>
-            <div className="property-info-panel__row">
-              <div className="property-info-panel__row-label">Snapshot path</div>
-              <div className="property-info-panel__row-value">properties/{selectedPropertyId}/analytics/reputation_dashboard</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <React.Suspense fallback={<div className="reports-empty">Loading reputation view...</div>}>
+      <ReputationView
+        {...{
+          formatDateInputValue,
+          formatNumber,
+          formatPercent,
+          rangeDates,
+          renderMetricValue,
+          reputationData,
+          reputationError,
+          reputationLoading,
+          selectedPropertyId,
+          selectedPropertyLabel,
+        }}
+      />
+    </React.Suspense>
   );
 
   const renderWebsiteManager = () => (
