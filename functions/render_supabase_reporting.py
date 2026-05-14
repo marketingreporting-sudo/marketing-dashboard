@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -61,6 +62,7 @@ _ALL_MARKETING_DESCRIPTIONS = (
     "website expense",
 )
 _RED_LIST_ACTIVITY_WINDOW_DAYS = 30
+_RED_LIST_MAX_WORKERS = 12
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -2625,18 +2627,32 @@ def get_multi_property_reporting_overview_summary(
         }
 
     if red_list_only:
-        red_list_summaries: list[dict[str, Any]] = []
+        red_list_summaries_by_index: list[dict[str, Any] | None] = [None] * len(normalized_property_ids)
         property_errors: list[dict[str, str]] = []
-        for property_id in normalized_property_ids:
-            try:
-                red_list_summaries.append(
-                    get_property_red_list_summary(property_id, end_date_value, access_token)
-                )
-            except (HTTPError, URLError, SupabaseValidationConfigError) as error:
-                property_errors.append({
-                    "property_id": property_id,
-                    "error": str(error),
-                })
+        worker_count = min(_RED_LIST_MAX_WORKERS, max(1, len(normalized_property_ids)))
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(get_property_red_list_summary, property_id, end_date_value, access_token): (index, property_id)
+                for index, property_id in enumerate(normalized_property_ids)
+            }
+            for future in as_completed(futures):
+                index, property_id = futures[future]
+                try:
+                    red_list_summaries_by_index[index] = future.result()
+                except (HTTPError, URLError, SupabaseValidationConfigError) as error:
+                    property_errors.append({
+                        "property_id": property_id,
+                        "error": str(error),
+                    })
+                except Exception as error:  # noqa: BLE001 - keep one bad property from blocking the portfolio table.
+                    property_errors.append({
+                        "property_id": property_id,
+                        "error": str(error),
+                    })
+        red_list_summaries = [summary for summary in red_list_summaries_by_index if summary]
+
+        if property_errors:
+            property_errors.sort(key=lambda item: normalized_property_ids.index(item["property_id"]) if item["property_id"] in normalized_property_ids else len(normalized_property_ids))
 
         return {
             "status": "ok" if red_list_summaries else "error",
@@ -2645,6 +2661,7 @@ def get_multi_property_reporting_overview_summary(
             "property_count": len(normalized_property_ids),
             "properties_loaded": len(red_list_summaries),
             "properties_failed": len(property_errors),
+            "worker_count": worker_count,
             "red_list_summaries": red_list_summaries,
             "red_list_properties": [summary for summary in red_list_summaries if summary.get("is_red_list")],
             "property_errors": property_errors,
