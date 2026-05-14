@@ -100,6 +100,9 @@ create index if not exists idx_user_tasks_owner_status
 create index if not exists idx_user_tasks_property
   on public.user_tasks (property_id);
 
+create index if not exists idx_user_tasks_property_updated
+  on public.user_tasks (property_id, updated_at desc);
+
 drop trigger if exists set_user_tasks_updated_at on public.user_tasks;
 create trigger set_user_tasks_updated_at
 before update on public.user_tasks
@@ -293,6 +296,30 @@ as $$
           and public.role_permissions.permission = target_permission
       )
     );
+$$;
+
+create or replace function public.user_property_permissions_for_ids(target_property_ids text[], target_permissions text[])
+returns table(property_id text, permissions text[])
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with requested_properties as (
+    select distinct unnest(coalesce(target_property_ids, array[]::text[])) as property_id
+  ),
+  requested_permissions as (
+    select distinct unnest(coalesce(target_permissions, array[]::text[])) as permission
+  ),
+  allowed as (
+    select requested_properties.property_id, requested_permissions.permission
+    from requested_properties
+    cross join requested_permissions
+    where public.user_has_property_permission(requested_properties.property_id, requested_permissions.permission)
+  )
+  select allowed.property_id, array_agg(allowed.permission order by allowed.permission) as permissions
+  from allowed
+  group by allowed.property_id;
 $$;
 
 alter table public.app_roles enable row level security;

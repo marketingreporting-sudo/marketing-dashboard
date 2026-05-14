@@ -62,6 +62,51 @@ def user_has_property_permission(access_token: str, property_id: str, permission
     return bool(result)
 
 
+def user_property_permissions(
+    access_token: str,
+    property_ids: list[str],
+    permissions: tuple[str, ...],
+) -> dict[str, set[str]]:
+    normalized_property_ids = [str(property_id) for property_id in property_ids if str(property_id).strip()]
+    normalized_permissions = [str(permission) for permission in permissions if str(permission).strip()]
+    if not normalized_property_ids or not normalized_permissions:
+        return {}
+
+    try:
+        rows = _post_rpc(
+            "user_property_permissions_for_ids",
+            {
+                "target_property_ids": normalized_property_ids,
+                "target_permissions": normalized_permissions,
+            },
+            headers=_supabase_anon_headers(access_token),
+        )
+    except (HTTPError, URLError, SupabaseValidationConfigError):
+        rows = None
+
+    if isinstance(rows, list):
+        permissions_by_property: dict[str, set[str]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            property_id = str(row.get("property_id") or "")
+            row_permissions = row.get("permissions") or []
+            if property_id:
+                permissions_by_property[property_id] = {str(permission) for permission in row_permissions}
+        return permissions_by_property
+
+    permissions_by_property: dict[str, set[str]] = {}
+    for property_id in normalized_property_ids:
+        allowed = {
+            permission
+            for permission in normalized_permissions
+            if user_has_property_permission(access_token, property_id, permission)
+        }
+        if allowed:
+            permissions_by_property[property_id] = allowed
+    return permissions_by_property
+
+
 def user_has_platform_permission(access_token: str, permission: str) -> bool:
     result = _post_rpc(
         "user_has_platform_permission",

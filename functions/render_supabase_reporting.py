@@ -1279,6 +1279,22 @@ def _fetch_call_prep_pages(
     return rows
 
 
+def _fetch_call_prep_table_set(
+    table_queries: dict[str, tuple[str, list[tuple[str, str]]]],
+    *,
+    headers: dict[str, str],
+) -> dict[str, list[dict[str, Any]]]:
+    rows_by_key: dict[str, list[dict[str, Any]]] = {key: [] for key in table_queries}
+    with ThreadPoolExecutor(max_workers=min(len(table_queries), 4) or 1) as executor:
+        futures = {
+            executor.submit(_fetch_call_prep_pages, table_name, query_params, headers=headers): key
+            for key, (table_name, query_params) in table_queries.items()
+        }
+        for future in as_completed(futures):
+            rows_by_key[futures[future]] = future.result()
+    return rows_by_key
+
+
 def _increment_call_prep_row_count(property_row_counts: dict[str, dict[str, int]], row: dict[str, Any], key: str) -> None:
     property_id = str(row.get("property_id") or "")
     if not property_id:
@@ -1336,59 +1352,64 @@ def get_multi_property_call_prep_summary(
 
     property_filter = _postgrest_in_filter(normalized_property_ids)
     try:
-        leads_rows = _fetch_call_prep_pages(
-            "property_leads",
-            [
-                ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
-                ("property_id", property_filter),
-                ("activity_date", f"gte.{start_date.isoformat()}"),
-                ("activity_date", f"lte.{end_date.isoformat()}"),
-                ("order", "property_id.asc"),
-                ("order", "activity_date.asc"),
-            ],
-            headers=headers,
-        )
-        events_rows = _fetch_call_prep_pages(
-            "property_events",
-            [
-                ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
-                ("property_id", property_filter),
-                ("activity_date", f"gte.{start_date.isoformat()}"),
-                ("activity_date", f"lte.{end_date.isoformat()}"),
-                ("order", "property_id.asc"),
-                ("order", "activity_date.asc"),
-            ],
-            headers=headers,
-        )
-        lease_rows = _fetch_call_prep_pages(
-            "property_leases",
-            [
-                (
-                    "select",
-                    "id,property_id,reporting_window_start,reporting_window_end,attribution_status,"
-                    "attribution_event_date,lease_start_date,lease_end_date,move_in_date,move_out_date,"
-                    "gross_lease_value,net_effective_rent,net_effective_revenue,concession_total,raw_data,firestore_path",
+        rows_by_key = _fetch_call_prep_table_set(
+            {
+                "leads": (
+                    "property_leads",
+                    [
+                        ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                        ("property_id", property_filter),
+                        ("activity_date", f"gte.{start_date.isoformat()}"),
+                        ("activity_date", f"lte.{end_date.isoformat()}"),
+                        ("order", "property_id.asc"),
+                        ("order", "activity_date.asc"),
+                    ],
                 ),
-                ("property_id", property_filter),
-                ("reporting_window_end", f"gte.{start_date.isoformat()}"),
-                ("reporting_window_start", f"lte.{end_date.isoformat()}"),
-                ("order", "property_id.asc"),
-                ("order", "attribution_event_date.asc"),
-            ],
+                "events": (
+                    "property_events",
+                    [
+                        ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                        ("property_id", property_filter),
+                        ("activity_date", f"gte.{start_date.isoformat()}"),
+                        ("activity_date", f"lte.{end_date.isoformat()}"),
+                        ("order", "property_id.asc"),
+                        ("order", "activity_date.asc"),
+                    ],
+                ),
+                "leases": (
+                    "property_leases",
+                    [
+                        (
+                            "select",
+                            "id,property_id,reporting_window_start,reporting_window_end,attribution_status,"
+                            "attribution_event_date,lease_start_date,lease_end_date,move_in_date,move_out_date,"
+                            "gross_lease_value,net_effective_rent,net_effective_revenue,concession_total,raw_data,firestore_path",
+                        ),
+                        ("property_id", property_filter),
+                        ("reporting_window_end", f"gte.{start_date.isoformat()}"),
+                        ("reporting_window_start", f"lte.{end_date.isoformat()}"),
+                        ("order", "property_id.asc"),
+                        ("order", "attribution_event_date.asc"),
+                    ],
+                ),
+                "invoices": (
+                    "property_invoices",
+                    [
+                        ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                        ("property_id", property_filter),
+                        ("activity_date", f"gte.{invoice_start.isoformat()}"),
+                        ("activity_date", f"lte.{invoice_end.isoformat()}"),
+                        ("order", "property_id.asc"),
+                        ("order", "activity_date.asc"),
+                    ],
+                ),
+            },
             headers=headers,
         )
-        invoices_rows = _fetch_call_prep_pages(
-            "property_invoices",
-            [
-                ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
-                ("property_id", property_filter),
-                ("activity_date", f"gte.{invoice_start.isoformat()}"),
-                ("activity_date", f"lte.{invoice_end.isoformat()}"),
-                ("order", "property_id.asc"),
-                ("order", "activity_date.asc"),
-            ],
-            headers=headers,
-        )
+        leads_rows = rows_by_key["leads"]
+        events_rows = rows_by_key["events"]
+        lease_rows = rows_by_key["leases"]
+        invoices_rows = rows_by_key["invoices"]
     except (HTTPError, URLError, SupabaseValidationConfigError) as error:
         property_errors = [{"property_id": property_id, "error": str(error)} for property_id in normalized_property_ids]
         loaded_property_ids = []
@@ -2007,8 +2028,11 @@ def _derive_ga4_call_prep_window(
 def _build_cached_call_prep_analytics_by_period(property_id: str, end_date: date) -> dict[int, dict[str, Any]]:
     from render_supabase_analytics import get_cached_analytics_summary
 
-    google_ads = get_cached_analytics_summary(property_id, "google_ads")
-    ga4 = get_cached_analytics_summary(property_id, "ga4")
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        google_ads_future = executor.submit(get_cached_analytics_summary, property_id, "google_ads")
+        ga4_future = executor.submit(get_cached_analytics_summary, property_id, "ga4")
+        google_ads = google_ads_future.result()
+        ga4 = ga4_future.result()
     google_ads_payload = google_ads if google_ads.get("status") != "error" else None
     ga4_payload = ga4 if ga4.get("status") != "error" else None
 
@@ -2042,18 +2066,17 @@ def get_property_call_prep_summary(
         start_date, end_date = end_date, start_date
 
     headers = _supabase_anon_headers(access_token)
-    property_payload = get_multi_property_call_prep_summary([selected_property_id], start_date.isoformat(), end_date.isoformat(), access_token)
+    portfolio_ids = [str(candidate) for candidate in (property_ids or []) if str(candidate) and str(candidate) != selected_property_id]
+    combined_property_ids = [selected_property_id, *portfolio_ids]
+    property_payload = get_multi_property_call_prep_summary(
+        combined_property_ids,
+        start_date.isoformat(),
+        end_date.isoformat(),
+        access_token,
+    )
     if property_payload.get("status") == "error":
         return property_payload
-
-    portfolio_ids = [str(candidate) for candidate in (property_ids or []) if str(candidate) and str(candidate) != selected_property_id]
-    portfolio_payload = (
-        get_multi_property_call_prep_summary(portfolio_ids, start_date.isoformat(), end_date.isoformat(), access_token)
-        if portfolio_ids
-        else None
-    )
-    if portfolio_payload and portfolio_payload.get("status") == "error":
-        portfolio_payload = None
+    portfolio_payload = property_payload if portfolio_ids else None
 
     analytics_by_period = _build_cached_call_prep_analytics_by_period(selected_property_id, end_date)
     periods = []
@@ -2077,8 +2100,11 @@ def get_property_call_prep_summary(
 
     sixty_start, sixty_end = _call_prep_range(end_date, 60)
     thirty_start, thirty_end = _call_prep_range(end_date, 30)
-    budget = _fetch_call_prep_budget(selected_property_id, end_date, headers)
-    recent_tasks = _fetch_call_prep_tasks(selected_property_id, sixty_start, sixty_end, headers)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        budget_future = executor.submit(_fetch_call_prep_budget, selected_property_id, end_date, headers)
+        recent_tasks_future = executor.submit(_fetch_call_prep_tasks, selected_property_id, sixty_start, sixty_end, headers)
+        budget = budget_future.result()
+        recent_tasks = recent_tasks_future.result()
     marketing_invoices = _marketing_invoices(property_payload.get("invoice_items", []), selected_property_id)
     actual_last_30 = sum(_allocated_invoice_amount(invoice, thirty_start, thirty_end) for invoice in marketing_invoices)
     performance_last_30 = sum(

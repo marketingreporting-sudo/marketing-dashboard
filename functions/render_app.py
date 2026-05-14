@@ -13,6 +13,7 @@ from render_auth import (
     require_authenticated_user,
     user_has_platform_permission,
     user_has_property_permission,
+    user_property_permissions,
 )
 from render_adapter_registry import get_cron_job_specs, get_http_endpoint_specs
 from render_supabase_analytics import get_cached_analytics_summary
@@ -1631,14 +1632,16 @@ def create_app() -> Flask:
 
         try:
             access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            permissions_by_property = user_property_permissions(
+                access_token,
+                [str(candidate) for candidate in property_ids if str(candidate) != str(property_id)],
+                ("analytics.view", "reports.view"),
+            )
             allowed_property_ids = [
                 str(candidate)
                 for candidate in property_ids
                 if str(candidate) != str(property_id)
-                and any(
-                    user_has_property_permission(access_token, str(candidate), permission)
-                    for permission in ("analytics.view", "reports.view")
-                )
+                and permissions_by_property.get(str(candidate))
             ]
             payload = get_property_call_prep_summary(
                 str(property_id),

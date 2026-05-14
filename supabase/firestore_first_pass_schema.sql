@@ -262,6 +262,9 @@ create table if not exists public.property_leases (
 create index if not exists idx_property_leases_property_event_date
   on public.property_leases (property_id, attribution_event_date desc);
 
+create index if not exists idx_property_leases_property_reporting_window
+  on public.property_leases (property_id, reporting_window_end, reporting_window_start);
+
 create index if not exists idx_property_leases_attribution_status
   on public.property_leases (attribution_status);
 
