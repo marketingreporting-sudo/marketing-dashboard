@@ -284,7 +284,7 @@ const NAV_ITEMS = [
 ];
 const ADMIN_SECTIONS = [
   { id: 'users', label: 'Users' },
-  { id: 'ticket-routing', label: 'Ticket Routing' },
+  { id: 'ticket-routing', label: 'Assignments' },
   { id: 'website-schema', label: 'Website Schema' },
   { id: 'audit-log', label: 'Audit Log' },
 ];
@@ -505,6 +505,21 @@ const toClientReportSlug = (value) => (
 const getPropertyReportSlug = (property) => (
   toClientReportSlug(property?.orgSlug || property?.name || property?.propertyId)
 );
+
+const normalizeAdminAssignmentDraft = (assignment = {}) => ({
+  defaultAssigneeUserId: assignment.defaultAssigneeUserId || assignment.default_assignee_user_id || '',
+  regionalUserId: assignment.regionalUserId || assignment.regional_user_id || '',
+  clientGroupPortfolio: assignment.clientGroupPortfolio || assignment.client_group_portfolio || '',
+});
+
+const formatPortfolioLabel = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return 'Unassigned';
+  return text
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+};
 
 const propertyMatchesReportSlug = (property, slug) => {
   const normalizedSlug = toClientReportSlug(slug);
@@ -2129,9 +2144,23 @@ const DashboardApp = ({
     [adminUsers]
   );
   const adminTicketAssignmentCount = useMemo(
-    () => Object.values(adminTicketAssignmentDrafts).filter(Boolean).length,
+    () => Object.values(adminTicketAssignmentDrafts).filter((assignment) => {
+      const draft = normalizeAdminAssignmentDraft(assignment);
+      return Boolean(draft.defaultAssigneeUserId || draft.regionalUserId || draft.clientGroupPortfolio);
+    }).length,
     [adminTicketAssignmentDrafts]
   );
+  const adminPortfolioOptions = useMemo(() => {
+    const values = new Set(['student', 'multifamily']);
+    adminProperties.forEach((property) => {
+      if (property.portfolio) values.add(property.portfolio);
+    });
+    Object.values(adminTicketAssignmentDrafts).forEach((assignment) => {
+      const draft = normalizeAdminAssignmentDraft(assignment);
+      if (draft.clientGroupPortfolio) values.add(draft.clientGroupPortfolio);
+    });
+    return Array.from(values).sort((a, b) => formatPortfolioLabel(a).localeCompare(formatPortfolioLabel(b)));
+  }, [adminProperties, adminTicketAssignmentDrafts]);
   const filteredAdminUsers = useMemo(
     () => adminUsers.filter((user) => matchesSearch([
       user.fullName,
@@ -2161,20 +2190,26 @@ const DashboardApp = ({
   );
   const filteredAdminRoutingProperties = useMemo(
     () => adminProperties.filter((property) => {
-      const assigneeId = adminTicketAssignmentDrafts[property.id] || '';
+      const assignmentDraft = normalizeAdminAssignmentDraft(adminTicketAssignmentDrafts[property.id]);
+      const assigneeId = assignmentDraft.defaultAssigneeUserId;
+      const regionalUser = adminUserById.get(assignmentDraft.regionalUserId);
       const assignee = adminUserById.get(assigneeId);
       const assignmentMatchesFilter = adminRoutingFilter === 'assigned'
-        ? Boolean(assigneeId)
+        ? Boolean(assigneeId || assignmentDraft.regionalUserId || assignmentDraft.clientGroupPortfolio)
         : adminRoutingFilter === 'unassigned'
-          ? !assigneeId
+          ? !(assigneeId || assignmentDraft.regionalUserId || assignmentDraft.clientGroupPortfolio)
           : true;
       return assignmentMatchesFilter && matchesSearch([
         property.name,
         property.city,
         property.state,
         property.id,
+        property.portfolio,
         assignee?.fullName,
         assignee?.email,
+        regionalUser?.fullName,
+        regionalUser?.email,
+        assignmentDraft.clientGroupPortfolio,
       ], adminRoutingSearch);
     }),
     [adminProperties, adminRoutingFilter, adminRoutingSearch, adminTicketAssignmentDrafts, adminUserById]
@@ -2382,7 +2417,7 @@ const DashboardApp = ({
       const auditLogs = Array.isArray(payload.auditLogs) ? payload.auditLogs : [];
       const assignmentDrafts = Object.fromEntries(
         (Array.isArray(assignmentsPayload.assignments) ? assignmentsPayload.assignments : [])
-          .map((assignment) => [assignment.propertyId, assignment.defaultAssigneeUserId || ''])
+          .map((assignment) => [assignment.propertyId, normalizeAdminAssignmentDraft(assignment)])
       );
       const nextSelectedUserId = users.some((user) => user.id === adminSelectedUserId)
         ? adminSelectedUserId
@@ -7650,10 +7685,28 @@ const DashboardApp = ({
     ))
   );
 
-  const updateAdminTicketAssignment = (propertyId, userId) => {
+  const getAdminRegionalUsersForProperty = (propertyId) => (
+    adminUsers.filter((user) => (
+      user.isActive !== false
+      && (
+        user.globalRole === 'admin'
+        || (Array.isArray(user.memberships) && user.memberships.some((membership) => (
+          membership.isActive && membership.propertyId === propertyId && membership.role === 'regional_manager'
+        )))
+      )
+    ))
+  );
+
+  const updateAdminTicketAssignmentField = (propertyId, field, value) => {
     setAdminAccessError(null);
     setAdminAccessNotice(null);
-    setAdminTicketAssignmentDrafts((current) => ({ ...current, [propertyId]: userId }));
+    setAdminTicketAssignmentDrafts((current) => ({
+      ...current,
+      [propertyId]: {
+        ...normalizeAdminAssignmentDraft(current[propertyId]),
+        [field]: value,
+      },
+    }));
   };
 
   const saveAdminTicketAssignments = async () => {
@@ -7668,7 +7721,7 @@ const DashboardApp = ({
         body: JSON.stringify({
           assignments: adminProperties.map((property) => ({
             propertyId: property.id,
-            defaultAssigneeUserId: adminTicketAssignmentDrafts[property.id] || '',
+            ...normalizeAdminAssignmentDraft(adminTicketAssignmentDrafts[property.id]),
           })),
         }),
       });
@@ -7679,7 +7732,7 @@ const DashboardApp = ({
 
       const assignmentDrafts = Object.fromEntries(
         (Array.isArray(payload.assignments) ? payload.assignments : [])
-          .map((assignment) => [assignment.propertyId, assignment.defaultAssigneeUserId || ''])
+          .map((assignment) => [assignment.propertyId, normalizeAdminAssignmentDraft(assignment)])
       );
       setAdminTicketAssignmentDrafts(assignmentDrafts);
       setAdminAccessNotice('Ticket assignment mapping updated.');
@@ -8336,7 +8389,7 @@ const DashboardApp = ({
             <strong>{adminProperties.length}</strong>
           </div>
           <div className="admin-access-stat">
-            <span>Ticket Routes</span>
+            <span>Assignments</span>
             <strong>{adminTicketAssignmentCount}</strong>
           </div>
         </div>
@@ -8401,22 +8454,22 @@ const DashboardApp = ({
       <div className="admin-access-panel admin-ticket-routing-panel">
         <div className="admin-access-section-head">
           <div>
-            <div className="admin-access-panel__eyebrow">Ticket Routing</div>
-            <h3 className="admin-access-panel__title">Default assignees by property</h3>
+            <div className="admin-access-panel__eyebrow">Assignments</div>
+            <h3 className="admin-access-panel__title">Property assignment defaults</h3>
           </div>
           <span>{adminAccessLoading ? 'Loading…' : `${formatNumber(adminTicketAssignmentCount)} mapped`}</span>
         </div>
         <div className="admin-toolbar">
           <label className="admin-search-field">
-            <span>Search routing</span>
+            <span>Search assignments</span>
             <input
               type="search"
               value={adminRoutingSearch}
               onChange={(event) => setAdminRoutingSearch(event.target.value)}
-              placeholder="Property or assignee"
+              placeholder="Property, assignee, regional, or portfolio"
             />
           </label>
-          <div className="admin-segmented-control" aria-label="Ticket routing filter">
+          <div className="admin-segmented-control" aria-label="Assignment filter">
             {[
               ['all', 'All'],
               ['unassigned', 'Unassigned'],
@@ -8436,8 +8489,13 @@ const DashboardApp = ({
         <div className="admin-ticket-routing-list">
           {filteredAdminRoutingProperties.map((property) => {
             const assignableUsers = getAdminAssignableUsersForProperty(property.id);
-            const selectedAssigneeId = adminTicketAssignmentDrafts[property.id] || '';
+            const regionalUsers = getAdminRegionalUsersForProperty(property.id);
+            const assignmentDraft = normalizeAdminAssignmentDraft(adminTicketAssignmentDrafts[property.id]);
+            const selectedAssigneeId = assignmentDraft.defaultAssigneeUserId;
+            const selectedRegionalId = assignmentDraft.regionalUserId;
+            const selectedPortfolio = assignmentDraft.clientGroupPortfolio;
             const selectedAssignee = adminUserById.get(selectedAssigneeId);
+            const selectedRegional = adminUserById.get(selectedRegionalId);
             return (
               <div className="admin-ticket-routing-row" key={property.id}>
                 <div className="admin-ticket-routing-row__property">
@@ -8445,30 +8503,56 @@ const DashboardApp = ({
                   <span>{property.city || property.state ? `${property.city || ''}${property.city && property.state ? ', ' : ''}${property.state || ''}` : property.id}</span>
                 </div>
                 <label className="admin-access-field admin-ticket-routing-row__select">
-                  <span>Default assignee</span>
+                  <span>Default marketing assignee</span>
                   <select
                     value={selectedAssigneeId}
-                    onChange={(event) => updateAdminTicketAssignment(property.id, event.target.value)}
+                    onChange={(event) => updateAdminTicketAssignmentField(property.id, 'defaultAssigneeUserId', event.target.value)}
                   >
-                    <option value="">No default assignee</option>
+                    <option value="">No marketing assignee</option>
                     {assignableUsers.map((user) => (
                       <option key={user.id} value={user.id}>{user.fullName || user.email}</option>
                     ))}
                   </select>
                 </label>
+                <label className="admin-access-field admin-ticket-routing-row__select">
+                  <span>Regional</span>
+                  <select
+                    value={selectedRegionalId}
+                    onChange={(event) => updateAdminTicketAssignmentField(property.id, 'regionalUserId', event.target.value)}
+                  >
+                    <option value="">No regional selected</option>
+                    {regionalUsers.map((user) => (
+                      <option key={user.id} value={user.id}>{user.fullName || user.email}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-access-field admin-ticket-routing-row__select">
+                  <span>Client group / portfolio</span>
+                  <select
+                    value={selectedPortfolio}
+                    onChange={(event) => updateAdminTicketAssignmentField(property.id, 'clientGroupPortfolio', event.target.value)}
+                  >
+                    <option value="">No portfolio selected</option>
+                    {adminPortfolioOptions.map((portfolio) => (
+                      <option key={portfolio} value={portfolio}>{formatPortfolioLabel(portfolio)}</option>
+                    ))}
+                  </select>
+                </label>
                 <div className="admin-ticket-routing-row__meta">
-                  {selectedAssignee ? selectedAssignee.email : 'Falls back to triage user for inbound email'}
+                  {selectedAssignee ? selectedAssignee.email : 'Marketing falls back to triage user'}
+                  {selectedRegional && <span>Regional: {selectedRegional.email}</span>}
+                  {selectedPortfolio && <span>Portfolio: {formatPortfolioLabel(selectedPortfolio)}</span>}
                 </div>
               </div>
             );
           })}
           {filteredAdminRoutingProperties.length === 0 && (
-            <div className="admin-access-empty">No properties match the current routing filters.</div>
+            <div className="admin-access-empty">No properties match the current assignment filters.</div>
           )}
         </div>
         <div className="admin-access-actions">
           <button type="button" onClick={saveAdminTicketAssignments} disabled={adminAccessLoading}>
-            {adminAccessLoading ? 'Saving…' : 'Save Ticket Routing'}
+            {adminAccessLoading ? 'Saving…' : 'Save Assignments'}
           </button>
         </div>
       </div>

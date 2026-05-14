@@ -87,7 +87,7 @@ def _fetch_properties() -> list[dict[str, Any]]:
     rows = _db_request(
         "properties",
         query_params=[
-            ("select", "id,name,city,state"),
+            ("select", "id,name,city,state,portfolio"),
             ("order", "name.asc"),
         ],
     )

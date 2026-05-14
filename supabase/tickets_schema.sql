@@ -25,15 +25,25 @@ alter table public.user_tasks
 create table if not exists public.property_ticket_assignments (
   id uuid primary key default gen_random_uuid(),
   property_id text not null references public.properties(id) on delete cascade,
-  default_assignee_user_id uuid not null references auth.users(id) on delete cascade,
+  default_assignee_user_id uuid references auth.users(id) on delete set null,
+  regional_user_id uuid references auth.users(id) on delete set null,
+  client_group_portfolio text,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (property_id)
 );
 
+alter table public.property_ticket_assignments
+  alter column default_assignee_user_id drop not null,
+  add column if not exists regional_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists client_group_portfolio text;
+
 create index if not exists idx_property_ticket_assignments_assignee
   on public.property_ticket_assignments (default_assignee_user_id, is_active);
+
+create index if not exists idx_property_ticket_assignments_regional
+  on public.property_ticket_assignments (regional_user_id, is_active);
 
 drop trigger if exists set_property_ticket_assignments_updated_at on public.property_ticket_assignments;
 create trigger set_property_ticket_assignments_updated_at

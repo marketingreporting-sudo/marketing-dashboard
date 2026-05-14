@@ -188,7 +188,7 @@ def _fetch_properties() -> list[dict[str, Any]]:
         _db_request(
             "properties",
             query_params=[
-                ("select", "id,name,city,state"),
+                ("select", "id,name,city,state,portfolio"),
                 ("order", "name.asc"),
             ],
         )
@@ -214,7 +214,7 @@ def _fetch_ticket_assignments() -> list[dict[str, Any]]:
         _db_request(
             "property_ticket_assignments",
             query_params=[
-                ("select", "id,property_id,default_assignee_user_id,is_active,created_at,updated_at"),
+                ("select", "id,property_id,default_assignee_user_id,regional_user_id,client_group_portfolio,is_active,created_at,updated_at"),
                 ("is_active", "eq.true"),
                 ("order", "property_id.asc"),
             ],
@@ -531,6 +531,8 @@ def list_ticket_options_summary(access_token: str) -> dict[str, Any]:
                 "id": assignment.get("id") or "",
                 "propertyId": str(assignment.get("property_id") or ""),
                 "defaultAssigneeUserId": str(assignment.get("default_assignee_user_id") or ""),
+                "regionalUserId": str(assignment.get("regional_user_id") or ""),
+                "clientGroupPortfolio": assignment.get("client_group_portfolio") or "",
             }
             for assignment in assignments
             if str(assignment.get("property_id") or "") in accessible_property_ids
@@ -547,6 +549,8 @@ def list_ticket_assignment_admin_summary() -> dict[str, Any]:
                 "id": assignment.get("id") or "",
                 "propertyId": str(assignment.get("property_id") or ""),
                 "defaultAssigneeUserId": str(assignment.get("default_assignee_user_id") or assignment.get("assigned_user_id") or ""),
+                "regionalUserId": str(assignment.get("regional_user_id") or ""),
+                "clientGroupPortfolio": assignment.get("client_group_portfolio") or "",
                 "isActive": bool(assignment.get("is_active", True)),
                 "createdAt": assignment.get("created_at") or "",
                 "updatedAt": assignment.get("updated_at") or "",
@@ -579,12 +583,16 @@ def save_ticket_assignment_admin_summary(payload: dict[str, Any]) -> dict[str, A
             or item.get("assigned_user_id")
             or ""
         ).strip()
+        regional_user_id = str(item.get("regionalUserId") or item.get("regional_user_id") or "").strip()
+        client_group_portfolio = str(
+            item.get("clientGroupPortfolio") or item.get("client_group_portfolio") or ""
+        ).strip()[:120]
         if not property_id:
             continue
         if property_id not in properties_by_id:
             raise ValueError(f"Property {property_id} was not found.")
 
-        if not assignee_user_id:
+        if not (assignee_user_id or regional_user_id or client_group_portfolio):
             _db_request(
                 "property_ticket_assignments",
                 method="DELETE",
@@ -594,9 +602,13 @@ def save_ticket_assignment_admin_summary(payload: dict[str, Any]) -> dict[str, A
             cleared_count += 1
             continue
 
-        if not _profile_can_access_property(profiles_by_id.get(assignee_user_id, {}), property_id, memberships):
+        if assignee_user_id and not _profile_can_access_property(profiles_by_id.get(assignee_user_id, {}), property_id, memberships):
             property_name = properties_by_id.get(property_id, {}).get("name") or property_id
-            raise ValueError(f"Default assignee must be active and have access to {property_name}.")
+            raise ValueError(f"Default marketing assignee must be active and have access to {property_name}.")
+
+        if regional_user_id and not _profile_can_access_property(profiles_by_id.get(regional_user_id, {}), property_id, memberships):
+            property_name = properties_by_id.get(property_id, {}).get("name") or property_id
+            raise ValueError(f"Regional must be active and have access to {property_name}.")
 
         _db_request(
             "property_ticket_assignments",
@@ -604,7 +616,9 @@ def save_ticket_assignment_admin_summary(payload: dict[str, Any]) -> dict[str, A
             query_params=[("on_conflict", "property_id")],
             payload={
                 "property_id": property_id,
-                "default_assignee_user_id": assignee_user_id,
+                "default_assignee_user_id": assignee_user_id or None,
+                "regional_user_id": regional_user_id or None,
+                "client_group_portfolio": client_group_portfolio or None,
                 "is_active": True,
             },
             prefer="resolution=merge-duplicates,return=minimal",

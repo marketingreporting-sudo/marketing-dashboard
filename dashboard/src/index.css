@@ -9103,7 +9103,7 @@ th {
 
 .admin-ticket-routing-row {
   display: grid;
-  grid-template-columns: minmax(14rem, 0.8fr) minmax(16rem, 1fr) minmax(12rem, 0.8fr);
+  grid-template-columns: minmax(13rem, 0.95fr) repeat(3, minmax(12rem, 1fr)) minmax(12rem, 0.8fr);
   align-items: end;
   gap: 0.9rem;
   padding: 0.9rem;
@@ -9133,6 +9133,8 @@ th {
 }
 
 .admin-ticket-routing-row__meta {
+  display: grid;
+  gap: 0.25rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
