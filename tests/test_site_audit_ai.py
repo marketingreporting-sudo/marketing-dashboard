@@ -124,6 +124,38 @@ class SiteAuditAiTests(unittest.TestCase):
         self.assertTrue(any("Entrata has available units" in issue for issue in result["issues"]))
         self.assertTrue(any("Entrata has active specials" in issue for issue in result["issues"]))
 
+    def test_cloudflare_challenge_text_is_not_ready_for_screenshot(self):
+        state = heatmaps._screenshot_page_challenge_text_state(
+            "Arcadiaapts.com Performing security verification Cloudflare Verifying..."
+        )
+
+        self.assertTrue(state["isChallenge"])
+        self.assertFalse(
+            heatmaps._screenshot_page_has_real_content(
+                {
+                    "isChallenge": True,
+                    "bodyTextLength": 240,
+                    "h1Count": 1,
+                    "linkCount": 4,
+                    "imageCount": 2,
+                }
+            )
+        )
+
+    def test_real_property_content_is_ready_for_screenshot(self):
+        self.assertTrue(
+            heatmaps._screenshot_page_has_real_content(
+                {
+                    "isChallenge": False,
+                    "bodyTextLength": 80,
+                    "h1Count": 1,
+                    "linkCount": 2,
+                    "imageCount": 1,
+                    "ctaLikeCount": 1,
+                }
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

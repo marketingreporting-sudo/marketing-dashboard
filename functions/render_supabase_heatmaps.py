@@ -7,6 +7,7 @@ import os
 import tempfile
 import subprocess
 import sys
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -87,6 +88,36 @@ SITE_AUDIT_AI_MAX_SCREENSHOTS_PER_PAGE = _env_int("SITE_AUDIT_AI_MAX_SCREENSHOTS
 SITE_AUDIT_AI_TIMEOUT_SECONDS = _env_int("SITE_AUDIT_AI_TIMEOUT_SECONDS", 120, minimum=15, maximum=600)
 SITE_AUDIT_AI_PROMPT_VERSION = "redstone-site-audit-v1"
 SITE_AUDIT_JOB_BATCH_LIMIT = _env_int("SITE_AUDIT_JOB_BATCH_LIMIT", 3, minimum=1, maximum=25)
+SCREENSHOT_PAGE_READY_TIMEOUT_MS = _env_int("SCREENSHOT_PAGE_READY_TIMEOUT_MS", 90_000, minimum=15_000, maximum=240_000)
+SCREENSHOT_SECURITY_CHALLENGE_RETRY_MS = _env_int(
+    "SCREENSHOT_SECURITY_CHALLENGE_RETRY_MS",
+    45_000,
+    minimum=10_000,
+    maximum=180_000,
+)
+SCREENSHOT_CAPTURE_USER_AGENT = os.environ.get(
+    "SCREENSHOT_CAPTURE_USER_AGENT",
+    (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+)
+SCREENSHOT_SECURITY_CHALLENGE_PATTERNS = (
+    "cloudflare",
+    "cf-browser-verification",
+    "cf-challenge",
+    "cf-turnstile",
+    "checking if the site connection is secure",
+    "checking your browser",
+    "performing security verification",
+    "verify you are human",
+    "verifying you are human",
+    "verifying...",
+    "verify you are not a bot",
+    "just a moment",
+    "ray id",
+)
 
 SITE_AUDIT_RUBRIC = [
     {"key": "page_load_desktop_mobile", "label": "All pages load correctly on desktop and mobile"},
@@ -1194,6 +1225,127 @@ def _should_capture_site_screenshots(site: dict[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
+def _screenshot_page_challenge_text_state(text: str) -> dict[str, Any]:
+    normalized = re.sub(r"\s+", " ", text or "").strip().lower()
+    matched_pattern = next((pattern for pattern in SCREENSHOT_SECURITY_CHALLENGE_PATTERNS if pattern in normalized), "")
+    return {
+        "isChallenge": bool(matched_pattern),
+        "challengeReason": matched_pattern,
+        "textSample": normalized[:240],
+    }
+
+
+def _screenshot_page_state(page: Any) -> dict[str, Any]:
+    try:
+        state = page.evaluate(
+            """() => {
+              const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+              const bodyText = clean(document.body ? document.body.innerText : '');
+              const title = clean(document.title);
+              const selectors = [
+                '#challenge-running',
+                '#challenge-stage',
+                '#cf-challenge-running',
+                '.cf-browser-verification',
+                '.cf-turnstile',
+                '[data-cf-challenge]',
+                'iframe[src*="challenges.cloudflare.com"]',
+                'input[name="cf-turnstile-response"]'
+              ];
+              const challengeSelector = selectors.find((selector) => document.querySelector(selector)) || '';
+              const ctaLikeCount = document.querySelectorAll('a, button, [role="button"], [data-cta], .cta, .button, .btn').length;
+              const dimensions = {
+                documentWidth: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0, window.innerWidth || 0),
+                documentHeight: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight || 0),
+                viewportWidth: window.innerWidth || 0,
+                viewportHeight: window.innerHeight || 0,
+                devicePixelRatio: window.devicePixelRatio || 1
+              };
+              return {
+                url: location.href,
+                title,
+                bodyText,
+                bodyTextLength: bodyText.length,
+                h1Count: document.querySelectorAll('h1').length,
+                linkCount: document.querySelectorAll('a[href]').length,
+                imageCount: document.querySelectorAll('img').length,
+                ctaLikeCount,
+                readyState: document.readyState,
+                challengeSelector,
+                dimensions
+              };
+            }"""
+        )
+    except Exception as error:
+        return {"isChallenge": False, "challengeReason": "", "error": str(error), "dimensions": {}}
+
+    if not isinstance(state, dict):
+        return {"isChallenge": False, "challengeReason": "", "dimensions": {}}
+
+    text_state = _screenshot_page_challenge_text_state(
+        " ".join(
+            [
+                _normalize_text(state.get("title"), 240),
+                _normalize_text(state.get("bodyText"), 1200),
+            ]
+        )
+    )
+    challenge_selector = _normalize_text(state.get("challengeSelector"), 120)
+    state["isChallenge"] = bool(text_state.get("isChallenge") or challenge_selector)
+    state["challengeReason"] = challenge_selector or text_state.get("challengeReason") or ""
+    state["textSample"] = text_state.get("textSample") or ""
+    state.pop("bodyText", None)
+    return state
+
+
+def _screenshot_page_has_real_content(state: dict[str, Any]) -> bool:
+    if not isinstance(state, dict) or state.get("isChallenge"):
+        return False
+    body_text_length = int(state.get("bodyTextLength") or 0)
+    h1_count = int(state.get("h1Count") or 0)
+    link_count = int(state.get("linkCount") or 0)
+    image_count = int(state.get("imageCount") or 0)
+    cta_like_count = int(state.get("ctaLikeCount") or 0)
+    return body_text_length >= 120 or h1_count > 0 or link_count >= 3 or image_count >= 2 or cta_like_count > 0
+
+
+def _wait_for_screenshot_page_ready(page: Any, *, timeout_ms: int = SCREENSHOT_PAGE_READY_TIMEOUT_MS) -> dict[str, Any]:
+    deadline = time.monotonic() + (max(1, timeout_ms) / 1000)
+    reload_after = time.monotonic() + (max(1, SCREENSHOT_SECURITY_CHALLENGE_RETRY_MS) / 1000)
+    reloaded_for_challenge = False
+    last_state: dict[str, Any] = {}
+
+    while time.monotonic() < deadline:
+        last_state = _screenshot_page_state(page)
+        if _screenshot_page_has_real_content(last_state):
+            page.wait_for_timeout(900)
+            return _screenshot_page_state(page)
+
+        if (
+            last_state.get("isChallenge")
+            and not reloaded_for_challenge
+            and time.monotonic() >= reload_after
+        ):
+            reloaded_for_challenge = True
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=min(30_000, max(5_000, timeout_ms)))
+            except Exception:
+                pass
+
+        page.wait_for_timeout(1500 if last_state.get("isChallenge") else 750)
+
+    if last_state.get("isChallenge"):
+        reason = last_state.get("challengeReason") or "security challenge"
+        raise RuntimeError(
+            f"Security challenge still visible after {timeout_ms}ms ({reason}); screenshot was not saved."
+        )
+
+    if not _screenshot_page_has_real_content(last_state):
+        raise RuntimeError(f"Page did not expose enough real content after {timeout_ms}ms; screenshot was not saved.")
+
+    return last_state
+
+
 def capture_site_screenshots(
     *,
     site_key: str | None = None,
@@ -1280,9 +1432,12 @@ def capture_site_screenshots(
                             context = browser.new_context(
                                 viewport=viewport,
                                 device_scale_factor=device_scale_factor,
-                                user_agent=(
-                                    "Mozilla/5.0 (compatible; RedstoneSiteAuditBot/1.0; +https://redstoneresidential.com)"
-                                ),
+                                user_agent=SCREENSHOT_CAPTURE_USER_AGENT,
+                                locale="en-US",
+                                timezone_id="America/Denver",
+                                extra_http_headers={
+                                    "Accept-Language": "en-US,en;q=0.9",
+                                },
                             )
                             page = context.new_page()
                             try:
@@ -1292,16 +1447,12 @@ def capture_site_screenshots(
                                     page.wait_for_load_state("load", timeout=10_000)
                                 except Exception:
                                     pass
-                                page.wait_for_timeout(1500)
-                                dimensions = page.evaluate(
-                                    """() => ({
-                                      documentWidth: Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0, window.innerWidth || 0),
-                                      documentHeight: Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0, window.innerHeight || 0),
-                                      viewportWidth: window.innerWidth || 0,
-                                      viewportHeight: window.innerHeight || 0,
-                                      devicePixelRatio: window.devicePixelRatio || 1
-                                    })"""
+                                readiness = _wait_for_screenshot_page_ready(
+                                    page,
+                                    timeout_ms=max(SCREENSHOT_PAGE_READY_TIMEOUT_MS, timeout_ms),
                                 )
+                                captured_url = readiness.get("url") or page.url
+                                dimensions = readiness.get("dimensions") if isinstance(readiness.get("dimensions"), dict) else {}
                                 document_width = int(dimensions.get("documentWidth") or viewport["width"])
                                 document_height = int(dimensions.get("documentHeight") or viewport["height"])
                                 viewport_width = int(dimensions.get("viewportWidth") or viewport["width"])
@@ -1371,6 +1522,13 @@ def capture_site_screenshots(
                                                 "capturedUrl": captured_url,
                                                 "sourceUrl": page_url,
                                                 "clip": clip,
+                                                "pageReadyState": readiness.get("readyState"),
+                                                "pageTitle": readiness.get("title"),
+                                                "pageBodyTextLength": readiness.get("bodyTextLength"),
+                                                "pageH1Count": readiness.get("h1Count"),
+                                                "pageLinkCount": readiness.get("linkCount"),
+                                                "pageCtaLikeCount": readiness.get("ctaLikeCount"),
+                                                "securityChallengeDetected": bool(readiness.get("isChallenge")),
                                             },
                                         },
                                     },

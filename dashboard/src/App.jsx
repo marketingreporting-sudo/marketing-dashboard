@@ -2,6 +2,7 @@ import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react'
 import {
   ADMIN_ACCESS_USERS_URL,
   ADMIN_TICKET_ASSIGNMENTS_URL,
+  CALL_PREP_SUMMARY_URL,
   CLIENT_REPORT_BASE_DOMAIN,
   GA4_DASHBOARD_URL,
   GOOGLE_ADS_DASHBOARD_URL,
@@ -92,6 +93,8 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   BarChart, Bar, LineChart, Line
 } from 'recharts';
+
+const CallPrepView = React.lazy(() => import('./CallPrepView.jsx'));
 
 const PERFORMANCE_MARKETING_GL_CODES = new Set(['5300-0030', '5300-0210']);
 const ALL_MARKETING_GL_CODES = new Set([
@@ -184,6 +187,12 @@ const AUDIT_TABLE_FILTERS = [
   { id: 'broken-links', label: 'Broken links' },
   { id: 'mobile', label: 'Mobile' },
   { id: 'stale-copy', label: 'Stale copy' },
+];
+const AUDIT_REVIEW_TABS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'rubric', label: 'Rubric' },
+  { id: 'screenshot', label: 'Screenshot' },
+  { id: 'workflow', label: 'Workflow' },
 ];
 const AUDIT_RISK_ORDER = {
   Critical: 5,
@@ -2236,6 +2245,7 @@ const DashboardApp = ({
   const [auditPortfolioFilter, setAuditPortfolioFilter] = useState('all');
   const [auditRegionFilter, setAuditRegionFilter] = useState('all');
   const [auditTableSort, setAuditTableSort] = useState({ key: 'riskTier', direction: 'desc' });
+  const [auditReviewTab, setAuditReviewTab] = useState('overview');
   const [auditFindingWorkflowState, setAuditFindingWorkflowState] = useState(() => readAuditFindingWorkflowState(auditFindingWorkflowStorageKey));
   const [screenshotPreviewUrl, setScreenshotPreviewUrl] = useState('');
   const [screenshotPreviewLoading, setScreenshotPreviewLoading] = useState(false);
@@ -2306,6 +2316,7 @@ const DashboardApp = ({
   const [parentDocs, setParentDocs] = useState([]);
   const [roiDailyItems, setRoiDailyItems] = useState([]);
   const reportingOverviewUrl = resolveRenderApiRoute('/api/reporting/property-overview', PROPERTY_REPORTING_OVERVIEW_URL);
+  const callPrepSummaryUrl = resolveRenderApiRoute('/api/reporting/call-prep-summary', CALL_PREP_SUMMARY_URL);
   const reportingUsesStagedOverview = Boolean(reportingOverviewUrl);
   const [reportingDataSource, setReportingDataSource] = useState(() => (
     reportingUsesStagedOverview ? 'loading' : 'error'
@@ -2353,6 +2364,7 @@ const DashboardApp = ({
   const [actualMarketingSpendError, setActualMarketingSpendError] = useState(null);
   const [callPrepLoading, setCallPrepLoading] = useState(false);
   const [callPrepError, setCallPrepError] = useState(null);
+  const [callPrepSummary, setCallPrepSummary] = useState(null);
   const [callPrepOverview, setCallPrepOverview] = useState(null);
   const [callPrepPortfolioOverview, setCallPrepPortfolioOverview] = useState(null);
   const [callPrepAnalyticsByPeriod, setCallPrepAnalyticsByPeriod] = useState({});
@@ -2846,9 +2858,12 @@ const DashboardApp = ({
   }, [currentUser, propertyScopedSelectionId]);
 
   useEffect(() => {
-    if (activeTab !== 'property info' && activeTab !== 'call prep') return;
+    const needsCallPrepFallbackBudget = activeTab === 'call prep' && (
+      !callPrepSummaryUrl || (!callPrepSummary && callPrepOverview)
+    );
+    if (activeTab !== 'property info' && !needsCallPrepFallbackBudget) return;
     loadMarketingBudgetItems();
-  }, [activeTab, loadMarketingBudgetItems]);
+  }, [activeTab, callPrepOverview, callPrepSummary, callPrepSummaryUrl, loadMarketingBudgetItems]);
 
   const loadActualMarketingSpendItems = useCallback(async () => {
     if (!propertyScopedSelectionId) {
@@ -2872,6 +2887,7 @@ const DashboardApp = ({
         property_id: propertyScopedSelectionId,
         start_date: formatDateInputValue(actualMarketingSpendWindow.start),
         end_date: formatDateInputValue(actualMarketingSpendWindow.end),
+        call_prep_only: '1',
       });
       const response = await authFetch(`${reportingOverviewUrl}?${params.toString()}`);
       const payload = await response.json();
@@ -2888,7 +2904,7 @@ const DashboardApp = ({
   }, [actualMarketingSpendWindow, propertyScopedSelectionId, reportingOverviewUrl]);
 
   useEffect(() => {
-    if (activeTab !== 'property info' && activeTab !== 'call prep') return;
+    if (activeTab !== 'property info') return;
     loadActualMarketingSpendItems();
   }, [activeTab, loadActualMarketingSpendItems]);
 
@@ -2930,9 +2946,14 @@ const DashboardApp = ({
   }, [currentUser, propertyScopedSelectionId]);
 
   useEffect(() => {
-    if (activeTab !== 'tasks' && activeTab !== 'call prep') return;
-    loadTasks(activeTab === 'call prep' ? 'property' : 'mine');
-  }, [activeTab, loadTasks]);
+    if (activeTab === 'tasks') {
+      loadTasks('mine');
+      return;
+    }
+    if (activeTab === 'call prep' && (!callPrepSummaryUrl || (!callPrepSummary && callPrepOverview))) {
+      loadTasks('property');
+    }
+  }, [activeTab, callPrepOverview, callPrepSummary, callPrepSummaryUrl, loadTasks]);
 
   const loadTickets = useCallback(async () => {
     if (!TICKETS_BASE_URL || !TICKET_OPTIONS_URL) {
@@ -2990,6 +3011,7 @@ const DashboardApp = ({
 
     const loadCallPrepData = async () => {
       if (!propertyScopedSelectionId || isAllPropertiesSelected) {
+        setCallPrepSummary(null);
         setCallPrepOverview(null);
         setCallPrepPortfolioOverview(null);
         setCallPrepAnalyticsByPeriod({});
@@ -2997,17 +3019,19 @@ const DashboardApp = ({
         setCallPrepLoading(false);
         return;
       }
-      if (!reportingOverviewUrl) {
+      if (!callPrepSummaryUrl && !reportingOverviewUrl) {
+        setCallPrepSummary(null);
         setCallPrepOverview(null);
         setCallPrepPortfolioOverview(null);
         setCallPrepAnalyticsByPeriod({});
-        setCallPrepError('Reporting overview endpoint is not configured.');
+        setCallPrepError('Call prep reporting endpoint is not configured.');
         setCallPrepLoading(false);
         return;
       }
 
       setCallPrepLoading(true);
       setCallPrepError(null);
+      setCallPrepSummary(null);
       setCallPrepOverview(null);
       setCallPrepPortfolioOverview(null);
       setCallPrepAnalyticsByPeriod({});
@@ -3038,10 +3062,39 @@ const DashboardApp = ({
       };
 
       try {
+        if (callPrepSummaryUrl) {
+          try {
+            const summaryParams = new URLSearchParams({
+              property_id: propertyScopedSelectionId,
+              property_ids: JSON.stringify(propertyIds),
+              start_date: overviewStart,
+              end_date: overviewEnd,
+            });
+            const summary = await fetchJson(
+              `${callPrepSummaryUrl}?${summaryParams.toString()}`,
+              'Call prep summary'
+            );
+
+            if (cancelled) return;
+            setCallPrepSummary(summary);
+            const analyticsByPeriod = summary?.analyticsByPeriod || (
+              summary?.analytics
+                ? Object.fromEntries(CALL_PREP_PERIODS.map((period) => [period.days, summary.analytics]))
+                : Object.fromEntries((summary?.periods || []).map((period) => [period.days, period.analytics || {}]))
+            );
+            setCallPrepAnalyticsByPeriod(analyticsByPeriod);
+            return;
+          } catch (summaryError) {
+            if (!reportingOverviewUrl) throw summaryError;
+            console.warn('Call prep summary failed, falling back to reporting overview', summaryError);
+          }
+        }
+
         const propertyParams = new URLSearchParams({
           property_id: propertyScopedSelectionId,
           start_date: overviewStart,
           end_date: overviewEnd,
+          call_prep_only: '1',
         });
         const portfolioParams = new URLSearchParams({
           property_id: 'all',
@@ -3067,62 +3120,68 @@ const DashboardApp = ({
         if (cancelled) return;
         setCallPrepPortfolioOverview(portfolioOverview);
 
-        const analyticsEntries = await Promise.all(CALL_PREP_PERIODS.map(async (period) => {
-          const range = getCallPrepWindowRange(period.days);
-          const startDate = formatDateInputValue(range.start);
-          const endDate = formatDateInputValue(range.end);
-          const entry = {
-            googleAds: null,
-            googleAdsError: selectedProperty?.googleAdsId ? null : 'No Google Ads customer ID is configured.',
-            ga4: null,
-            ga4Error: selectedProperty?.googleAnalyticsId ? null : 'No GA4 property ID is configured.',
-          };
+        const sharedAnalyticsEntry = {
+          googleAds: null,
+          googleAdsError: selectedProperty?.googleAdsId ? null : 'No Google Ads customer ID is configured.',
+          ga4: null,
+          ga4Error: selectedProperty?.googleAnalyticsId ? null : 'No GA4 property ID is configured.',
+        };
 
-          if (selectedProperty?.googleAdsId && callPrepGoogleAdsUrl) {
-            const params = new URLSearchParams({
-              property_id: propertyScopedSelectionId,
-              google_ads_customer_id: selectedProperty.googleAdsId,
-              property_name: selectedProperty?.name || '',
-              start_date: startDate,
-              end_date: endDate,
-              cache_only: '1',
-            });
+        const analyticsRequests = [];
+
+        if (selectedProperty?.googleAdsId && callPrepGoogleAdsUrl) {
+          const params = new URLSearchParams({
+            property_id: propertyScopedSelectionId,
+            google_ads_customer_id: selectedProperty.googleAdsId,
+            property_name: selectedProperty?.name || '',
+            start_date: overviewStart,
+            end_date: overviewEnd,
+            cache_only: '1',
+          });
+          analyticsRequests.push((async () => {
             try {
-              entry.googleAds = await fetchJson(`${callPrepGoogleAdsUrl}?${params.toString()}`, 'Call prep Google Ads');
-              entry.googleAdsError = null;
+              sharedAnalyticsEntry.googleAds = await fetchJson(`${callPrepGoogleAdsUrl}?${params.toString()}`, 'Call prep Google Ads');
+              sharedAnalyticsEntry.googleAdsError = null;
             } catch (error) {
               if (googleAdsData) {
-                entry.googleAds = googleAdsData;
-                entry.googleAdsError = null;
+                sharedAnalyticsEntry.googleAds = googleAdsData;
+                sharedAnalyticsEntry.googleAdsError = null;
               } else {
-                entry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
+                sharedAnalyticsEntry.googleAdsError = error.message || 'Unable to load Google Ads metrics.';
               }
             }
-          }
+          })());
+        }
 
-          if (selectedProperty?.googleAnalyticsId && callPrepGa4Url) {
-            const params = new URLSearchParams({
-              property_id: propertyScopedSelectionId,
-              ga4_property_id: selectedProperty.googleAnalyticsId,
-              start_date: startDate,
-              end_date: endDate,
-              cache_only: '1',
-            });
+        if (selectedProperty?.googleAnalyticsId && callPrepGa4Url) {
+          const params = new URLSearchParams({
+            property_id: propertyScopedSelectionId,
+            ga4_property_id: selectedProperty.googleAnalyticsId,
+            start_date: overviewStart,
+            end_date: overviewEnd,
+            cache_only: '1',
+          });
+          analyticsRequests.push((async () => {
             try {
-              entry.ga4 = await fetchJson(`${callPrepGa4Url}?${params.toString()}`, 'Call prep GA4');
-              entry.ga4Error = null;
+              sharedAnalyticsEntry.ga4 = await fetchJson(`${callPrepGa4Url}?${params.toString()}`, 'Call prep GA4');
+              sharedAnalyticsEntry.ga4Error = null;
             } catch (error) {
               if (ga4Data) {
-                entry.ga4 = ga4Data;
-                entry.ga4Error = null;
+                sharedAnalyticsEntry.ga4 = ga4Data;
+                sharedAnalyticsEntry.ga4Error = null;
               } else {
-                entry.ga4Error = error.message || 'Unable to load GA4 metrics.';
+                sharedAnalyticsEntry.ga4Error = error.message || 'Unable to load GA4 metrics.';
               }
             }
-          }
+          })());
+        }
 
-          return [period.days, entry];
-        }));
+        await Promise.all(analyticsRequests);
+
+        const analyticsEntries = CALL_PREP_PERIODS.map((period) => [
+          period.days,
+          { ...sharedAnalyticsEntry },
+        ]);
 
         if (!cancelled) {
           setCallPrepAnalyticsByPeriod(Object.fromEntries(analyticsEntries));
@@ -3131,6 +3190,7 @@ const DashboardApp = ({
         if (cancelled) return;
         console.error('Call prep load failed', error);
         setCallPrepError(error.message || 'Unable to load call prep data.');
+        setCallPrepSummary(null);
         setCallPrepOverview(null);
         setCallPrepPortfolioOverview(null);
         setCallPrepAnalyticsByPeriod({});
@@ -3146,6 +3206,7 @@ const DashboardApp = ({
   }, [
     activeTab,
     availablePropertyIdsKey,
+    callPrepSummaryUrl,
     ga4Data,
     googleAdsData,
     isAllPropertiesSelected,
@@ -6588,7 +6649,34 @@ const DashboardApp = ({
   const localFalconReportUrl = localFalconLatestReport?.publicUrl || localFalconOverview?.publicUrl || localFalconLatestScan?.raw?.public_url;
   const localFalconPdfUrl = localFalconLatestReport?.pdf || localFalconOverview?.pdf || localFalconLatestScan?.raw?.pdf;
   const callPrepSections = useMemo(() => (
-    CALL_PREP_PERIODS.map((period) => {
+    Array.isArray(callPrepSummary?.periods) && callPrepSummary.periods.length > 0
+      ? callPrepSummary.periods.map((period) => {
+        const fallbackCurrentRange = getCallPrepWindowRange(period.days);
+        const currentStart = parseLocalDateInputValue(period.currentRange?.startDate) || fallbackCurrentRange.start;
+        const currentEnd = parseLocalDateInputValue(period.currentRange?.endDate) || fallbackCurrentRange.end;
+        const fallbackPriorRange = getPriorWindowRange({ start: currentStart }, period.days);
+        return {
+          ...period,
+          shortLabel: period.shortLabel || `${period.days}D`,
+          currentRange: {
+            start: currentStart,
+            end: currentEnd,
+          },
+          priorRange: {
+            start: parseLocalDateInputValue(period.priorRange?.startDate) || fallbackPriorRange.start,
+            end: parseLocalDateInputValue(period.priorRange?.endDate) || fallbackPriorRange.end,
+          },
+          current: period.current || {},
+          prior: period.prior || {},
+          delta: period.delta || {},
+          portfolioAverage: period.portfolioAverage || null,
+          sourceBreakdown: Array.isArray(period.sourceBreakdown)
+            ? period.sourceBreakdown
+            : period.current?.sourceBreakdown || [],
+          analytics: period.analytics || callPrepAnalyticsByPeriod[period.days] || callPrepSummary?.analytics || {},
+        };
+      })
+      : CALL_PREP_PERIODS.map((period) => {
       const currentRange = getCallPrepWindowRange(period.days);
       const priorRange = getPriorWindowRange(currentRange, period.days);
       const current = buildCallPrepMetrics(callPrepOverview, currentRange, propertyScopedSelectionId, excludedMarketingSpendKeySet);
@@ -6606,24 +6694,76 @@ const DashboardApp = ({
         priorRange,
         current,
         prior,
+        delta: Object.fromEntries(CALL_PREP_METRIC_ROWS.map((row) => [
+          row.key,
+          percentChange(getCallPrepMetricValue(current, row.key), getCallPrepMetricValue(prior, row.key)),
+        ])),
         portfolioAverage,
+        sourceBreakdown: current.sourceBreakdown || [],
         analytics: callPrepAnalyticsByPeriod[period.days] || {},
       };
     })
-  ), [availableProperties, callPrepAnalyticsByPeriod, callPrepOverview, callPrepPortfolioOverview, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
+  ), [availableProperties, callPrepAnalyticsByPeriod, callPrepOverview, callPrepPortfolioOverview, callPrepSummary, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
   const callPrepSixtyDayRange = useMemo(() => getCallPrepWindowRange(60), []);
-  const callPrepRecentTasks = useMemo(() => (
-    tasks
+  const callPrepRecentTasks = useMemo(() => {
+    if (Array.isArray(callPrepSummary?.recentTasks?.items)) {
+      return callPrepSummary.recentTasks.items;
+    }
+    if (callPrepSummaryUrl && !callPrepOverview) return [];
+    return tasks
       .filter((task) => task.propertyId === propertyScopedSelectionId)
       .filter((task) => taskTouchedInRange(task, callPrepSixtyDayRange))
       .sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')))
-      .slice(0, 8)
-  ), [callPrepSixtyDayRange, propertyScopedSelectionId, tasks]);
+      .slice(0, 8);
+  }, [callPrepOverview, callPrepSummary, callPrepSixtyDayRange, callPrepSummaryUrl, propertyScopedSelectionId, tasks]);
   const callPrepSpendRows = useMemo(() => (
-    buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId, excludedMarketingSpendKeySet)
-  ), [callPrepOverview, callPrepSixtyDayRange, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
-  const callPrepMetricsLoading = callPrepLoading && !callPrepOverview;
-  const callPrepPortfolioLoading = callPrepLoading && !callPrepPortfolioOverview;
+    Array.isArray(callPrepSummary?.activeSpend?.glRows)
+      ? callPrepSummary.activeSpend.glRows.map((row) => ({
+        ...row,
+        month: parseLocalDateInputValue(row.month) || new Date(),
+      }))
+      : buildCallPrepSpendRows(callPrepOverview, callPrepSixtyDayRange, propertyScopedSelectionId, excludedMarketingSpendKeySet)
+  ), [callPrepOverview, callPrepSixtyDayRange, callPrepSummary, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
+  const callPrepActiveBudgetItems = useMemo(() => {
+    if (Array.isArray(callPrepSummary?.activeSpend?.budget?.activeItems)) {
+      return callPrepSummary.activeSpend.budget.activeItems.map((item) => ({
+        ...item,
+        monthlyAmount: item.monthlyAmount == null ? '' : String(item.monthlyAmount),
+      }));
+    }
+    if (callPrepSummaryUrl && !callPrepOverview) return [];
+    return activeMarketingBudgetItems;
+  }, [activeMarketingBudgetItems, callPrepOverview, callPrepSummary, callPrepSummaryUrl]);
+  const callPrepActualSpendFromOverview = useMemo(() => {
+    if (!callPrepOverview) return null;
+    const metrics = buildCallPrepMetrics(
+      callPrepOverview,
+      actualMarketingSpendWindow,
+      propertyScopedSelectionId,
+      excludedMarketingSpendKeySet
+    );
+    return {
+      last30: metrics.totalMarketingSpend,
+      performanceMarketingLast30: metrics.performanceMarketingSpend,
+    };
+  }, [actualMarketingSpendWindow, callPrepOverview, excludedMarketingSpendKeySet, propertyScopedSelectionId]);
+  const callPrepBudgetedMonthly = callPrepSummary?.activeSpend?.budget?.activeApprovedMonthly
+    ?? (callPrepSummaryUrl && !callPrepOverview ? 0 : activeApprovedMarketingBudget);
+  const callPrepActualMarketingSpendLast30 = callPrepSummary?.activeSpend?.actual?.last30
+    ?? callPrepActualSpendFromOverview?.last30
+    ?? actualMarketingSpendLast30;
+  const callPrepMarketingBudgetVarianceLast30 = callPrepSummary?.activeSpend?.actual?.budgetLessActual
+    ?? (Number.isFinite(Number(callPrepActualMarketingSpendLast30))
+      ? callPrepBudgetedMonthly - callPrepActualMarketingSpendLast30
+      : marketingBudgetVarianceLast30);
+  const callPrepTasksLoading = (callPrepLoading || tasksLoading) && !callPrepSummary && callPrepRecentTasks.length === 0;
+  const callPrepTasksError = callPrepSummary?.recentTasks?.error
+    || (callPrepSummary || (callPrepSummaryUrl && !callPrepOverview) ? null : tasksError);
+  const callPrepSpendError = callPrepSummary?.activeSpend?.budget?.error
+    || (callPrepSummary || (callPrepSummaryUrl && !callPrepOverview) ? null : marketingBudgetError);
+  const callPrepSpendLoading = callPrepLoading && !callPrepSummary && !callPrepOverview;
+  const callPrepMetricsLoading = callPrepLoading && !callPrepOverview && !callPrepSummary;
+  const callPrepPortfolioLoading = callPrepLoading && !callPrepPortfolioOverview && !callPrepSummary;
   const heatmapTotals = heatmapSummaryData?.totals || {};
   const trackerHealth = heatmapTrackerHealthData?.health || {};
   const trackerRecommendations = Array.isArray(heatmapTrackerHealthData?.recommendations)
@@ -8626,282 +8766,52 @@ const DashboardApp = ({
     </div>
   );
 
-  const formatCallPrepValue = (value, type = 'number') => {
-    if (type === 'percent') return formatPercent(value, 1);
-    if (type === 'currency') return formatCurrency(value, value != null && Number(value) < 100 ? 2 : 0);
-    return formatNumber(value);
-  };
-
-  const renderCallPrepMetricTable = (section) => (
-    <div className="call-prep-table-wrap">
-      <table className="call-prep-table">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>{selectedProperty?.name || 'Property'}</th>
-            <th>Vs Prior</th>
-            <th>Portfolio Avg</th>
-          </tr>
-        </thead>
-        <tbody>
-          {CALL_PREP_METRIC_ROWS.map((row) => {
-            const currentValue = getCallPrepMetricValue(section.current, row.key);
-            const priorValue = getCallPrepMetricValue(section.prior, row.key);
-            const delta = percentChange(currentValue, priorValue);
-            const portfolioValue = getCallPrepMetricValue(section.portfolioAverage, row.key);
-            return (
-              <tr key={`${section.days}-${row.key}`}>
-                <td>{row.label}</td>
-                <td>{renderMetricValue(callPrepMetricsLoading, formatCallPrepValue(currentValue, row.format))}</td>
-                <td>
-                  {callPrepMetricsLoading ? (
-                    <MiniMetricLoader />
-                  ) : (
-                    <span className={`analytics-pill analytics-pill--${getDeltaTone(delta)}`}>
-                      {delta == null ? 'New' : formatSignedPercent(delta, 1)}
-                    </span>
-                  )}
-                </td>
-                <td>{renderMetricValue(callPrepPortfolioLoading, section.portfolioAverage ? formatCallPrepValue(portfolioValue, row.format) : '—')}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+  const renderCallPrep = () => (
+    <React.Suspense fallback={<div className="reports-empty">Loading call prep view...</div>}>
+      <CallPrepView
+        selectedProperty={selectedProperty}
+        selectedPropertyLabel={selectedPropertyLabel}
+        selectedPropertyId={selectedPropertyId}
+        isAllPropertiesSelected={isAllPropertiesSelected}
+        callPrepLoading={callPrepLoading}
+        callPrepError={callPrepError}
+        callPrepSections={callPrepSections}
+        callPrepMetricsLoading={callPrepMetricsLoading}
+        callPrepPortfolioLoading={callPrepPortfolioLoading}
+        callPrepSixtyDayRange={callPrepSixtyDayRange}
+        callPrepRecentTasks={callPrepRecentTasks}
+        callPrepTasksLoading={callPrepTasksLoading}
+        callPrepTasksError={callPrepTasksError}
+        callPrepSpendError={callPrepSpendError}
+        callPrepSpendLoading={callPrepSpendLoading}
+        callPrepSummary={callPrepSummary}
+        callPrepBudgetedMonthly={callPrepBudgetedMonthly}
+        callPrepActiveBudgetItems={callPrepActiveBudgetItems}
+        callPrepActualMarketingSpendLast30={callPrepActualMarketingSpendLast30}
+        callPrepMarketingBudgetVarianceLast30={callPrepMarketingBudgetVarianceLast30}
+        callPrepSpendRows={callPrepSpendRows}
+        marketingBudgetLoading={marketingBudgetLoading}
+        recommendationsData={recommendationsData}
+        recommendationsError={recommendationsError}
+        recommendationsLoading={recommendationsLoading}
+        generateRecommendations={generateRecommendations}
+        metricRows={CALL_PREP_METRIC_ROWS}
+        taskStatuses={TASK_STATUSES}
+        buildTaskTalkingPoint={buildTaskTalkingPoint}
+        formatDateInputValue={formatDateInputValue}
+        formatReadableDate={formatReadableDate}
+        formatNumber={formatNumber}
+        formatCurrency={formatCurrency}
+        formatPercent={formatPercent}
+        formatSignedPercent={formatSignedPercent}
+        getDeltaTone={getDeltaTone}
+        renderMetricValue={renderMetricValue}
+        miniMetricLoader={<MiniMetricLoader />}
+        normalizeAnalyticsError={normalizeAnalyticsError}
+        parseCurrency={parseCurrency}
+      />
+    </React.Suspense>
   );
-
-  const renderCallPrepAnalyticsTable = (section) => {
-    const googleAds = section.analytics?.googleAds;
-    const googleAdsLoadingForSection = callPrepLoading && !googleAds && !section.analytics?.googleAdsError;
-    const googleAdsOverviewCurrent = googleAds?.Overview?.current || {};
-    const googleAdsOverviewDelta = googleAds?.Overview?.delta || {};
-    const ga4 = section.analytics?.ga4;
-    const ga4LoadingForSection = callPrepLoading && !ga4 && !section.analytics?.ga4Error;
-    const ga4Current = ga4?.Acquisition?.totals?.current || {};
-    const ga4Previous = ga4?.Acquisition?.totals?.previous || {};
-    const ga4EventCurrent = ga4?.Conversion?.totals?.currentEventCount;
-    const ga4EventPrevious = ga4?.Conversion?.totals?.previousEventCount;
-    const topGa4Event = ga4?.Conversion?.events?.[0] || null;
-
-    return (
-      <div className="call-prep-channel-grid">
-        <div className="call-prep-mini-panel">
-          <div className="reports-panel__eyebrow">Google Ads</div>
-          <div className="call-prep-stat-grid">
-            <div><span>Clicks</span><strong>{renderMetricValue(googleAdsLoadingForSection, formatNumber(googleAdsOverviewCurrent.clicks))}</strong><small>{googleAdsLoadingForSection ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.clicks, 1)} vs prior`}</small></div>
-            <div><span>Conversions</span><strong>{renderMetricValue(googleAdsLoadingForSection, formatNumber(googleAdsOverviewCurrent.conversions, 1))}</strong><small>{googleAdsLoadingForSection ? 'Loading...' : `${formatSignedPercent(googleAdsOverviewDelta.conversions, 1)} vs prior`}</small></div>
-            <div><span>Spend</span><strong>{renderMetricValue(googleAdsLoadingForSection, formatCurrency(googleAdsOverviewCurrent.cost))}</strong><small>{googleAdsLoadingForSection ? 'Loading...' : `CTR ${formatPercent(googleAdsOverviewCurrent.ctr, 1)}`}</small></div>
-          </div>
-          <div className="reports-list">
-            {(googleAds?.ConversionActions?.items || []).slice(0, 3).map((item) => (
-              <div className="reports-list__row" key={item.resourceName || item.name}>
-                <div><strong>{item.name || 'Conversion action'}</strong><small>{item.category || item.source || 'Google Ads conversion'}</small></div>
-                <div>{formatNumber(item.allConversions, 1)}</div>
-              </div>
-            ))}
-            {!googleAds && <div className="reports-empty">{normalizeAnalyticsError(section.analytics?.googleAdsError) || 'Google Ads metrics are not configured for this property.'}</div>}
-          </div>
-        </div>
-
-        <div className="call-prep-mini-panel">
-          <div className="reports-panel__eyebrow">GA4</div>
-          <div className="call-prep-stat-grid">
-            <div><span>Sessions</span><strong>{renderMetricValue(ga4LoadingForSection, formatNumber(ga4Current.sessions))}</strong><small>{ga4LoadingForSection ? 'Loading...' : `${formatSignedPercent(percentChange(ga4Current.sessions, ga4Previous.sessions), 1)} vs prior`}</small></div>
-            <div><span>Engagement</span><strong>{renderMetricValue(ga4LoadingForSection, formatPercent(ga4Current.engagementRate, 1))}</strong><small>{ga4LoadingForSection ? 'Loading...' : `${formatNumber(ga4Current.engagedSessions)} engaged sessions`}</small></div>
-            <div><span>Key Events</span><strong>{renderMetricValue(ga4LoadingForSection, formatNumber(ga4EventCurrent))}</strong><small>{ga4LoadingForSection ? 'Loading...' : `${formatSignedPercent(percentChange(ga4EventCurrent, ga4EventPrevious), 1)} vs prior`}</small></div>
-          </div>
-          <div className="reports-list">
-            {topGa4Event && (
-              <div className="reports-list__row">
-                <div><strong>{topGa4Event.eventName}</strong><small>Top key event in this window</small></div>
-                <div>{formatNumber(topGa4Event.current?.eventCount)}</div>
-              </div>
-            )}
-            {(ga4?.Acquisition?.channels || []).slice(0, 2).map((item) => (
-              <div className="reports-list__row" key={item.channel}>
-                <div><strong>{item.channel}</strong><small>{formatPercent(item.current?.engagementRate, 1)} engagement</small></div>
-                <div>{formatNumber(item.current?.sessions)} sessions</div>
-              </div>
-            ))}
-            {!ga4 && <div className="reports-empty">{normalizeAnalyticsError(section.analytics?.ga4Error) || 'GA4 metrics are not configured for this property.'}</div>}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCallPrep = () => {
-    const latestRecommendationWindow = callPrepSixtyDayRange;
-    const recommendations = Array.isArray(recommendationsData?.recommendations) ? recommendationsData.recommendations : [];
-    return (
-      <div className="call-prep-view">
-        <div className="reports-hero call-prep-hero">
-          <div>
-            <div className="reports-kicker">Manager call prep</div>
-            <div className="reports-headline">{selectedPropertyLabel}</div>
-            <div className="reports-subhead">
-              Fixed 7, 30, and 60 day talking points with prior-period comparisons, portfolio averages, channel performance, recent task changes, and active marketing spend.
-            </div>
-          </div>
-          <div className="reports-chip-row">
-            <span className="reports-chip reports-chip--staged">{callPrepLoading ? 'Refreshing call prep...' : 'Fixed-window view'}</span>
-            <button
-              type="button"
-              className="reports-admin-toggle"
-              onClick={() => generateRecommendations(latestRecommendationWindow)}
-              disabled={recommendationsLoading || !selectedPropertyId || isAllPropertiesSelected}
-            >
-              {recommendationsLoading ? 'Generating...' : 'Generate AI Recommendations'}
-            </button>
-          </div>
-        </div>
-
-        {callPrepError && <div className="tasks-message tasks-message--error">{callPrepError}</div>}
-
-        <div className="call-prep-period-grid">
-          {callPrepSections.map((section) => (
-            <section className="reports-panel call-prep-period" key={section.days}>
-              <div className="call-prep-period__header">
-                <div>
-                  <div className="reports-panel__eyebrow">{section.shortLabel} performance</div>
-                  <div className="reports-panel__title">{section.label}</div>
-                  <small>{formatDateInputValue(section.currentRange.start)} to {formatDateInputValue(section.currentRange.end)}</small>
-                </div>
-                <span className="analytics-pill analytics-pill--neutral">Prior: {formatDateInputValue(section.priorRange.start)} to {formatDateInputValue(section.priorRange.end)}</span>
-              </div>
-              {renderCallPrepMetricTable(section)}
-              <div className="call-prep-source-list">
-                {(section.current.sourceBreakdown || []).map((source) => (
-                  <div key={`${section.days}-${source.source}`} className="reports-list__row">
-                    <div><strong>{source.source}</strong><small>Lead source share {formatPercent(source.share, 1)}</small></div>
-                    <div>{formatNumber(source.leads)} leads</div>
-                  </div>
-                ))}
-                {section.current.sourceBreakdown.length === 0 && <div className="reports-empty">No lead source data in this window.</div>}
-              </div>
-              {renderCallPrepAnalyticsTable(section)}
-            </section>
-          ))}
-        </div>
-
-        <div className="call-prep-bottom-grid">
-          <section className="reports-panel">
-            <div className="reports-panel__eyebrow">AI recommendations</div>
-            <div className="reports-panel__title">Off-the-cuff talking points</div>
-            <div className="reports-list">
-              {recommendations.slice(0, 5).map((recommendation) => (
-                <div className="reports-list__row" key={recommendation.storedRecommendationId || recommendation.id}>
-                  <div>
-                    <strong>{recommendation.title}</strong>
-                    <small>{recommendation.reasoning || recommendation.suggestedAction || 'Recommendation detail available in the Recommendations tab.'}</small>
-                  </div>
-                  <div>{recommendation.priority || 'medium'}</div>
-                </div>
-              ))}
-              {recommendations.length === 0 && (
-                <div className="reports-empty">{recommendationsError || 'Generate recommendations to populate manager-ready AI talking points for the 60 day prep window.'}</div>
-              )}
-            </div>
-          </section>
-
-          <section className="reports-panel">
-            <div className="reports-panel__eyebrow">Recent changes</div>
-            <div className="reports-panel__title">Task-driven updates</div>
-            <div className="reports-list">
-              {callPrepRecentTasks.map((task) => (
-                <div className="reports-list__row call-prep-task-row" key={task.id}>
-                  <div>
-                    <strong>{task.title}</strong>
-                    <small>{buildTaskTalkingPoint(task)}</small>
-                    <small>Created {formatReadableDate(task.createdAt)} | Updated {formatReadableDate(task.updatedAt)} | Due {formatReadableDate(task.dueDate)}</small>
-                  </div>
-                  <div>{TASK_STATUSES.find((status) => status.id === task.status)?.label || task.status}</div>
-                </div>
-              ))}
-              {callPrepRecentTasks.length === 0 && (
-                <div className="reports-empty">
-                  {tasksLoading ? 'Loading property tasks...' : tasksError || 'No property tasks were created, updated, or due in the last 60 days.'}
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section className="reports-panel call-prep-spend-panel">
-            <div className="reports-panel__eyebrow">Active spend</div>
-            <div className="reports-panel__title">Budget vs actual marketing spend</div>
-            {(marketingBudgetError || actualMarketingSpendError) && (
-              <div className="tasks-message tasks-message--error">
-                {marketingBudgetError || actualMarketingSpendError}
-              </div>
-            )}
-            <div className="reports-panel__grid reports-panel__grid--three call-prep-budget-summary">
-              <div className="reports-stat">
-                <span>Budgeted spend now</span>
-                <strong>{renderMetricValue(marketingBudgetLoading, formatCurrency(activeApprovedMarketingBudget))}</strong>
-                <small>{formatNumber(activeMarketingBudgetItems.length)} Active status item{activeMarketingBudgetItems.length === 1 ? '' : 's'}</small>
-              </div>
-              <div className="reports-stat">
-                <span>Actual GL spend</span>
-                <strong>{renderMetricValue(actualMarketingSpendLoading, formatCurrency(actualMarketingSpendLast30))}</strong>
-                <small>Last 30 days from posted marketing invoices</small>
-              </div>
-              <div className="reports-stat">
-                <span>Budget less actual</span>
-                <strong>{renderMetricValue(actualMarketingSpendLoading || marketingBudgetLoading, formatCurrency(marketingBudgetVarianceLast30))}</strong>
-                <small>{marketingBudgetVarianceLast30 >= 0 ? 'Under approved monthly budget' : 'Over approved monthly budget'}</small>
-              </div>
-            </div>
-
-            <div className="call-prep-spend-section">
-              <div className="reports-panel__eyebrow">Budgeted monthly items</div>
-              <div className="reports-list">
-                {activeMarketingBudgetItems.map((item) => (
-                  <div className="reports-list__row" key={item.id}>
-                    <div>
-                      <strong>{item.itemName || 'Marketing budget item'}</strong>
-                      <small>
-                        Active {formatReadableDate(item.startDate)}
-                        {item.endDate ? ` to ${formatReadableDate(item.endDate)}` : ' onward'}
-                      </small>
-                    </div>
-                    <div>
-                      {formatCurrency(parseCurrency(item.monthlyAmount))}
-                      <small>{item.contractFileName || item.listingUrl ? 'Documentation attached' : 'No document attached'}</small>
-                    </div>
-                  </div>
-                ))}
-                {activeMarketingBudgetItems.length === 0 && (
-                  <div className="reports-empty">
-                    {marketingBudgetLoading ? 'Loading active budget items...' : 'No Active status marketing budget items were found for this property.'}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="call-prep-spend-section">
-              <div className="reports-panel__eyebrow">Actual GL lines</div>
-              <div className="reports-list">
-                {callPrepSpendRows.map((row) => (
-                  <div className="reports-list__row" key={row.key}>
-                    <div>
-                      <strong>{row.label}</strong>
-                      <small>{row.glCodes || 'Marketing GL'} | {row.month.toLocaleDateString([], { month: 'long', year: 'numeric' })}</small>
-                    </div>
-                    <div>
-                      {formatCurrency(row.amount)}
-                      <small>{formatCurrency(row.allocatedInWindow)} in 60D</small>
-                    </div>
-                  </div>
-                ))}
-                {callPrepSpendRows.length === 0 && <div className="reports-empty">No active marketing GL spend was found for the 60 day call prep window.</div>}
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    );
-  };
 
   // ──────────────── RENDER ────────────────
 
@@ -9657,6 +9567,222 @@ const DashboardApp = ({
         <span aria-hidden="true">{auditTableSort.key === key ? (auditTableSort.direction === 'desc' ? 'v' : '^') : ''}</span>
       </button>
     );
+    const activeAuditReviewTab = AUDIT_REVIEW_TABS.some((tab) => tab.id === auditReviewTab) ? auditReviewTab : 'overview';
+    const selectAuditProperty = (propertyId) => {
+      setSelectedPropertyId(propertyId);
+      setAuditReviewTab('overview');
+    };
+    const renderAuditTrendPanel = () => (
+      <div className="audit-trend-panel">
+        <div className="audit-trend-panel__chart">
+          <AuditScoreSparkline points={selectedPortfolioAudit?.scoreHistory || selectedPortfolioAudit?.trend?.scoreHistory || []} />
+          <div>
+            <strong>{formatAuditScoreChange(selectedPortfolioAudit?.scoreChange)}</strong>
+            <small>{selectedPortfolioAudit?.lastChangeReason || selectedPortfolioAudit?.trend?.lastChangeReason || 'No prior audit comparison yet.'}</small>
+          </div>
+        </div>
+        <div className="audit-trend-panel__counts">
+          <span><strong>{formatNumber(selectedPortfolioAudit?.newIssueCount || 0)}</strong> new</span>
+          <span><strong>{formatNumber(selectedPortfolioAudit?.regressedIssueCount || 0)}</strong> regressed</span>
+          <span><strong>{formatNumber(selectedPortfolioAudit?.resolvedIssueCount || 0)}</strong> resolved</span>
+        </div>
+      </div>
+    );
+    const renderAuditWorkflowQueue = () => (
+      <div className="audit-workflow-queue">
+        <div className="audit-workflow-queue__header">
+          <strong>Finding workflow</strong>
+          <small>Move each active finding through the operating queue.</small>
+        </div>
+        {selectedAuditReasonPool.length > 0 ? selectedAuditReasonPool.map((reason, index) => (
+          <div key={reason.workflowKey || `${reason.category}-${index}`} className="audit-workflow-row">
+            <div>
+              <strong>{reason.issue || reason.rubricLabel || reason.category || `Finding ${index + 1}`}</strong>
+              <small>{getAuditFindingWorkflowLabel(reason.workflowStatus)}{reason.workflowUpdatedAt ? ` · updated ${getSnapshotTimestampLabel(reason.workflowUpdatedAt)}` : ''}</small>
+            </div>
+            <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
+              {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
+            </select>
+          </div>
+        )) : (
+          <div className="reports-empty">No active findings are available for this property yet.</div>
+        )}
+      </div>
+    );
+    const renderAuditWhyPanel = ({ includeWorkflowQueue = false } = {}) => (
+      <div className="audit-why-panel">
+        <div className="audit-why-panel__header">
+          <div>
+            <strong>Why this is flagged</strong>
+            <small>Top problems ranked by resident and business impact.</small>
+          </div>
+          <span>{formatNumber(selectedAuditFlaggedReasons.length)} shown</span>
+        </div>
+        {selectedAuditFlaggedReasons.length > 0 ? selectedAuditFlaggedReasons.map((reason, index) => (
+          <div key={`${reason.category || 'reason'}-${index}`} className="audit-why-row">
+            <div className="audit-why-row__rank">{index + 1}</div>
+            <div>
+              <div className="audit-why-row__topline">
+                <strong>{reason.issue || reason.rubricLabel || 'Review website finding'}</strong>
+                <span>{reason.category || 'Website QA'} · {reason.severity || 'medium'} · {reason.confidence || selectedPortfolioAudit?.confidence?.label || 'Medium'} confidence</span>
+              </div>
+              <small>{reason.evidence || 'Evidence is available in the latest audit output.'}</small>
+              {reason.recommendation && <em>{reason.recommendation}</em>}
+            </div>
+            <label className="audit-workflow-select">
+              <span>Workflow</span>
+              <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
+                {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
+              </select>
+            </label>
+          </div>
+        )) : (
+          <div className="reports-empty">No ranked reasons are available yet. Run or refresh the audit to populate impact-based findings.</div>
+        )}
+        {includeWorkflowQueue && renderAuditWorkflowQueue()}
+      </div>
+    );
+    const renderAuditRubricPanel = () => (
+      <div className="audit-rubric-panel">
+        <div className="audit-rubric-panel__header">
+          <div>
+            <strong>9-point audit rubric</strong>
+            <small>Compact evidence rows for the selected page and latest property audit.</small>
+          </div>
+          <span>{auditModeLabel}</span>
+        </div>
+        <div className="audit-rubric-table">
+          {auditRubricRows.map((row) => (
+            <div key={row.key} className="audit-rubric-row">
+              <div className="audit-rubric-row__status">
+                <span className={`audit-rubric-status audit-rubric-status--${row.status}`}>{getAuditRubricStatusLabel(row.status)}</span>
+                <strong>{row.score != null ? Math.round(row.score) : '—'}</strong>
+              </div>
+              <div className="audit-rubric-row__main">
+                <strong>{row.label}</strong>
+                <small>{row.evidence}</small>
+              </div>
+              <div className="audit-rubric-row__meta">
+                <span>{row.source}</span>
+                <span>{row.confidence} confidence</span>
+              </div>
+              <div className="audit-rubric-row__fix">{row.recommendation}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+    const renderAuditScreenshotPanel = () => (
+      <div className="audit-detail-grid">
+        <div className="audit-screenshot-card">
+          <div className="audit-screenshot-card__header">
+            <div>
+              <strong>Screenshot review</strong>
+              <small>Full-page scroll preview with audit callouts.</small>
+            </div>
+            <div className="audit-device-tabs" role="tablist" aria-label="Screenshot device">
+              {HEATMAP_DEVICE_OPTIONS.map((device) => (
+                <button
+                  key={device}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedHeatmapDevice === device}
+                  className={`audit-device-tab${selectedHeatmapDevice === device ? ' is-active' : ''}`}
+                  onClick={() => setSelectedHeatmapDevice(device)}
+                >
+                  {device}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="audit-screenshot-card__viewport">
+            {screenshotPreviewUrl ? (
+              <div className="audit-screenshot-card__scroll">
+                <img src={screenshotPreviewUrl} alt={`${selectedPortfolioAudit?.propertyName || selectedPropertyLabel} site screenshot`} className="audit-screenshot-card__image" />
+                {auditScreenshotAnnotations.length > 0 && (
+                  <div className="audit-screenshot-card__annotations" aria-label="Screenshot annotations">
+                    {auditScreenshotAnnotations.slice(0, 3).map((annotation, index) => (
+                      <div key={`${annotation.label}-${index}`} className={`audit-screenshot-annotation audit-screenshot-annotation--${annotation.status}`}>
+                        <strong>{annotation.label}</strong>
+                        <span>{annotation.evidence}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="audit-screenshot-card__empty">No screenshot preview stored for this page and device yet.</div>
+            )}
+          </div>
+          <div className="audit-screenshot-card__meta">
+            <strong>Screenshot</strong>
+            <span>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No capture yet'}</span>
+          </div>
+          <div className="audit-screenshot-callouts">
+            {auditScreenshotAnnotations.length > 0 ? auditScreenshotAnnotations.map((annotation, index) => (
+              <div key={`${annotation.source}-${annotation.label}-${index}`} className="audit-screenshot-callout">
+                <span className={`audit-rubric-status audit-rubric-status--${annotation.status}`}>{getAuditRubricStatusLabel(annotation.status)}</span>
+                <div>
+                  <strong>{annotation.label}</strong>
+                  <small>{annotation.source} · {annotation.evidence}</small>
+                </div>
+              </div>
+            )) : (
+              <div className="audit-screenshot-callout">
+                <span className="audit-rubric-status audit-rubric-status--pass">Pass</span>
+                <div>
+                  <strong>No visual callouts yet</strong>
+                  <small>Run an AI screenshot audit to attach page-specific visual findings.</small>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="audit-focus-list">
+          <div className="reports-list__row">
+            <div>
+              <strong>Call to action</strong>
+              <small>{auditPageResult?.ctaCount ?? 0} CTA-like elements detected on the selected page.</small>
+            </div>
+            <div>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</div>
+          </div>
+          <div className="reports-list__row">
+            <div>
+              <strong>Outdated dates</strong>
+              <small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'No stale dates flagged yet.'}</small>
+            </div>
+            <div>{formatNumber((auditStaleDates || []).length || selectedPortfolioAudit?.staleDateCount || 0)}</div>
+          </div>
+          <div className="reports-list__row">
+            <div>
+              <strong>Broken links</strong>
+              <small>{Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected in the latest audit.'}</small>
+            </div>
+            <div>{formatNumber((auditBrokenLinks || []).length || selectedPortfolioAudit?.brokenLinkCount || 0)}</div>
+          </div>
+          <div className="reports-list__row">
+            <div>
+              <strong>Value add</strong>
+              <small>{(auditRecommendations || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.recommendation || item.text || '')).filter(Boolean).join(' | ') || 'Run a fresh audit to generate recommendations for stronger leasing value.'}</small>
+            </div>
+            <div>{formatNumber((auditRecommendations || []).length || selectedPortfolioAudit?.recommendationCount || 0)}</div>
+          </div>
+          {(auditIssues || []).slice(0, 4).map((item, index) => (
+            <div key={`audit-command-issue-${index}`} className="reports-list__row">
+              <div>
+                <strong>Issue</strong>
+                <small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding'}</small>
+              </div>
+              <div>Fix</div>
+            </div>
+          ))}
+          {!latestAudit && !siteAuditLoading && (
+            <div className="reports-empty">Select a property from the table, then run an audit if this property has not been scored yet.</div>
+          )}
+        </div>
+      </div>
+    );
 
     return (
       <div className="audit-view">
@@ -9761,10 +9887,17 @@ const DashboardApp = ({
                             <tr
                               key={property.propertyId}
                               className={isActive ? 'is-active' : ''}
-                              onClick={() => setSelectedPropertyId(property.propertyId)}
+                              onClick={() => selectAuditProperty(property.propertyId)}
                             >
                               <td>
-                                <button type="button" className="audit-table__property" onClick={() => setSelectedPropertyId(property.propertyId)}>
+                                <button
+                                  type="button"
+                                  className="audit-table__property"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    selectAuditProperty(property.propertyId);
+                                  }}
+                                >
                                   <strong>{property.propertyName}</strong>
                                   <span>{[property.city, property.state].filter(Boolean).join(', ') || 'Location pending'}</span>
                                 </button>
@@ -9808,7 +9941,7 @@ const DashboardApp = ({
               )}
             </section>
 
-            <section className="reports-panel">
+            <section className="reports-panel audit-review-panel">
               <div className="reports-panel__eyebrow">Selected Property</div>
               <div className="reports-panel__title">
                 {selectedPortfolioAudit?.propertyName || selectedPropertyLabel || 'Choose a property'}
@@ -9835,208 +9968,31 @@ const DashboardApp = ({
                 <div className="reports-stat"><span>Freshness / Links</span><strong>{latestAudit?.freshness_score ?? selectedPortfolioAudit?.freshnessScore ?? '—'}</strong><small>{formatNumber(Array.isArray(auditBrokenLinks) ? auditBrokenLinks.length : selectedPortfolioAudit?.brokenLinkCount || 0)} suspicious links</small></div>
               </div>
 
-              <div className="audit-trend-panel">
-                <div className="audit-trend-panel__chart">
-                  <AuditScoreSparkline points={selectedPortfolioAudit?.scoreHistory || selectedPortfolioAudit?.trend?.scoreHistory || []} />
-                  <div>
-                    <strong>{formatAuditScoreChange(selectedPortfolioAudit?.scoreChange)}</strong>
-                    <small>{selectedPortfolioAudit?.lastChangeReason || selectedPortfolioAudit?.trend?.lastChangeReason || 'No prior audit comparison yet.'}</small>
-                  </div>
-                </div>
-                <div className="audit-trend-panel__counts">
-                  <span><strong>{formatNumber(selectedPortfolioAudit?.newIssueCount || 0)}</strong> new</span>
-                  <span><strong>{formatNumber(selectedPortfolioAudit?.regressedIssueCount || 0)}</strong> regressed</span>
-                  <span><strong>{formatNumber(selectedPortfolioAudit?.resolvedIssueCount || 0)}</strong> resolved</span>
-                </div>
+              <div className="audit-review-tabs" role="tablist" aria-label="Audit review sections">
+                {AUDIT_REVIEW_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeAuditReviewTab === tab.id}
+                    className={`audit-review-tab${activeAuditReviewTab === tab.id ? ' is-active' : ''}`}
+                    onClick={() => setAuditReviewTab(tab.id)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
 
-              <div className="audit-why-panel">
-                <div className="audit-why-panel__header">
-                  <div>
-                    <strong>Why this is flagged</strong>
-                    <small>Top problems ranked by resident and business impact.</small>
-                  </div>
-                  <span>{formatNumber(selectedAuditFlaggedReasons.length)} shown</span>
-                </div>
-                {selectedAuditFlaggedReasons.length > 0 ? selectedAuditFlaggedReasons.map((reason, index) => (
-                  <div key={`${reason.category || 'reason'}-${index}`} className="audit-why-row">
-                    <div className="audit-why-row__rank">{index + 1}</div>
-                    <div>
-                      <div className="audit-why-row__topline">
-                        <strong>{reason.issue || reason.rubricLabel || 'Review website finding'}</strong>
-                        <span>{reason.category || 'Website QA'} · {reason.severity || 'medium'} · {reason.confidence || selectedPortfolioAudit?.confidence?.label || 'Medium'} confidence</span>
-                      </div>
-                      <small>{reason.evidence || 'Evidence is available in the latest audit output.'}</small>
-                      {reason.recommendation && <em>{reason.recommendation}</em>}
-                    </div>
-                    <label className="audit-workflow-select">
-                      <span>Workflow</span>
-                      <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
-                        {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                )) : (
-                  <div className="reports-empty">No ranked reasons are available yet. Run or refresh the audit to populate impact-based findings.</div>
+              <div className="audit-review-scroll">
+                {activeAuditReviewTab === 'overview' && (
+                  <>
+                    {renderAuditTrendPanel()}
+                    {renderAuditWhyPanel()}
+                  </>
                 )}
-                {selectedAuditReasonPool.length > 0 && (
-                  <div className="audit-workflow-queue">
-                    <div className="audit-workflow-queue__header">
-                      <strong>Finding workflow</strong>
-                      <small>Move each active finding through the operating queue.</small>
-                    </div>
-                    {selectedAuditReasonPool.map((reason, index) => (
-                      <div key={reason.workflowKey || `${reason.category}-${index}`} className="audit-workflow-row">
-                        <div>
-                          <strong>{reason.issue || reason.rubricLabel || reason.category || `Finding ${index + 1}`}</strong>
-                          <small>{getAuditFindingWorkflowLabel(reason.workflowStatus)}{reason.workflowUpdatedAt ? ` · updated ${getSnapshotTimestampLabel(reason.workflowUpdatedAt)}` : ''}</small>
-                        </div>
-                        <select value={reason.workflowStatus || 'new'} onChange={(event) => updateAuditFindingWorkflow(reason.workflowKey, event.target.value)}>
-                          {AUDIT_FINDING_WORKFLOW_STATUSES.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
-                        </select>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="audit-rubric-panel">
-                <div className="audit-rubric-panel__header">
-                  <div>
-                    <strong>9-point audit rubric</strong>
-                    <small>Compact evidence rows for the selected page and latest property audit.</small>
-                  </div>
-                  <span>{auditModeLabel}</span>
-                </div>
-                <div className="audit-rubric-table">
-                  {auditRubricRows.map((row) => (
-                    <div key={row.key} className="audit-rubric-row">
-                      <div className="audit-rubric-row__status">
-                        <span className={`audit-rubric-status audit-rubric-status--${row.status}`}>{getAuditRubricStatusLabel(row.status)}</span>
-                        <strong>{row.score != null ? Math.round(row.score) : '—'}</strong>
-                      </div>
-                      <div className="audit-rubric-row__main">
-                        <strong>{row.label}</strong>
-                        <small>{row.evidence}</small>
-                      </div>
-                      <div className="audit-rubric-row__meta">
-                        <span>{row.source}</span>
-                        <span>{row.confidence} confidence</span>
-                      </div>
-                      <div className="audit-rubric-row__fix">{row.recommendation}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="audit-detail-grid">
-                <div className="audit-screenshot-card">
-                  <div className="audit-screenshot-card__header">
-                    <div>
-                      <strong>Screenshot review</strong>
-                      <small>Full-page scroll preview with audit callouts.</small>
-                    </div>
-                    <div className="audit-device-tabs" role="tablist" aria-label="Screenshot device">
-                      {HEATMAP_DEVICE_OPTIONS.map((device) => (
-                        <button
-                          key={device}
-                          type="button"
-                          role="tab"
-                          aria-selected={selectedHeatmapDevice === device}
-                          className={`audit-device-tab${selectedHeatmapDevice === device ? ' is-active' : ''}`}
-                          onClick={() => setSelectedHeatmapDevice(device)}
-                        >
-                          {device}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="audit-screenshot-card__viewport">
-                    {screenshotPreviewUrl ? (
-                      <div className="audit-screenshot-card__scroll">
-                        <img src={screenshotPreviewUrl} alt={`${selectedPortfolioAudit?.propertyName || selectedPropertyLabel} site screenshot`} className="audit-screenshot-card__image" />
-                        {auditScreenshotAnnotations.length > 0 && (
-                          <div className="audit-screenshot-card__annotations" aria-label="Screenshot annotations">
-                            {auditScreenshotAnnotations.slice(0, 3).map((annotation, index) => (
-                              <div key={`${annotation.label}-${index}`} className={`audit-screenshot-annotation audit-screenshot-annotation--${annotation.status}`}>
-                                <strong>{annotation.label}</strong>
-                                <span>{annotation.evidence}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="audit-screenshot-card__empty">No screenshot preview stored for this page and device yet.</div>
-                    )}
-                  </div>
-                  <div className="audit-screenshot-card__meta">
-                    <strong>Screenshot</strong>
-                    <span>{selectedScreenshot?.capturedAt ? getSnapshotTimestampLabel(selectedScreenshot.capturedAt) : 'No capture yet'}</span>
-                  </div>
-                  <div className="audit-screenshot-callouts">
-                    {auditScreenshotAnnotations.length > 0 ? auditScreenshotAnnotations.map((annotation, index) => (
-                      <div key={`${annotation.source}-${annotation.label}-${index}`} className="audit-screenshot-callout">
-                        <span className={`audit-rubric-status audit-rubric-status--${annotation.status}`}>{getAuditRubricStatusLabel(annotation.status)}</span>
-                        <div>
-                          <strong>{annotation.label}</strong>
-                          <small>{annotation.source} · {annotation.evidence}</small>
-                        </div>
-                      </div>
-                    )) : (
-                      <div className="audit-screenshot-callout">
-                        <span className="audit-rubric-status audit-rubric-status--pass">Pass</span>
-                        <div>
-                          <strong>No visual callouts yet</strong>
-                          <small>Run an AI screenshot audit to attach page-specific visual findings.</small>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="audit-focus-list">
-                  <div className="reports-list__row">
-                    <div>
-                      <strong>Call to action</strong>
-                      <small>{auditPageResult?.ctaCount ?? 0} CTA-like elements detected on the selected page.</small>
-                    </div>
-                    <div>{latestAudit?.urgency_score ?? selectedPortfolioAudit?.urgencyScore ?? '—'}</div>
-                  </div>
-                  <div className="reports-list__row">
-                    <div>
-                      <strong>Outdated dates</strong>
-                      <small>{(auditStaleDates || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.text || item.issue || '')).filter(Boolean).join(' | ') || 'No stale dates flagged yet.'}</small>
-                    </div>
-                    <div>{formatNumber((auditStaleDates || []).length || selectedPortfolioAudit?.staleDateCount || 0)}</div>
-                  </div>
-                  <div className="reports-list__row">
-                    <div>
-                      <strong>Broken links</strong>
-                      <small>{Array.isArray(auditBrokenLinks) && auditBrokenLinks.length ? 'Suspicious internal links need review.' : 'No suspicious internal links detected in the latest audit.'}</small>
-                    </div>
-                    <div>{formatNumber((auditBrokenLinks || []).length || selectedPortfolioAudit?.brokenLinkCount || 0)}</div>
-                  </div>
-                  <div className="reports-list__row">
-                    <div>
-                      <strong>Value add</strong>
-                      <small>{(auditRecommendations || []).slice(0, 2).map((item) => (typeof item === 'string' ? item : item.recommendation || item.text || '')).filter(Boolean).join(' | ') || 'Run a fresh audit to generate recommendations for stronger leasing value.'}</small>
-                    </div>
-                    <div>{formatNumber((auditRecommendations || []).length || selectedPortfolioAudit?.recommendationCount || 0)}</div>
-                  </div>
-                  {(auditIssues || []).slice(0, 4).map((item, index) => (
-                    <div key={`audit-command-issue-${index}`} className="reports-list__row">
-                      <div>
-                        <strong>Issue</strong>
-                        <small>{typeof item === 'string' ? item : item.issue || item.text || 'Review latest finding'}</small>
-                      </div>
-                      <div>Fix</div>
-                    </div>
-                  ))}
-                  {!latestAudit && !siteAuditLoading && (
-                    <div className="reports-empty">Select a property from the table, then run an audit if this property has not been scored yet.</div>
-                  )}
-                </div>
+                {activeAuditReviewTab === 'rubric' && renderAuditRubricPanel()}
+                {activeAuditReviewTab === 'screenshot' && renderAuditScreenshotPanel()}
+                {activeAuditReviewTab === 'workflow' && renderAuditWorkflowQueue()}
               </div>
             </section>
           </div>

@@ -39,6 +39,11 @@ export const PROPERTY_REPORTING_OVERVIEW_URL = resolveApiUrl(
   '/api/reporting/property-overview'
 );
 
+export const CALL_PREP_SUMMARY_URL = resolveApiUrl(
+  import.meta.env.VITE_CALL_PREP_SUMMARY_URL || '',
+  '/api/reporting/call-prep-summary'
+);
+
 export const WEBSITE_MANAGER_URL = resolveApiUrl(
   import.meta.env.VITE_WEBSITE_MANAGER_URL || '',
   '/api/admin/website-manager'

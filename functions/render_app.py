@@ -52,6 +52,7 @@ from render_supabase_admin_access import (
 from render_supabase_reporting import (
     get_multi_property_call_prep_summary,
     get_multi_property_reporting_overview_summary,
+    get_property_call_prep_summary,
     get_property_reporting_overview_summary,
 )
 from render_supabase_heatmaps import (
@@ -1596,6 +1597,68 @@ def create_app() -> Flask:
                 status_code=500,
             )
 
+    @app.route("/api/reporting/call-prep-summary", methods=["GET", "POST", "OPTIONS"])
+    def staged_call_prep_summary():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        req_json = request.get_json(silent=True) or {}
+        property_id = request.args.get("property_id") or req_json.get("property_id")
+        property_ids_value = request.args.get("property_ids") or req_json.get("property_ids")
+        start_date = request.args.get("start_date") or req_json.get("start_date")
+        end_date = request.args.get("end_date") or req_json.get("end_date")
+        if not property_id or str(property_id) == "all":
+            return build_cors_json_response(
+                {
+                    "status": "error",
+                    "error": "Missing required single-property parameter: property_id",
+                    "staging_only": True,
+                },
+                status_code=400,
+            )
+
+        if isinstance(property_ids_value, str):
+            try:
+                decoded = json.loads(property_ids_value)
+                property_ids = decoded if isinstance(decoded, list) else [item.strip() for item in property_ids_value.split(",") if item.strip()]
+            except json.JSONDecodeError:
+                property_ids = [item.strip() for item in property_ids_value.split(",") if item.strip()]
+        elif isinstance(property_ids_value, list):
+            property_ids = property_ids_value
+        else:
+            property_ids = []
+
+        try:
+            access_token, _user = require_any_property_permission(str(property_id), ("analytics.view", "reports.view"))
+            allowed_property_ids = [
+                str(candidate)
+                for candidate in property_ids
+                if str(candidate) != str(property_id)
+                and any(
+                    user_has_property_permission(access_token, str(candidate), permission)
+                    for permission in ("analytics.view", "reports.view")
+                )
+            ]
+            payload = get_property_call_prep_summary(
+                str(property_id),
+                allowed_property_ids,
+                start_date,
+                end_date,
+                access_token,
+            )
+            status_code = 200 if payload.get("status") != "error" else 503
+        except RenderPermissionError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 403
+        except RenderAuthError as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 401
+        except Exception as error:
+            payload = {"status": "error", "error": str(error), "staging_only": True}
+            status_code = 500
+
+        return build_cors_json_response(payload, status_code=status_code)
+
     @app.route("/api/reporting/property-overview", methods=["GET", "POST", "OPTIONS"])
     def staged_property_reporting_overview():
         if request.method == "OPTIONS":
@@ -1657,7 +1720,13 @@ def create_app() -> Flask:
             else:
                 payload = get_multi_property_reporting_overview_summary(allowed_property_ids, start_date, end_date, access_token, red_list_only=red_list_only)
         else:
-            payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
+            if call_prep_only:
+                payload = get_multi_property_call_prep_summary([str(property_id)], start_date, end_date, access_token)
+                payload["property_id"] = str(property_id)
+                payload["property_ids"] = [str(property_id)]
+                payload["property_count"] = 1
+            else:
+                payload = get_property_reporting_overview_summary(str(property_id), start_date, end_date, access_token)
         status_code = 200 if payload.get("status") != "error" else 503
         return build_cors_json_response(payload, status_code=status_code)
 

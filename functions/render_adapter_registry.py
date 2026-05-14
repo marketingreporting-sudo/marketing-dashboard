@@ -268,6 +268,12 @@ HTTP_ENDPOINT_SPECS = (
         purpose="Read a staging-only Supabase property reporting overview payload.",
     ),
     HttpEndpointSpec(
+        route="/api/reporting/call-prep-summary",
+        methods=("GET", "POST", "OPTIONS"),
+        firebase_handler="staging_supabase_call_prep_summary_only",
+        purpose="Read a ready-to-render Supabase call prep summary payload.",
+    ),
+    HttpEndpointSpec(
         route="/api/admin/website-manager",
         methods=("GET", "POST", "OPTIONS"),
         firebase_handler="staging_supabase_website_manager_only",
