@@ -115,6 +115,51 @@ class CallPrepSummaryTests(unittest.TestCase):
         self.assertEqual(metrics["applications"], 1)
         self.assertTrue(metrics["dataQuality"]["applicationFallbackUsed"])
 
+    def test_call_prep_metrics_use_lead_statuses(self):
+        current_start = dt.date(2026, 5, 1)
+        current_end = dt.date(2026, 5, 14)
+        payload = {
+            "lead_items": [
+                {
+                    "_propertyId": "10",
+                    "_date": "2026-05-02",
+                    "leadId": "lead-1",
+                    "status": "New Lead",
+                },
+                {
+                    "_propertyId": "10",
+                    "_date": "2026-05-03",
+                    "leadId": "lead-2",
+                    "status": "Application Completed",
+                },
+                {
+                    "_propertyId": "10",
+                    "_date": "2026-05-04",
+                    "leadId": "lead-3",
+                    "status": "Lease Approved",
+                },
+            ],
+            "event_items": [],
+            "lease_items": [],
+            "invoice_items": [],
+        }
+
+        metrics = reporting._build_call_prep_metrics(payload, current_start, current_end, "10")
+
+        self.assertEqual(metrics["leads"], 3)
+        self.assertEqual(metrics["applications"], 1)
+        self.assertEqual(metrics["leases"], 1)
+        self.assertEqual(metrics["dataQuality"]["applicationStatusRows"], 1)
+        self.assertEqual(metrics["dataQuality"]["leaseStatusRows"], 1)
+
+    def test_lead_created_date_accepts_entrata_created_date_fields(self):
+        row = {
+            "activity_date": "2026-05-14",
+            "raw_data": {"createdDate": "05/03/2026"},
+        }
+
+        self.assertEqual(reporting._lead_created_date(row), dt.date(2026, 5, 3))
+
     def test_multi_property_call_prep_summary_batches_table_reads(self):
         fetch_results = [[], [], [], []]
 

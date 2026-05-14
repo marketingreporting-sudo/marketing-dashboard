@@ -255,6 +255,32 @@ def _lead_created_date(row: dict[str, Any]) -> date | None:
     return _event_date(row)
 
 
+def _lead_status(row: dict[str, Any]) -> str:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
+    status_value = (
+        row.get("status")
+        or payload.get("status")
+        or payload.get("leadStatus")
+        or payload.get("lead_status")
+        or payload.get("applicationStatus")
+        or payload.get("application_status")
+        or payload.get("leaseStatus")
+        or payload.get("lease_status")
+        or payload.get("eventReason")
+    )
+    return re.sub(r"[^a-z0-9]+", " ", str(status_value or "").lower()).strip()
+
+
+def _is_application_completed_lead(row: dict[str, Any]) -> bool:
+    status = _lead_status(row)
+    return bool(status and "application" in status and "complete" in status)
+
+
+def _is_lease_approved_lead(row: dict[str, Any]) -> bool:
+    status = _lead_status(row)
+    return bool(status and "lease" in status and ("approved" in status or "approve" in status))
+
+
 def _is_lead_event_api_row(row: dict[str, Any]) -> bool:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
     source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
@@ -348,6 +374,12 @@ def _event_date(row: dict[str, Any]) -> date | None:
         or payload.get("event_date")
         or payload.get("eventDateTime")
         or payload.get("eventDatetime")
+        or payload.get("createdDate")
+        or payload.get("created_date")
+        or payload.get("leadCreatedDate")
+        or payload.get("lead_created_date")
+        or payload.get("dateCreated")
+        or payload.get("date_created")
         or payload.get("date")
         or payload.get("timestamp")
         or payload.get("createdAt")
@@ -577,10 +609,24 @@ def _compact_lead_payload(row: dict[str, Any]) -> dict[str, Any]:
     for key in (
         "leadEventId", "eventId", "eventID", "leadId", "leadID", "prospectId",
         "prospectID", "customerId", "customerID", "applicationId", "leadSource",
-        "internetListingService",
+        "internetListingService", "status", "leadStatus", "lead_status",
+        "applicationStatus", "application_status", "leaseStatus", "lease_status",
+        "createdDate", "created_date", "leadCreatedDate", "lead_created_date",
+        "dateCreated", "date_created",
     ):
         if payload.get(key) not in (None, ""):
             compact[key] = payload.get(key)
+    for source_key, target_key in (
+        ("status", "status"),
+        ("lead_source", "leadSource"),
+        ("internet_listing_service", "internetListingService"),
+        ("lead_id", "leadId"),
+        ("application_id", "applicationId"),
+        ("customer_id", "customerId"),
+        ("prospect_id", "prospectId"),
+    ):
+        if compact.get(target_key) in (None, "") and row.get(source_key) not in (None, ""):
+            compact[target_key] = row.get(source_key)
     return compact
 
 
@@ -1363,7 +1409,11 @@ def get_multi_property_call_prep_summary(
                 "leads": (
                     "property_leads",
                     [
-                        ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                        (
+                            "select",
+                            "id,property_snapshot_id,property_id,activity_date,lead_id,application_id,"
+                            "customer_id,prospect_id,status,lead_source,internet_listing_service,raw_data",
+                        ),
                         ("property_id", property_filter),
                         ("activity_date", f"gte.{start_date.isoformat()}"),
                         ("activity_date", f"lte.{end_date.isoformat()}"),
@@ -1526,35 +1576,55 @@ def _build_call_prep_metrics(payload: dict[str, Any], start_date: date, end_date
 
     application_records: dict[str, dict[str, Any]] = {}
     lease_records: dict[str, dict[str, Any]] = {}
+    application_status_records: dict[str, dict[str, Any]] = {}
+    lease_status_records: dict[str, dict[str, Any]] = {}
+    for lead in lead_rows:
+        lead_date = _parse_activity_date(lead.get("_date") or lead.get("activity_date") or lead.get("date"))
+        if not lead_date:
+            continue
+        if _is_application_completed_lead(lead):
+            key = _stable_key(lead, (*_APPLICATION_KEY_CANDIDATES, *_LEAD_KEY_CANDIDATES))
+            existing = application_status_records.get(key)
+            if not existing or lead_date < existing["date"]:
+                application_status_records[key] = {"date": lead_date, "item": lead}
+        if _is_lease_approved_lead(lead):
+            key = _stable_key(lead, (*_LEASE_KEY_CANDIDATES, *_LEAD_KEY_CANDIDATES))
+            existing = lease_status_records.get(key)
+            if not existing or lead_date < existing["date"]:
+                lease_status_records[key] = {"date": lead_date, "item": lead}
+
+    application_records.update(application_status_records)
+    lease_records.update(lease_status_records)
     for event in payload.get("event_items", []):
         if not _item_matches_property(event, property_id):
             continue
         event_date = _event_date(event)
         if not event_date or event_date < start_date or event_date > end_date:
             continue
-        if _is_completed_application_event(event):
+        if not application_status_records and _is_completed_application_event(event):
             key = _stable_key(event, _APPLICATION_KEY_CANDIDATES)
             existing = application_records.get(key)
             if not existing or event_date < existing["date"]:
                 application_records[key] = {"date": event_date, "item": event}
-        if _is_approved_lease_event(event):
+        if not lease_status_records and _is_approved_lease_event(event):
             key = _stable_key(event, _LEASE_KEY_CANDIDATES)
             existing = lease_records.get(key)
             if not existing or event_date < existing["date"]:
                 lease_records[key] = {"date": event_date, "item": event}
 
-    for lease in payload.get("lease_items", []):
-        if not _item_matches_property(lease, property_id):
-            continue
-        approval_date = _lease_approval_date(lease)
-        if not approval_date or approval_date < start_date or approval_date > end_date:
-            continue
-        key = _stable_key(lease, _LEASE_KEY_CANDIDATES)
-        existing = lease_records.get(key)
-        if not existing or approval_date < existing["date"]:
-            lease_records[key] = {"date": approval_date, "item": lease}
+    if not lease_status_records:
+        for lease in payload.get("lease_items", []):
+            if not _item_matches_property(lease, property_id):
+                continue
+            approval_date = _lease_approval_date(lease)
+            if not approval_date or approval_date < start_date or approval_date > end_date:
+                continue
+            key = _stable_key(lease, _LEASE_KEY_CANDIDATES)
+            existing = lease_records.get(key)
+            if not existing or approval_date < existing["date"]:
+                lease_records[key] = {"date": approval_date, "item": lease}
 
-    if not application_records:
+    if not application_records and not application_status_records:
         for record in [*lead_rows, *payload.get("lease_items", [])]:
             if not _item_matches_property(record, property_id) or not _has_application_identifier(record):
                 continue
@@ -1612,6 +1682,8 @@ def _build_call_prep_metrics(payload: dict[str, Any], start_date: date, end_date
             "eventRows": len(payload.get("event_items", [])),
             "leaseRows": len(payload.get("lease_items", [])),
             "invoiceRows": len(payload.get("invoice_items", [])),
+            "applicationStatusRows": len(application_status_records),
+            "leaseStatusRows": len(lease_status_records),
             "applicationFallbackUsed": application_count > 0 and not any(_is_completed_application_event(event) for event in payload.get("event_items", [])),
             "leaseFallbackAvailable": bool(payload.get("lease_items")),
         },
