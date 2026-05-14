@@ -63,6 +63,7 @@ _ALL_MARKETING_DESCRIPTIONS = (
 )
 _RED_LIST_ACTIVITY_WINDOW_DAYS = 30
 _RED_LIST_MAX_WORKERS = 12
+_ONLINE_GUEST_CARD_EVENT_TYPE_ID = 10
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -241,6 +242,38 @@ def _event_reason(row: dict[str, Any]) -> str:
     ]
     value = next((candidate for candidate in candidates if candidate not in (None, "")), "")
     return re.sub(r"\s+", " ", str(value).lower().replace(" :", ":").replace(": ", ":")).strip()
+
+
+def _is_online_guest_card_event(row: dict[str, Any]) -> bool:
+    if _event_type_id(row) == _ONLINE_GUEST_CARD_EVENT_TYPE_ID:
+        return True
+    reason = _event_reason(row)
+    return "online guest card" in reason or "guest card" in reason
+
+
+def _lead_created_date(row: dict[str, Any]) -> date | None:
+    return _event_date(row)
+
+
+def _is_lead_event_api_row(row: dict[str, Any]) -> bool:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
+    source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
+    source_event_type = str(payload.get("_sourceEventType") or row.get("_sourceEventType") or "").strip()
+    if source_api != "getLeadEvents":
+        return False
+    return source_event_type == "online_guest_card" or _is_online_guest_card_event(row)
+
+
+def _filter_lead_event_rows(rows: list[dict[str, Any]], start_date: date, end_date: date) -> list[dict[str, Any]]:
+    filtered_rows: list[dict[str, Any]] = []
+    for row in rows:
+        lead_date = _lead_created_date(row)
+        if not lead_date or lead_date < start_date or lead_date > end_date:
+            continue
+        if not _is_lead_event_api_row(row):
+            continue
+        filtered_rows.append(row)
+    return filtered_rows
 
 
 def _is_completed_application_event(row: dict[str, Any]) -> bool:
@@ -524,10 +557,19 @@ def _shape_child_payload(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _shape_lead_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = _shape_child_payload(row)
+    occurred_date = _lead_created_date(row)
+    if occurred_date:
+        payload["_date"] = occurred_date.isoformat()
+    return payload
+
+
 def _compact_lead_payload(row: dict[str, Any]) -> dict[str, Any]:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else {}
+    occurred_date = _lead_created_date(row)
     compact = {
-        "_date": row.get("activity_date"),
+        "_date": occurred_date.isoformat() if occurred_date else row.get("activity_date"),
         "_parentId": row.get("property_snapshot_id"),
         "_propertyId": row.get("property_id"),
         "id": row.get("id"),
@@ -828,6 +870,7 @@ def get_property_red_list_summary(
         ],
         headers=headers,
     )
+    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
     pricing_rows = _fetch_json(
         "property_availability_snapshots",
         [
@@ -965,6 +1008,7 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
+    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
     events_rows = _fetch_json(
         "property_events",
         [
@@ -987,6 +1031,7 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
+    lead_60_day_rows = _filter_lead_event_rows(lead_60_day_rows, conventional_window_start, end_date)
     event_60_day_rows = _fetch_json(
         "property_events",
         [
@@ -1108,7 +1153,7 @@ def get_property_reporting_overview_payload(
     availability_pricing_snapshot = _shape_current_snapshot(
         pricing_rows[0] if pricing_rows else None,
         fallback_array_keys=("floorplans", "units"),
-    )
+    ) or {}
     availability_snapshot_date = (
         availability_pricing_snapshot.get("last_synced_at")
         or availability_pricing_snapshot.get("last_changed_at")
@@ -1126,13 +1171,13 @@ def get_property_reporting_overview_payload(
             "invoice_end_date": invoice_end.isoformat(),
         },
         "parent_docs": [_shape_property_snapshot(row) for row in parent_rows],
-        "lead_items": [_shape_child_payload(row) for row in leads_rows],
+        "lead_items": [_shape_lead_payload(row) for row in leads_rows],
         "event_items": [_shape_child_payload(row) for row in events_rows],
         "lease_items": [_shape_property_lease(row) for row in lease_rows],
         "prelease_lease_items": [_shape_property_lease(row) for row in prelease_lease_rows],
         "prior_prelease_lease_items": [_shape_property_lease(row) for row in prior_prelease_lease_rows],
         "conventional_lease_items": [_shape_property_lease(row) for row in conventional_lease_rows],
-        "lead_60_day_items": [_shape_child_payload(row) for row in lead_60_day_rows],
+        "lead_60_day_items": [_shape_lead_payload(row) for row in lead_60_day_rows],
         "event_60_day_items": [_shape_child_payload(row) for row in event_60_day_rows],
         "invoice_items": [_shape_child_payload(row) for row in invoice_rows],
         "availability_items": [],
@@ -1351,6 +1396,8 @@ def get_multi_property_call_prep_summary(
         events_rows = []
         lease_rows = []
         invoices_rows = []
+
+    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
 
     for row in leads_rows:
         _increment_call_prep_row_count(property_row_counts, row, "lead_items")

@@ -111,6 +111,69 @@ class ReportingTabSummaryTests(unittest.TestCase):
 
 
 class RedListSummaryTests(unittest.TestCase):
+    def test_reporting_overview_counts_only_lead_event_api_guest_cards_in_range(self):
+        def fake_fetch(table_name, query_params, *, headers=None):
+            if table_name == "property_daily_snapshots":
+                return [{"id": "10_2026-05-14", "property_id": "10", "activity_date": "2026-05-14"}]
+            if table_name == "property_leads":
+                return [
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-10",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "event-in-range",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "05/10/2026",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-11",
+                        "raw_data": {
+                            "leadId": "legacy-current-lead",
+                            "createdDate": "05/11/2026",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "event-outside-range",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "04/30/2026",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-13",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "eventId": "application-event",
+                            "typeId": "12",
+                            "eventReason": "Application Status: Completed",
+                            "eventDate": "05/13/2026",
+                        },
+                    },
+                ]
+            if table_name == "property_availability_snapshots":
+                return [{"property_id": "10", "floorplans": [], "units": [], "raw_result": {}}]
+            return []
+
+        with mock.patch.object(reporting, "_supabase_anon_headers", return_value={}), \
+             mock.patch.object(reporting, "_fetch_json", side_effect=fake_fetch), \
+             mock.patch.object(reporting, "get_property_red_list_summary", return_value={}):
+            payload = reporting.get_property_reporting_overview_payload("10", "2026-05-01", "2026-05-14", access_token="token")
+
+        self.assertEqual(payload["counts"]["lead_items"], 1)
+        self.assertEqual(payload["lead_items"][0]["leadEventId"], "event-in-range")
+        self.assertEqual(payload["lead_items"][0]["_date"], "2026-05-10")
+
     def test_red_list_summary_uses_latest_supabase_snapshot_and_last_30_days(self):
         queries = []
 
@@ -120,9 +183,10 @@ class RedListSummaryTests(unittest.TestCase):
                 return [{"property_id": "10", "activity_date": "2026-05-10"}]
             if table_name == "property_leads":
                 return [
-                    {"property_id": "10", "activity_date": "2026-04-11", "raw_data": {"leadId": "a"}},
-                    {"property_id": "10", "activity_date": "2026-05-01", "raw_data": {"leadId": "b"}},
-                    {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"leadId": "c"}},
+                    {"property_id": "10", "activity_date": "2026-04-11", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "a", "typeId": "10", "eventDate": "04/11/2026"}},
+                    {"property_id": "10", "activity_date": "2026-05-01", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "b", "typeId": "10", "eventDate": "05/01/2026"}},
+                    {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "c", "typeId": "10", "eventDate": "05/10/2026"}},
+                    {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"leadId": "legacy"}},
                 ]
             if table_name == "property_availability_snapshots":
                 return [{"property_id": "10", "raw_result": {"bed_count": 100, "unit_count": 100}}]
