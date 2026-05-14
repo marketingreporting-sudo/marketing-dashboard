@@ -134,6 +134,35 @@ class CallPrepSummaryTests(unittest.TestCase):
             params = call.args[1]
             self.assertIn(("property_id", "in.(10,20)"), params)
 
+    def test_call_prep_counts_migrated_leads_without_event_api_metadata(self):
+        rows_by_key = {
+            "leads": [
+                {
+                    "property_snapshot_id": "snap-1",
+                    "property_id": "10",
+                    "activity_date": "2026-05-14",
+                    "raw_data": {"leadId": "lead-1", "leadSource": "Website"},
+                }
+            ],
+            "events": [],
+            "leases": [],
+            "invoices": [],
+        }
+
+        with mock.patch.object(reporting, "_supabase_anon_headers", return_value={"Authorization": "Bearer test"}), \
+             mock.patch.object(reporting, "_fetch_call_prep_table_set", return_value=(rows_by_key, {})):
+            payload = reporting.get_multi_property_call_prep_summary(
+                ["10"],
+                "2026-05-01",
+                "2026-05-14",
+                access_token="token",
+            )
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["counts"]["lead_items"], 1)
+        self.assertEqual(payload["property_row_counts"]["10"]["lead_items"], 1)
+        self.assertEqual(payload["lead_items"][0]["leadId"], "lead-1")
+
     def test_google_ads_cached_snapshot_is_derived_by_window(self):
         payload = {
             "Ads": {

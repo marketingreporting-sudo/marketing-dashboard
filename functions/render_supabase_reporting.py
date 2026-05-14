@@ -1424,8 +1424,6 @@ def get_multi_property_call_prep_summary(
         lease_rows = []
         invoices_rows = []
 
-    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
-
     for row in leads_rows:
         _increment_call_prep_row_count(property_row_counts, row, "lead_items")
     for row in events_rows:
