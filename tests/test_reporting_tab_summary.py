@@ -110,5 +110,37 @@ class ReportingTabSummaryTests(unittest.TestCase):
         self.assertGreaterEqual(len(payload["errors"]), 1)
 
 
+class RedListSummaryTests(unittest.TestCase):
+    def test_red_list_summary_uses_latest_supabase_snapshot_and_last_30_days(self):
+        queries = []
+
+        def fake_fetch(table_name, query_params, *, headers=None):
+            queries.append((table_name, dict(query_params)))
+            if table_name == "property_daily_snapshots":
+                return [{"property_id": "10", "activity_date": "2026-05-10"}]
+            if table_name == "property_leads":
+                return [
+                    {"property_id": "10", "activity_date": "2026-04-11", "raw_data": {"leadId": "a"}},
+                    {"property_id": "10", "activity_date": "2026-05-01", "raw_data": {"leadId": "b"}},
+                    {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"leadId": "c"}},
+                ]
+            if table_name == "property_availability_snapshots":
+                return [{"property_id": "10", "raw_result": {"bed_count": 100, "unit_count": 100}}]
+            if table_name == "property_leases":
+                return []
+            return []
+
+        with mock.patch.object(reporting, "_supabase_anon_headers", return_value={}), mock.patch.object(reporting, "_fetch_json", side_effect=fake_fetch):
+            payload = reporting.get_property_red_list_summary("10", "2026-05-14", access_token="token")
+
+        self.assertEqual(payload["as_of_date"], "2026-05-10")
+        self.assertEqual(payload["activity_start_date"], "2026-04-11")
+        self.assertEqual(payload["activity_end_date"], "2026-05-10")
+        self.assertEqual(payload["activity_window_days"], 30)
+        self.assertEqual(payload["lead_count"], 3)
+        lead_query = next(query for table, query in queries if table == "property_leads")
+        self.assertEqual(lead_query["activity_date"], "lte.2026-05-10")
+
+
 if __name__ == "__main__":
     unittest.main()

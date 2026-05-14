@@ -5561,6 +5561,8 @@ const DashboardApp = ({
         const title = property?.name || `Property ${summary.property_id}`;
         const location = [property?.city, property?.state].filter(Boolean).join(', ');
         const isConventional = summary.portfolio === 'multifamily';
+        const activityWindowDays = Number(summary.activity_window_days || 30);
+        const asOfText = summary.as_of_date ? `As of ${formatReadableDate(summary.as_of_date)}` : 'Latest Supabase snapshot';
         const primaryMetric = summary.portfolio === 'multifamily'
           ? `${formatPercent(summary.forecast_exposure_rate, 1)} 60-day exposure`
           : `${formatPercent(summary.lead_fulfillment_rate, 1)} lead fulfillment`;
@@ -5572,6 +5574,8 @@ const DashboardApp = ({
           title,
           location,
           isConventional,
+          activityWindowDays,
+          asOfText,
           primaryMetric,
           secondaryMetric,
         };
@@ -8149,7 +8153,7 @@ const DashboardApp = ({
             <div key={property.property_id} className="reports-list__row">
               <div>
                 <strong>{property.title}</strong>
-                <small>{property.location || (property.isConventional ? 'Conventional' : 'Student')} | {property.reason}</small>
+                <small>{property.location || (property.isConventional ? 'Conventional' : 'Student')} | {property.asOfText} | {property.reason}</small>
               </div>
               <div>
                 <strong>{property.primaryMetric}</strong>
@@ -8169,7 +8173,7 @@ const DashboardApp = ({
           <div className="admin-access-kicker">Red List</div>
           <div className="admin-access-headline">Portfolio leasing risk, split by property type.</div>
           <div className="admin-access-subhead">
-            Student and conventional properties use separate thresholds, with one detail table for the lead-deficit metrics across every property.
+            Student and conventional properties use separate thresholds, with lead velocity based on the last 30 days ending on each property's latest Supabase snapshot.
           </div>
         </div>
         <div className="admin-access-stats">
@@ -8254,7 +8258,7 @@ const DashboardApp = ({
                     <th>Lead Deficit</th>
                     <th>Lead Fulfillment</th>
                     <th>Exposure</th>
-                    <th>Leads</th>
+                    <th>Leads Last 30</th>
                     <th>Leases / Preleases</th>
                   </tr>
                 </thead>
@@ -8263,7 +8267,7 @@ const DashboardApp = ({
                     <tr key={property.property_id}>
                       <td>
                         <strong>{property.title}</strong>
-                        <small>{property.location || property.property_id}</small>
+                        <small>{property.location || property.property_id} | {property.asOfText}</small>
                       </td>
                       <td>{property.isConventional ? 'Conventional' : 'Student'}</td>
                       <td>
@@ -8286,14 +8290,16 @@ const DashboardApp = ({
                         {property.isConventional && <small>{formatNumber(property.available_units_in_60_days)} units in 60 days</small>}
                       </td>
                       <td>
-                        {formatNumber(property.isConventional ? property.lead_count_60_days : property.lead_count)}
+                        {formatNumber(property.isConventional
+                          ? (property.lead_count_30_days ?? property.lead_count_60_days)
+                          : (property.lead_count_30_days ?? property.lead_count))}
                         {!property.isConventional && <small>{formatNumber(property.leads_per_month, 1)} / month</small>}
                       </td>
                       <td>
                         {property.isConventional
-                          ? formatNumber(property.lease_count_60_days)
+                          ? formatNumber(property.lease_count_30_days ?? property.lease_count_60_days)
                           : `${formatNumber(property.current_prelease_count)} / ${formatNumber(property.target_lease_count)}`}
-                        <small>{property.isConventional ? 'approved leases' : 'preleased / target'}</small>
+                        <small>{property.isConventional ? 'approved in window' : 'preleased / target'}</small>
                       </td>
                     </tr>
                   ))}

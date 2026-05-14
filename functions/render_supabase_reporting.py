@@ -60,6 +60,7 @@ _ALL_MARKETING_DESCRIPTIONS = (
     "social media management",
     "website expense",
 )
+_RED_LIST_ACTIVITY_WINDOW_DAYS = 30
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -75,6 +76,10 @@ def _default_date_window() -> tuple[date, date]:
     end = datetime.now().date()
     start = end - timedelta(days=27)
     return start, end
+
+
+def _red_list_activity_window(end_date: date) -> tuple[date, date]:
+    return end_date - timedelta(days=_RED_LIST_ACTIVITY_WINDOW_DAYS - 1), end_date
 
 
 def _month_bounded_window(start_date: date, end_date: date) -> tuple[date, date]:
@@ -431,10 +436,16 @@ def _red_list_summary(
             "property_id": property_id,
             "portfolio": portfolio,
             "is_red_list": is_red_list,
-            "reason": "60-day exposure is above 12% and lead deficit at 10% close is positive." if is_red_list else "Conventional thresholds are currently clear.",
+            "reason": "60-day exposure is above 12% and the last-30-day lead deficit at 10% close is positive." if is_red_list else "Conventional thresholds are currently clear.",
+            "as_of_date": end_date.isoformat(),
+            "activity_start_date": start_date.isoformat(),
+            "activity_end_date": end_date.isoformat(),
+            "activity_window_days": _RED_LIST_ACTIVITY_WINDOW_DAYS,
             "forecast_exposure_rate": forecast_exposure_rate,
             "lead_deficit_at_ten_close": lead_deficit_at_ten,
             "available_units_in_60_days": available_units,
+            "lead_count_30_days": lead_count,
+            "lease_count_30_days": lease_count,
             "lead_count_60_days": lead_count,
             "lease_count_60_days": lease_count,
             "forecast_date": conventional_forecast_date.isoformat(),
@@ -465,10 +476,15 @@ def _red_list_summary(
         "property_id": property_id,
         "portfolio": portfolio,
         "is_red_list": is_red_list,
-        "reason": "30% close-rate deficit is above 80% or lead fulfillment is below 50%." if is_red_list else "Student thresholds are currently clear.",
+        "reason": "Last-30-day 30% close-rate deficit is above 80% or lead fulfillment is below 50%." if is_red_list else "Student thresholds are currently clear.",
+        "as_of_date": end_date.isoformat(),
+        "activity_start_date": start_date.isoformat(),
+        "activity_end_date": end_date.isoformat(),
+        "activity_window_days": _RED_LIST_ACTIVITY_WINDOW_DAYS,
         "current_prelease_count": current_preleases,
         "target_lease_count": target_count,
         "lead_count": lead_count,
+        "lead_count_30_days": lead_count,
         "leads_per_month": leads_per_month,
         "leads_needed_per_month_at_thirty_close": leads_needed_per_month_at_thirty,
         "lead_fulfillment_rate": lead_fulfillment_rate,
@@ -750,17 +766,50 @@ def _sort_activity_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+def _latest_property_stats_date(
+    property_id: str,
+    requested_end_date: date,
+    headers: dict[str, str],
+) -> date | None:
+    latest_sources = (
+        ("property_daily_snapshots", "activity_date"),
+        ("property_leads", "activity_date"),
+        ("property_events", "activity_date"),
+        ("property_roi_daily", "activity_date"),
+    )
+    for table_name, date_field in latest_sources:
+        rows = _fetch_json(
+            table_name,
+            [
+                ("select", f"property_id,{date_field}"),
+                ("property_id", f"eq.{property_id}"),
+                (date_field, f"lte.{requested_end_date.isoformat()}"),
+                ("order", f"{date_field}.desc"),
+                ("limit", "1"),
+            ],
+            headers=headers,
+        )
+        if not rows:
+            continue
+        latest_date = _parse_activity_date(rows[0].get(date_field))
+        if latest_date:
+            return latest_date
+    return None
+
+
 def get_property_red_list_summary(
     property_id: str,
     end_date_value: str | None = None,
     access_token: str | None = None,
 ) -> dict[str, Any]:
     headers = _supabase_anon_headers(access_token)
-    end_date = _parse_iso_date(end_date_value)
-    if not end_date:
-        _, end_date = _default_date_window()
+    requested_end_date = _parse_iso_date(end_date_value)
+    if not requested_end_date:
+        _, requested_end_date = _default_date_window()
+    latest_stats_date = _latest_property_stats_date(property_id, requested_end_date, headers)
+    end_date = latest_stats_date or requested_end_date
 
-    start_date = end_date - timedelta(days=59)
+    start_date, end_date = _red_list_activity_window(end_date)
     portfolio = PROPERTY_PORTFOLIO_BY_ID.get(str(property_id), "student")
     conventional_window_start = start_date
     conventional_prior_date = end_date - timedelta(days=7)
@@ -1063,7 +1112,7 @@ def get_property_reporting_overview_payload(
         or availability_pricing_snapshot.get("last_changed_at")
         or latest_activity_date
     )
-    red_list_summary = get_property_red_list_summary(property_id, None, access_token)
+    red_list_summary = get_property_red_list_summary(property_id, end_date.isoformat(), access_token)
 
     return {
         "property_id": property_id,
