@@ -129,7 +129,7 @@ const ALL_PROPERTIES_OPTION = '__all__';
 const DASHBOARD_WORKSPACE_STATE_KEY_PREFIX = 'dashboardWorkspaceState';
 const WEBSITE_SCHEMA_HISTORY_STORAGE_KEY_PREFIX = 'websiteSchemaHistory';
 const AUDIT_FINDING_WORKFLOW_STORAGE_KEY_PREFIX = 'auditFindingWorkflowState';
-const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
+const DATE_RANGE_OPTIONS = new Set(['7d', '14d', '28d', '30d', '90d', '365d', 'lastMonth', 'quarterToDate', 'yearToDate', 'custom']);
 const META_ADS_ATTRIBUTION_MODES = new Set(['account_default', '7d_click_1d_view', '1d_click']);
 const RECOMMENDATION_FEEDBACK_TAGS = [
   'Wrong data',
@@ -3822,6 +3822,7 @@ const DashboardApp = ({
     if (dateRange === '7d') start.setDate(end.getDate() - 6);
     else if (dateRange === '14d') start.setDate(end.getDate() - 13);
     else if (dateRange === '28d') start.setDate(end.getDate() - 27);
+    else if (dateRange === '30d') start.setDate(end.getDate() - 29);
     else if (dateRange === '90d') start.setDate(end.getDate() - 89);
     else if (dateRange === '365d') start.setDate(end.getDate() - 364);
     else if (dateRange === 'lastMonth') {
@@ -13720,6 +13721,7 @@ const DashboardApp = ({
                       <option value="7d">Last 7 Days</option>
                       <option value="14d">Last 14 Days</option>
                       <option value="28d">Last 28 Days</option>
+                      <option value="30d">Last 30 Days</option>
                       <option value="90d">Last 90 Days</option>
                       <option value="365d">Last 12 Months</option>
                       <option value="quarterToDate">Quarter to Date</option>
