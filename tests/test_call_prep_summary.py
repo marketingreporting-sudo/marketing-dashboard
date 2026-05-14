@@ -160,6 +160,22 @@ class CallPrepSummaryTests(unittest.TestCase):
 
         self.assertEqual(reporting._lead_created_date(row), dt.date(2026, 5, 3))
 
+    def test_lead_identity_dedupes_multiple_guest_card_events(self):
+        rows = [
+            {
+                "_propertyId": "10",
+                "leadEventId": "event-1",
+                "leadId": "lead-1",
+            },
+            {
+                "_propertyId": "10",
+                "leadEventId": "event-2",
+                "leadId": "lead-1",
+            },
+        ]
+
+        self.assertEqual(reporting._unique_count(rows, reporting._LEAD_KEY_CANDIDATES), 1)
+
     def test_multi_property_call_prep_summary_batches_table_reads(self):
         fetch_results = [[], [], [], []]
 

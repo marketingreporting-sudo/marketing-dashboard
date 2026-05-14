@@ -12,8 +12,8 @@ from render_supabase_sync_state import _fetch_json
 from render_supabase_validation import SupabaseValidationConfigError, _supabase_anon_headers
 
 _LEAD_KEY_CANDIDATES = (
-    "leadEventId", "eventId", "eventID", "leadId", "leadID", "prospectId",
-    "prospectID", "customerId", "customerID", "applicationId", "id",
+    "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID",
+    "applicationId", "applicationID", "leadEventId", "eventId", "eventID", "id",
 )
 _LEASE_KEY_CANDIDATES = (
     "lease_interval_id", "leaseIntervalId", "lease_id", "leaseId", "leaseID",

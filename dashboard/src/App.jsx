@@ -1089,9 +1089,6 @@ const getScopedStableKey = (propertyId, fallbackValue) => {
 
 const getLeadKey = (lead) => {
   const candidates = [
-    lead.leadEventId,
-    lead.eventId,
-    lead.eventID,
     lead.leadId,
     lead.leadID,
     lead.prospectId,
@@ -1099,6 +1096,10 @@ const getLeadKey = (lead) => {
     lead.customerId,
     lead.customerID,
     lead.applicationId,
+    lead.applicationID,
+    lead.leadEventId,
+    lead.eventId,
+    lead.eventID,
     lead.id
   ];
 
