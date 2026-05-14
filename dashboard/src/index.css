@@ -8808,6 +8808,80 @@ th {
   background: rgba(16, 33, 38, 0.9);
 }
 
+.red-list-detail-panel {
+  min-width: 0;
+}
+
+.red-list-detail-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid rgba(215, 210, 207, 0.12);
+  background: rgba(10, 20, 24, 0.44);
+}
+
+.red-list-detail-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+}
+
+.red-list-detail-table th,
+.red-list-detail-table td {
+  padding: 0.85rem 0.95rem;
+  border-bottom: 1px solid rgba(215, 210, 207, 0.1);
+  text-align: left;
+  vertical-align: top;
+}
+
+.red-list-detail-table th {
+  color: var(--primary-tan);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.red-list-detail-table td {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.88rem;
+}
+
+.red-list-detail-table td strong,
+.red-list-detail-table td small {
+  display: block;
+}
+
+.red-list-detail-table td strong {
+  color: var(--primary-white);
+  font-weight: 700;
+}
+
+.red-list-detail-table td small {
+  margin-top: 0.2rem;
+  color: rgba(215, 210, 207, 0.66);
+  font-size: 0.74rem;
+}
+
+.red-list-detail-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.red-list-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 0.55rem;
+  border: 1px solid rgba(87, 136, 108, 0.34);
+  background: rgba(30, 64, 48, 0.28);
+  color: var(--primary-white);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.red-list-status-pill.is-red-list {
+  border-color: rgba(229, 104, 112, 0.38);
+  background: rgba(229, 104, 112, 0.16);
+}
+
 .admin-toolbar,
 .admin-panel-toolbar {
   display: flex;

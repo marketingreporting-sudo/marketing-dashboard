@@ -318,14 +318,19 @@ const NAV_ITEMS = [
   { id: 'reputation', label: 'Reputation', icon: MessageSquareText, permission: TAB_PERMISSIONS.reputation },
   { id: 'tickets', label: 'Tickets', icon: Ticket, permission: TAB_PERMISSIONS.tickets },
   { id: 'tasks', label: 'Tasks', icon: ClipboardList, permission: TAB_PERMISSIONS.tasks },
+  { id: 'red-list', label: 'Red List', icon: AlertTriangle, permission: TAB_PERMISSIONS['red-list'] },
   { id: 'admin', label: 'Admin', icon: Users, permission: TAB_PERMISSIONS.admin }
 ];
 const ADMIN_SECTIONS = [
   { id: 'users', label: 'Users' },
   { id: 'ticket-routing', label: 'Ticket Routing' },
   { id: 'website-schema', label: 'Website Schema' },
-  { id: 'red-list', label: 'Red List' },
   { id: 'audit-log', label: 'Audit Log' },
+];
+const RED_LIST_SECTIONS = [
+  { id: 'student', label: 'Student Properties' },
+  { id: 'conventional', label: 'Conventional Properties' },
+  { id: 'lead-deficit', label: 'Lead Deficit Details' },
 ];
 const MONTH_INDEX_BY_NAME = {
   jan: 0,
@@ -2378,6 +2383,7 @@ const DashboardApp = ({
   const [adminCopiedLinkType, setAdminCopiedLinkType] = useState('');
   const [copiedClientReportLink, setCopiedClientReportLink] = useState(false);
   const [adminActiveSection, setAdminActiveSection] = useState('users');
+  const [redListActiveSection, setRedListActiveSection] = useState('student');
   const [adminUserSearch, setAdminUserSearch] = useState('');
   const [adminInvitePropertySearch, setAdminInvitePropertySearch] = useState('');
   const [adminUserPropertySearch, setAdminUserPropertySearch] = useState('');
@@ -2430,7 +2436,7 @@ const DashboardApp = ({
   const shouldLoadChannelAnalytics = activeTab === 'reports' || activeTab === 'analytics';
   const shouldLoadReputationData = activeTab === 'reports' || activeTab === 'reputation';
   const isAllPropertiesSelected = selectedPropertyId === ALL_PROPERTIES_OPTION;
-  const allPropertiesSupportedTabs = useMemo(() => new Set(['dashboard']), []);
+  const allPropertiesSupportedTabs = useMemo(() => new Set(['dashboard', 'red-list']), []);
   const selectedProperty = useMemo(() => {
     if (isAllPropertiesSelected) return null;
     const base = availableProperties.find((property) => property.propertyId === selectedPropertyId) || null;
@@ -4004,8 +4010,8 @@ const DashboardApp = ({
     let cancelled = false;
 
     const loadRedListPortfolio = async () => {
-      if (!canManageUsers || activeTab !== 'admin' || !reportingOverviewUrl || availableProperties.length === 0) {
-        if (!cancelled && activeTab !== 'admin') {
+      if (!canManageUsers || activeTab !== 'red-list' || !reportingOverviewUrl || availableProperties.length === 0) {
+        if (!cancelled && activeTab !== 'red-list') {
           setRedListPortfolioError(null);
         }
         return;
@@ -6700,13 +6706,13 @@ const DashboardApp = ({
       },
     }));
   }, []);
-  const redListAdminRows = useMemo(() => (
+  const redListPortfolioRows = useMemo(() => (
     redListPortfolioSummaries
-      .filter((summary) => summary?.is_red_list)
       .map((summary) => {
-        const property = taskPropertyById.get(String(summary.property_id));
+        const property = taskPropertyById.get(String(summary.property_id)) || taskPropertyById.get(summary.property_id);
         const title = property?.name || `Property ${summary.property_id}`;
         const location = [property?.city, property?.state].filter(Boolean).join(', ');
+        const isConventional = summary.portfolio === 'multifamily';
         const primaryMetric = summary.portfolio === 'multifamily'
           ? `${formatPercent(summary.forecast_exposure_rate, 1)} 60-day exposure`
           : `${formatPercent(summary.lead_fulfillment_rate, 1)} lead fulfillment`;
@@ -6717,6 +6723,7 @@ const DashboardApp = ({
           ...summary,
           title,
           location,
+          isConventional,
           primaryMetric,
           secondaryMetric,
         };
@@ -6732,6 +6739,30 @@ const DashboardApp = ({
         return bRisk - aRisk;
       })
   ), [redListPortfolioSummaries, taskPropertyById]);
+  const redListStudentRows = useMemo(
+    () => redListPortfolioRows.filter((summary) => !summary.isConventional && summary.is_red_list),
+    [redListPortfolioRows]
+  );
+  const redListConventionalRows = useMemo(
+    () => redListPortfolioRows.filter((summary) => summary.isConventional && summary.is_red_list),
+    [redListPortfolioRows]
+  );
+  const redListLeadDeficitRows = useMemo(
+    () => [...redListPortfolioRows].sort((a, b) => {
+      if (Number(Boolean(b.is_red_list)) !== Number(Boolean(a.is_red_list))) {
+        return Number(Boolean(b.is_red_list)) - Number(Boolean(a.is_red_list));
+      }
+      if (a.isConventional !== b.isConventional) return Number(a.isConventional) - Number(b.isConventional);
+      const aDeficit = a.isConventional
+        ? Number(a.lead_deficit_at_ten_close || 0)
+        : Number(a.lead_deficit_at_thirty_close || 0);
+      const bDeficit = b.isConventional
+        ? Number(b.lead_deficit_at_ten_close || 0)
+        : Number(b.lead_deficit_at_thirty_close || 0);
+      return bDeficit - aDeficit;
+    }),
+    [redListPortfolioRows]
+  );
   const metaAdsTopPreview = metaAdsTopAds[0] || null;
   const showLoader = loading || invoiceLoading || roiLoading;
 
@@ -9451,6 +9482,176 @@ const DashboardApp = ({
     </div>
   );
 
+  const renderRedListPropertyList = (rows, emptyMessage) => (
+    <>
+      {redListPortfolioError && <div className="admin-access-empty">{redListPortfolioError}</div>}
+      {!redListPortfolioError && redListPortfolioLoading && <div className="admin-access-empty">Loading red list metrics…</div>}
+      {!redListPortfolioError && !redListPortfolioLoading && rows.length === 0 && (
+        <div className="admin-access-empty">{emptyMessage}</div>
+      )}
+      {!redListPortfolioError && rows.length > 0 && (
+        <div className="reports-list">
+          {rows.map((property) => (
+            <div key={property.property_id} className="reports-list__row">
+              <div>
+                <strong>{property.title}</strong>
+                <small>{property.location || (property.isConventional ? 'Conventional' : 'Student')} | {property.reason}</small>
+              </div>
+              <div>
+                <strong>{property.primaryMetric}</strong>
+                <small>{property.secondaryMetric}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
+  const renderRedList = () => (
+    <div className="admin-access-view red-list-view">
+      <div className="admin-access-hero">
+        <div>
+          <div className="admin-access-kicker">Red List</div>
+          <div className="admin-access-headline">Portfolio leasing risk, split by property type.</div>
+          <div className="admin-access-subhead">
+            Student and conventional properties use separate thresholds, with one detail table for the lead-deficit metrics across every property.
+          </div>
+        </div>
+        <div className="admin-access-stats">
+          <div className="admin-access-stat">
+            <span>Student Flagged</span>
+            <strong>{redListPortfolioLoading ? '…' : formatNumber(redListStudentRows.length)}</strong>
+          </div>
+          <div className="admin-access-stat">
+            <span>Conventional Flagged</span>
+            <strong>{redListPortfolioLoading ? '…' : formatNumber(redListConventionalRows.length)}</strong>
+          </div>
+          <div className="admin-access-stat">
+            <span>Properties Loaded</span>
+            <strong>{redListPortfolioLoading ? '…' : formatNumber(redListLeadDeficitRows.length)}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="admin-section-tabs" role="tablist" aria-label="Red list sections">
+        {RED_LIST_SECTIONS.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            className={redListActiveSection === section.id ? 'is-active' : ''}
+            onClick={() => setRedListActiveSection(section.id)}
+            role="tab"
+            aria-selected={redListActiveSection === section.id}
+          >
+            {section.label}
+          </button>
+        ))}
+      </div>
+
+      {redListActiveSection === 'student' && (
+        <div className="admin-access-panel">
+          <div className="admin-access-section-head">
+            <div>
+              <div className="admin-access-panel__eyebrow">Student Properties</div>
+              <h3 className="admin-access-panel__title">Student properties currently on the red list</h3>
+            </div>
+            <span>{redListPortfolioLoading ? 'Loading…' : `${formatNumber(redListStudentRows.length)} flagged`}</span>
+          </div>
+          {renderRedListPropertyList(redListStudentRows, 'No student properties are currently on the red list.')}
+        </div>
+      )}
+
+      {redListActiveSection === 'conventional' && (
+        <div className="admin-access-panel">
+          <div className="admin-access-section-head">
+            <div>
+              <div className="admin-access-panel__eyebrow">Conventional Properties</div>
+              <h3 className="admin-access-panel__title">Conventional properties currently on the red list</h3>
+            </div>
+            <span>{redListPortfolioLoading ? 'Loading…' : `${formatNumber(redListConventionalRows.length)} flagged`}</span>
+          </div>
+          {renderRedListPropertyList(redListConventionalRows, 'No conventional properties are currently on the red list.')}
+        </div>
+      )}
+
+      {redListActiveSection === 'lead-deficit' && (
+        <div className="admin-access-panel red-list-detail-panel">
+          <div className="admin-access-section-head">
+            <div>
+              <div className="admin-access-panel__eyebrow">Lead Deficit Details</div>
+              <h3 className="admin-access-panel__title">All properties</h3>
+            </div>
+            <span>{redListPortfolioLoading ? 'Loading…' : `${formatNumber(redListLeadDeficitRows.length)} properties`}</span>
+          </div>
+          {redListPortfolioError && <div className="admin-access-empty">{redListPortfolioError}</div>}
+          {!redListPortfolioError && redListPortfolioLoading && <div className="admin-access-empty">Loading lead deficit details…</div>}
+          {!redListPortfolioError && !redListPortfolioLoading && redListLeadDeficitRows.length === 0 && (
+            <div className="admin-access-empty">No lead deficit details are available yet.</div>
+          )}
+          {!redListPortfolioError && redListLeadDeficitRows.length > 0 && (
+            <div className="red-list-detail-table-wrap">
+              <table className="red-list-detail-table">
+                <thead>
+                  <tr>
+                    <th>Property</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Lead Deficit</th>
+                    <th>Lead Fulfillment</th>
+                    <th>Exposure</th>
+                    <th>Leads</th>
+                    <th>Leases / Preleases</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {redListLeadDeficitRows.map((property) => (
+                    <tr key={property.property_id}>
+                      <td>
+                        <strong>{property.title}</strong>
+                        <small>{property.location || property.property_id}</small>
+                      </td>
+                      <td>{property.isConventional ? 'Conventional' : 'Student'}</td>
+                      <td>
+                        <span className={`red-list-status-pill ${property.is_red_list ? 'is-red-list' : ''}`}>
+                          {property.is_red_list ? 'On Red List' : 'Clear'}
+                        </span>
+                      </td>
+                      <td>
+                        {property.isConventional
+                          ? formatNumber(property.lead_deficit_at_ten_close)
+                          : formatNumber(property.lead_deficit_at_thirty_close)}
+                        <small>{property.isConventional ? 'at 10% close' : 'at 30% close'}</small>
+                      </td>
+                      <td>
+                        {property.isConventional ? '—' : formatPercent(property.lead_fulfillment_rate, 1)}
+                        {!property.isConventional && <small>{formatNumber(property.leads_needed_per_month_at_thirty_close, 1)} needed/mo</small>}
+                      </td>
+                      <td>
+                        {property.isConventional ? formatPercent(property.forecast_exposure_rate, 1) : '—'}
+                        {property.isConventional && <small>{formatNumber(property.available_units_in_60_days)} units in 60 days</small>}
+                      </td>
+                      <td>
+                        {formatNumber(property.isConventional ? property.lead_count_60_days : property.lead_count)}
+                        {!property.isConventional && <small>{formatNumber(property.leads_per_month, 1)} / month</small>}
+                      </td>
+                      <td>
+                        {property.isConventional
+                          ? formatNumber(property.lease_count_60_days)
+                          : `${formatNumber(property.current_prelease_count)} / ${formatNumber(property.target_lease_count)}`}
+                        <small>{property.isConventional ? 'approved leases' : 'preleased / target'}</small>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   const renderAdmin = () => (
     <div className="admin-access-view">
       <div className="admin-access-hero">
@@ -9617,39 +9818,6 @@ const DashboardApp = ({
         <div className={`admin-access-banner ${websiteSchemaError ? 'admin-access-banner--error' : 'admin-access-banner--success'}`}>
           {websiteSchemaError || websiteSchemaNotice}
         </div>
-      )}
-
-      {adminActiveSection === 'red-list' && (
-      <div className="admin-access-panel">
-        <div className="admin-access-section-head">
-          <div>
-            <div className="admin-access-panel__eyebrow">Red List</div>
-            <h3 className="admin-access-panel__title">Properties requiring leasing attention</h3>
-          </div>
-          <span>{redListPortfolioLoading ? 'Loading…' : `${formatNumber(redListAdminRows.length)} flagged`}</span>
-        </div>
-        {redListPortfolioError && <div className="admin-access-empty">{redListPortfolioError}</div>}
-        {!redListPortfolioError && redListPortfolioLoading && <div className="admin-access-empty">Loading red list metrics…</div>}
-        {!redListPortfolioError && !redListPortfolioLoading && redListAdminRows.length === 0 && (
-          <div className="admin-access-empty">No properties are currently on the red list.</div>
-        )}
-        {!redListPortfolioError && redListAdminRows.length > 0 && (
-          <div className="reports-list">
-            {redListAdminRows.map((property) => (
-              <div key={property.property_id} className="reports-list__row">
-                <div>
-                  <strong>{property.title}</strong>
-                  <small>{property.location || property.portfolio} | {property.reason}</small>
-                </div>
-                <div>
-                  <strong>{property.primaryMetric}</strong>
-                  <small>{property.secondaryMetric}</small>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
       )}
 
       {adminActiveSection === 'users' && (
@@ -10190,13 +10358,15 @@ const DashboardApp = ({
       <div className={`main-content ${isReportsPresentationTab ? 'main-content--reports' : ''}`}>
         {!isClientReportMode && (
           <div className={`header ${isReportsPresentationTab ? 'header--reports' : ''}`}>
-            {activeTab === 'admin' || activeTab === 'audit' ? (
+            {activeTab === 'admin' || activeTab === 'audit' || activeTab === 'red-list' ? (
               <div className="property-selector property-selector--admin">
-                <span className="property-selector__label">{activeTab === 'audit' ? 'Portfolio scope' : 'Access scope'}</span>
+                <span className="property-selector__label">{activeTab === 'audit' || activeTab === 'red-list' ? 'Portfolio scope' : 'Access scope'}</span>
                 <div className="property-selector__admin-summary">
                   {activeTab === 'audit'
                     ? 'Cross-property audit command center for internal triage and design follow-up.'
-                    : 'Manage user invites, global roles, and property assignments.'}
+                    : activeTab === 'red-list'
+                      ? 'All-property red-list monitoring and lead-deficit details.'
+                      : 'Manage user invites, global roles, and property assignments.'}
                 </div>
               </div>
             ) : (
@@ -10257,7 +10427,7 @@ const DashboardApp = ({
         )}
 
         <div className={`content-body ${isReportsPresentationTab ? 'content-body--reports' : ''}`}>
-          {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && (
+          {activeTab !== 'website manager' && activeTab !== 'admin' && activeTab !== 'audit' && activeTab !== 'red-list' && (
             <div className="dashboard-title-row">
               <h1 className="title">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
               {activeTab !== 'call prep' && <div className="global-date-controls">
@@ -10325,6 +10495,7 @@ const DashboardApp = ({
           {activeTab === 'reputation' && renderReputation()}
           {activeTab === 'tickets' && renderTickets()}
           {activeTab === 'tasks' && renderTasks()}
+          {activeTab === 'red-list' && renderRedList()}
           {activeTab === 'admin' && renderAdmin()}
 
           <div className="app-footer-links">

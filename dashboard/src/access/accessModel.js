@@ -11,6 +11,7 @@ export const TAB_PERMISSIONS = {
   tasks: 'tasks.view',
   tickets: 'tasks.view',
   admin: 'users.manage',
+  'red-list': 'users.manage',
 };
 
 export const DEFAULT_TAB_ORDER = [
@@ -25,6 +26,7 @@ export const DEFAULT_TAB_ORDER = [
   'property info',
   'tickets',
   'tasks',
+  'red-list',
   'admin',
 ];
 
