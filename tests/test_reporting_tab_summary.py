@@ -127,7 +127,6 @@ class RedListSummaryTests(unittest.TestCase):
                             "typeId": "10",
                             "eventReason": "Online Guest Card",
                             "eventDate": "05/10/2026",
-                            "leadCreatedDate": "05/10/2026",
                             "email": "sam@example.com",
                         },
                     },

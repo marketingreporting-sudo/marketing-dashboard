@@ -173,6 +173,32 @@ class CallPrepSummaryTests(unittest.TestCase):
 
         self.assertEqual(reporting._lead_created_date(row), dt.date(2026, 5, 2))
 
+    def test_lead_created_date_uses_guest_card_event_when_created_date_missing(self):
+        row = {
+            "activity_date": "2026-05-14",
+            "raw_data": {
+                "_sourceApi": "getLeadEvents",
+                "_sourceEventType": "online_guest_card",
+                "eventDate": "05/14/2026",
+                "eventReason": "Online Guest Card",
+            },
+        }
+
+        self.assertEqual(reporting._lead_created_date(row), dt.date(2026, 5, 14))
+
+    def test_lead_created_date_does_not_use_non_guest_card_event_date(self):
+        row = {
+            "activity_date": "2026-05-14",
+            "raw_data": {
+                "_sourceApi": "getLeadEvents",
+                "_sourceEventType": "appointment",
+                "eventDate": "05/14/2026",
+                "eventReason": "Appointment",
+            },
+        }
+
+        self.assertIsNone(reporting._lead_created_date(row))
+
     def test_invoice_helpers_accept_normalized_supabase_columns(self):
         invoice = {
             "amount": 3100,
