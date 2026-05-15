@@ -210,6 +210,35 @@ class RedListSummaryTests(unittest.TestCase):
                     },
                     {
                         "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "cancelled-status-id-lead",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "05/12/2026",
+                            "leadCreatedDate": "05/12/2026",
+                            "currentLeadStatusId": "14",
+                            "email": "cancelled-status-id@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "cancelled-event-lead",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "05/12/2026",
+                            "leadCreatedDate": "05/12/2026",
+                            "email": "cancelled-event@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
                         "activity_date": "2026-05-13",
                         "raw_data": {
                             "_sourceApi": "getLeadEvents",
@@ -219,6 +248,21 @@ class RedListSummaryTests(unittest.TestCase):
                             "eventDate": "05/13/2026",
                         },
                     },
+                ]
+            if table_name == "property_events":
+                return [
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "eventId": "cancelled-event",
+                            "typeId": "28",
+                            "eventReason": "Closed",
+                            "eventDate": "05/12/2026",
+                            "email": "cancelled-event@example.com",
+                        },
+                    }
                 ]
             if table_name == "property_availability_snapshots":
                 return [{"property_id": "10", "floorplans": [], "units": [], "raw_result": {}}]
@@ -230,6 +274,7 @@ class RedListSummaryTests(unittest.TestCase):
             payload = reporting.get_property_reporting_overview_payload("10", "2026-05-01", "2026-05-14", access_token="token")
 
         self.assertEqual(payload["counts"]["lead_items"], 1)
+        self.assertEqual(payload["counts"]["excluded_lead_items"], 3)
         self.assertEqual(payload["lead_items"][0]["leadEventId"], "event-in-range")
         self.assertEqual(payload["lead_items"][0]["_date"], "2026-05-10")
 

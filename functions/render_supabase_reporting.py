@@ -86,6 +86,8 @@ _ALL_MARKETING_DESCRIPTIONS = (
 _RED_LIST_ACTIVITY_WINDOW_DAYS = 30
 _RED_LIST_MAX_WORKERS = 12
 _ONLINE_GUEST_CARD_EVENT_TYPE_ID = 10
+_CANCELLED_LEAD_EVENT_TYPE_IDS = {18, 28, 85}
+_CANCELLED_LEAD_STATUS_IDS = {3, 8, 14, 30, 36, 42, 48, 54, 60, 65, 70}
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -419,7 +421,42 @@ def _is_lease_approved_lead(row: dict[str, Any]) -> bool:
     return bool(status and "lease" in status and ("approved" in status or "approve" in status))
 
 
+def _lead_status_id(row: dict[str, Any]) -> int | None:
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
+    candidates = [
+        row.get("status_id"),
+        row.get("lead_status_id"),
+        row.get("current_lead_status_id"),
+        payload.get("statusId"),
+        payload.get("statusID"),
+        payload.get("status_id"),
+        payload.get("leadStatusId"),
+        payload.get("leadStatusID"),
+        payload.get("lead_status_id"),
+        payload.get("currentLeadStatusId"),
+        payload.get("currentLeadStatusID"),
+        payload.get("current_lead_status_id"),
+        payload.get("applicationStatusId"),
+        payload.get("application_status_id"),
+        payload.get("leaseStatusId"),
+        payload.get("lease_status_id"),
+        _find_nested_value(payload.get("status"), ("id", "statusId", "status_id")),
+        _find_nested_value(payload.get("leadStatus"), ("id", "statusId", "status_id")),
+        _find_nested_value(payload.get("lead_status"), ("id", "statusId", "status_id")),
+    ]
+    for value in candidates:
+        try:
+            if value not in (None, ""):
+                return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _is_cancelled_lead(row: dict[str, Any]) -> bool:
+    status_id = _lead_status_id(row)
+    if status_id in _CANCELLED_LEAD_STATUS_IDS:
+        return True
     status = _lead_status(row)
     return status in {"cancelled", "canceled"} or bool(re.search(r"\bcancell?ed\b", status))
 
@@ -433,17 +470,50 @@ def _is_lead_event_api_row(row: dict[str, Any]) -> bool:
     return source_event_type == "online_guest_card" or _is_online_guest_card_event(row)
 
 
-def _filter_lead_event_rows(rows: list[dict[str, Any]], start_date: date, end_date: date) -> list[dict[str, Any]]:
+def _is_lead_cancellation_event(row: dict[str, Any], start_date: date, end_date: date) -> bool:
+    event_date = _event_date(row)
+    if not event_date or event_date < start_date or event_date > end_date:
+        return False
+    return _event_type_id(row) in _CANCELLED_LEAD_EVENT_TYPE_IDS
+
+
+def _lead_cancellation_event_keys(rows: list[dict[str, Any]], start_date: date, end_date: date) -> set[str]:
+    return {
+        _lead_identity_key(row)
+        for row in rows
+        if _is_lead_cancellation_event(row, start_date, end_date)
+    }
+
+
+def _filter_lead_event_rows_with_exclusions(
+    rows: list[dict[str, Any]],
+    start_date: date,
+    end_date: date,
+    cancellation_event_rows: list[dict[str, Any]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     filtered_rows: list[dict[str, Any]] = []
+    excluded_rows: list[dict[str, Any]] = []
+    cancellation_keys = _lead_cancellation_event_keys(cancellation_event_rows or [], start_date, end_date)
     for row in rows:
         lead_date = _lead_created_date(row)
         if not lead_date or lead_date < start_date or lead_date > end_date:
             continue
         if not _is_lead_event_api_row(row):
             continue
-        if _is_cancelled_lead(row):
+        if _is_cancelled_lead(row) or _lead_identity_key(row) in cancellation_keys:
+            excluded_rows.append(row)
             continue
         filtered_rows.append(row)
+    return filtered_rows, excluded_rows
+
+
+def _filter_lead_event_rows(
+    rows: list[dict[str, Any]],
+    start_date: date,
+    end_date: date,
+    cancellation_event_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    filtered_rows, _ = _filter_lead_event_rows_with_exclusions(rows, start_date, end_date, cancellation_event_rows)
     return filtered_rows
 
 
@@ -1088,7 +1158,18 @@ def get_property_red_list_summary(
         ],
         headers=headers,
     )
-    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
+    cancellation_event_rows = _fetch_json(
+        "property_events",
+        [
+            ("select", "property_snapshot_id,property_id,activity_date,raw_data,firestore_path"),
+            ("property_id", f"eq.{property_id}"),
+            ("activity_date", f"gte.{start_date.isoformat()}"),
+            ("activity_date", f"lte.{end_date.isoformat()}"),
+            ("order", "activity_date.asc"),
+        ],
+        headers=headers,
+    )
+    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date, cancellation_event_rows)
     pricing_rows = _fetch_json(
         "property_availability_snapshots",
         [
@@ -1100,17 +1181,6 @@ def get_property_red_list_summary(
     )
 
     if portfolio == "multifamily":
-        event_60_day_rows = _fetch_json(
-            "property_events",
-            [
-                ("select", "property_snapshot_id,property_id,activity_date,raw_data,firestore_path"),
-                ("property_id", f"eq.{property_id}"),
-                ("activity_date", f"gte.{start_date.isoformat()}"),
-                ("activity_date", f"lte.{end_date.isoformat()}"),
-                ("order", "activity_date.asc"),
-            ],
-            headers=headers,
-        )
         conventional_lease_rows = _fetch_json(
             "property_leases",
             [
@@ -1134,7 +1204,7 @@ def get_property_red_list_summary(
             pricing_row=pricing_rows[0] if pricing_rows else None,
             leads_rows=leads_rows,
             lead_60_day_rows=leads_rows,
-            event_60_day_rows=event_60_day_rows,
+            event_60_day_rows=cancellation_event_rows,
             prelease_lease_rows=[],
             conventional_lease_rows=conventional_lease_rows,
             prelease_cycle=_student_prelease_cycle(end_date),
@@ -1226,8 +1296,6 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
-    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
-    leads_rows = _dedupe_lead_rows(leads_rows)
     events_rows = _fetch_json(
         "property_events",
         [
@@ -1239,6 +1307,9 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
+    leads_rows, excluded_lead_rows = _filter_lead_event_rows_with_exclusions(leads_rows, start_date, end_date, events_rows)
+    excluded_lead_rows = _dedupe_lead_rows(excluded_lead_rows)
+    leads_rows = _dedupe_lead_rows(leads_rows)
     lead_60_day_rows = _fetch_json(
         "property_leads",
         [
@@ -1250,8 +1321,6 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
-    lead_60_day_rows = _filter_lead_event_rows(lead_60_day_rows, conventional_window_start, end_date)
-    lead_60_day_rows = _dedupe_lead_rows(lead_60_day_rows)
     event_60_day_rows = _fetch_json(
         "property_events",
         [
@@ -1263,6 +1332,14 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
+    lead_60_day_rows, excluded_lead_60_day_rows = _filter_lead_event_rows_with_exclusions(
+        lead_60_day_rows,
+        conventional_window_start,
+        end_date,
+        event_60_day_rows,
+    )
+    excluded_lead_60_day_rows = _dedupe_lead_rows(excluded_lead_60_day_rows)
+    lead_60_day_rows = _dedupe_lead_rows(lead_60_day_rows)
     invoice_rows = _fetch_json(
         "property_invoices",
         [
@@ -1397,12 +1474,14 @@ def get_property_reporting_overview_payload(
         },
         "parent_docs": [_shape_property_snapshot(row) for row in parent_rows],
         "lead_items": [_shape_lead_payload(row) for row in leads_rows],
+        "excluded_lead_items": [_shape_lead_payload(row) for row in excluded_lead_rows],
         "event_items": [_shape_child_payload(row) for row in events_rows],
         "lease_items": [_shape_property_lease(row) for row in lease_rows],
         "prelease_lease_items": [_shape_property_lease(row) for row in prelease_lease_rows],
         "prior_prelease_lease_items": [_shape_property_lease(row) for row in prior_prelease_lease_rows],
         "conventional_lease_items": [_shape_property_lease(row) for row in conventional_lease_rows],
         "lead_60_day_items": [_shape_lead_payload(row) for row in lead_60_day_rows],
+        "excluded_lead_60_day_items": [_shape_lead_payload(row) for row in excluded_lead_60_day_rows],
         "event_60_day_items": [_shape_child_payload(row) for row in event_60_day_rows],
         "invoice_items": [_shape_invoice_payload(row) for row in invoice_rows],
         "availability_items": [],
@@ -1416,12 +1495,14 @@ def get_property_reporting_overview_payload(
         "counts": {
             "parent_docs": len(parent_rows),
             "lead_items": len(leads_rows),
+            "excluded_lead_items": len(excluded_lead_rows),
             "event_items": len(events_rows),
             "lease_items": len(lease_rows),
             "prelease_lease_items": len(prelease_lease_rows),
             "prior_prelease_lease_items": len(prior_prelease_lease_rows),
             "conventional_lease_items": len(conventional_lease_rows),
             "lead_60_day_items": len(lead_60_day_rows),
+            "excluded_lead_60_day_items": len(excluded_lead_60_day_rows),
             "event_60_day_items": len(event_60_day_rows),
             "invoice_items": len(invoice_rows),
             "availability_items": 0,
@@ -1533,6 +1614,7 @@ def _increment_call_prep_row_count(property_row_counts: dict[str, dict[str, int]
         property_id,
         {
             "lead_items": 0,
+            "excluded_lead_items": 0,
             "event_items": 0,
             "lease_items": 0,
             "invoice_items": 0,
@@ -1565,6 +1647,7 @@ def get_multi_property_call_prep_summary(
     invoice_start, invoice_end = _month_bounded_window(start_date, end_date)
 
     lead_items: list[dict[str, Any]] = []
+    excluded_lead_items: list[dict[str, Any]] = []
     event_items: list[dict[str, Any]] = []
     lease_items: list[dict[str, Any]] = []
     invoice_items: list[dict[str, Any]] = []
@@ -1574,6 +1657,7 @@ def get_multi_property_call_prep_summary(
     property_row_counts: dict[str, dict[str, int]] = {
         str(property_id): {
             "lead_items": 0,
+            "excluded_lead_items": 0,
             "event_items": 0,
             "lease_items": 0,
             "invoice_items": 0,
@@ -1658,11 +1742,14 @@ def get_multi_property_call_prep_summary(
         lease_rows = []
         invoices_rows = []
 
-    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date)
+    leads_rows, excluded_leads_rows = _filter_lead_event_rows_with_exclusions(leads_rows, start_date, end_date, events_rows)
+    excluded_leads_rows = _dedupe_lead_rows(excluded_leads_rows)
     leads_rows = _dedupe_lead_rows(leads_rows)
 
     for row in leads_rows:
         _increment_call_prep_row_count(property_row_counts, row, "lead_items")
+    for row in excluded_leads_rows:
+        _increment_call_prep_row_count(property_row_counts, row, "excluded_lead_items")
     for row in events_rows:
         _increment_call_prep_row_count(property_row_counts, row, "event_items")
     for row in lease_rows:
@@ -1671,6 +1758,7 @@ def get_multi_property_call_prep_summary(
         _increment_call_prep_row_count(property_row_counts, row, "invoice_items")
 
     lead_items.extend(_compact_lead_payload(row) for row in leads_rows)
+    excluded_lead_items.extend(_compact_lead_payload(row) for row in excluded_leads_rows)
     event_items.extend(_compact_event_payload(row) for row in events_rows)
     lease_items.extend(_shape_property_lease(row) for row in lease_rows)
     invoice_items.extend(_compact_invoice_payload(row) for row in invoices_rows)
@@ -1691,11 +1779,13 @@ def get_multi_property_call_prep_summary(
             "invoice_end_date": invoice_end.isoformat(),
         },
         "lead_items": lead_items,
+        "excluded_lead_items": excluded_lead_items,
         "event_items": event_items,
         "lease_items": lease_items,
         "invoice_items": invoice_items,
         "counts": {
             "lead_items": len(lead_items),
+            "excluded_lead_items": len(excluded_lead_items),
             "event_items": len(event_items),
             "lease_items": len(lease_items),
             "invoice_items": len(invoice_items),

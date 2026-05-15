@@ -362,8 +362,64 @@ class CallPrepSummaryTests(unittest.TestCase):
                         "email": "cancelled@example.com",
                     },
                 },
+                {
+                    "property_snapshot_id": "snap-1",
+                    "property_id": "10",
+                    "activity_date": "2026-05-14",
+                    "raw_data": {
+                        "_sourceApi": "getLeadEvents",
+                        "_sourceEventType": "online_guest_card",
+                        "leadEventId": "event-cancelled-status-id",
+                        "leadSource": "Website",
+                        "eventDate": "05/14/2026",
+                        "leadCreatedDate": "05/14/2026",
+                        "currentLeadStatusId": "14",
+                        "email": "cancelled-status-id@example.com",
+                    },
+                },
+                {
+                    "property_snapshot_id": "snap-1",
+                    "property_id": "10",
+                    "activity_date": "2026-05-14",
+                    "raw_data": {
+                        "_sourceApi": "getLeadEvents",
+                        "_sourceEventType": "online_guest_card",
+                        "leadEventId": "event-cancelled-by-event",
+                        "leadSource": "Website",
+                        "eventDate": "05/14/2026",
+                        "leadCreatedDate": "05/14/2026",
+                        "email": "cancelled-by-event@example.com",
+                    },
+                },
             ],
-            "events": [],
+            "events": [
+                {
+                    "property_snapshot_id": "snap-1",
+                    "property_id": "10",
+                    "activity_date": "2026-05-14",
+                    "raw_data": {
+                        "_sourceApi": "getLeadEvents",
+                        "eventId": "event-closed",
+                        "typeId": "28",
+                        "eventReason": "Closed",
+                        "eventDate": "05/14/2026",
+                        "email": "cancelled-by-event@example.com",
+                    },
+                },
+                {
+                    "property_snapshot_id": "snap-1",
+                    "property_id": "10",
+                    "activity_date": "2026-05-14",
+                    "raw_data": {
+                        "_sourceApi": "getLeadEvents",
+                        "eventId": "event-archived",
+                        "typeId": "99",
+                        "eventReason": "Archived",
+                        "eventDate": "05/14/2026",
+                        "email": "sam@example.com",
+                    },
+                },
+            ],
             "leases": [],
             "invoices": [],
         }
@@ -379,7 +435,9 @@ class CallPrepSummaryTests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["counts"]["lead_items"], 1)
+        self.assertEqual(payload["counts"]["excluded_lead_items"], 3)
         self.assertEqual(payload["property_row_counts"]["10"]["lead_items"], 1)
+        self.assertEqual(payload["property_row_counts"]["10"]["excluded_lead_items"], 3)
         self.assertEqual(payload["lead_items"][0]["leadEventId"], "event-1")
 
     def test_google_ads_cached_snapshot_is_derived_by_window(self):
