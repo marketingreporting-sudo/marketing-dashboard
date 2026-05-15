@@ -961,11 +961,26 @@ const normalizeExternalUrl = (value) => {
 
 const parseEntrataPostMonth = (value) => {
   if (!value) return null;
-  const match = String(value).trim().match(/^([A-Za-z]{3}),\s*(\d{4})$/);
-  if (!match) return null;
+  const text = String(value).trim();
+  const numericMatch = text.match(/^(\d{1,2})\/(\d{4})$/);
+  if (numericMatch) {
+    const month = Number.parseInt(numericMatch[1], 10);
+    const year = Number.parseInt(numericMatch[2], 10);
+    if (month >= 1 && month <= 12 && Number.isFinite(year)) return new Date(year, month - 1, 1);
+  }
 
-  const monthIndex = MONTH_INDEX_BY_NAME[match[1].toLowerCase()];
-  const year = Number.parseInt(match[2], 10);
+  const isoMatch = text.match(/^(\d{4})-(\d{1,2})$/);
+  if (isoMatch) {
+    const year = Number.parseInt(isoMatch[1], 10);
+    const month = Number.parseInt(isoMatch[2], 10);
+    if (month >= 1 && month <= 12 && Number.isFinite(year)) return new Date(year, month - 1, 1);
+  }
+
+  const nameMatch = text.match(/^([A-Za-z]+),?\s+(\d{4})$/);
+  if (!nameMatch) return null;
+
+  const monthIndex = MONTH_INDEX_BY_NAME[nameMatch[1].slice(0, 3).toLowerCase()];
+  const year = Number.parseInt(nameMatch[2], 10);
   if (!Number.isFinite(monthIndex) || !Number.isFinite(year)) return null;
 
   return new Date(year, monthIndex, 1);
@@ -1012,9 +1027,9 @@ const getInvoiceAmount = (invoice) => {
 };
 
 const getInvoiceBreakdownLabel = (invoice) => {
-  const accountNumber = invoice.glAccount?.accountNumber;
-  const accountName = invoice.glAccount?.accountName;
-  const vendorName = invoice.vendorName || invoice.contract || invoice.vendorCode;
+  const accountNumber = invoice.glAccount?.accountNumber || invoice.accountNumber || invoice.gl_account_number;
+  const accountName = invoice.glAccount?.accountName || invoice.accountName || invoice.gl_account_name;
+  const vendorName = invoice.vendorName || invoice.vendor_name || invoice.contract || invoice.vendorCode;
 
   const accountLabel = [accountNumber, accountName].filter(Boolean).join(' ');
   if (vendorName && accountLabel) return `${accountLabel} - ${vendorName}`;
@@ -1035,8 +1050,11 @@ const resolveRenderApiRoute = (path, fallbackUrl = '') => {
 const getInvoiceEffectiveDate = (invoice) => {
   return (
     parseEntrataDate(invoice.postDate) ||
+    parseEntrataDate(invoice.post_date) ||
     parseEntrataDate(invoice.transactionDate) ||
+    parseEntrataDate(invoice.transaction_date) ||
     parseEntrataDate(invoice.invoiceDate) ||
+    parseEntrataDate(invoice.invoice_date) ||
     parseEntrataDate(invoice._date)
   );
 };
@@ -1055,7 +1073,7 @@ const getInvoiceKey = (invoice) => {
 };
 
 const getInvoiceAllocationMonth = (invoice) => {
-  const postMonthDate = parseEntrataPostMonth(invoice.postMonth);
+  const postMonthDate = parseEntrataPostMonth(invoice.postMonth || invoice.post_month);
   if (postMonthDate) {
     return getMonthRange(postMonthDate);
   }

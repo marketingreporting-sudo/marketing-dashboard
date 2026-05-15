@@ -340,24 +340,53 @@ def _is_online_guest_card_event(row: dict[str, Any]) -> bool:
 
 def _lead_created_date(row: dict[str, Any]) -> date | None:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
-    return (
-        _parse_activity_date(
-            payload.get("createdDate")
-            or payload.get("created_date")
-            or payload.get("leadCreatedDate")
-            or payload.get("lead_created_date")
-            or payload.get("dateCreated")
-            or payload.get("date_created")
-            or payload.get("prospect_createdDate")
-            or payload.get("prospect_created_date")
-            or payload.get("prospect_leadCreatedDate")
-            or payload.get("prospect_lead_created_date")
-            or row.get("created_date")
-            or row.get("lead_created_date")
-            or row.get("date_created")
-        )
-        or _event_date(row)
+    created_date = _parse_activity_date(
+        payload.get("createdDate")
+        or payload.get("created_date")
+        or payload.get("leadCreatedDate")
+        or payload.get("lead_created_date")
+        or payload.get("dateCreated")
+        or payload.get("date_created")
+        or payload.get("leadDate")
+        or payload.get("lead_date")
+        or payload.get("inquiryDate")
+        or payload.get("inquiry_date")
+        or payload.get("firstContactDate")
+        or payload.get("first_contact_date")
+        or payload.get("guestCardDate")
+        or payload.get("guest_card_date")
+        or payload.get("prospect_createdDate")
+        or payload.get("prospect_created_date")
+        or payload.get("prospect_leadCreatedDate")
+        or payload.get("prospect_lead_created_date")
+        or payload.get("prospect_leadDate")
+        or payload.get("prospect_lead_date")
+        or payload.get("prospect_inquiryDate")
+        or payload.get("prospect_inquiry_date")
+        or payload.get("prospect_firstContactDate")
+        or payload.get("prospect_first_contact_date")
+        or row.get("created_date")
+        or row.get("lead_created_date")
+        or row.get("date_created")
+        or row.get("lead_date")
+        or row.get("inquiry_date")
+        or row.get("first_contact_date")
     )
+    if created_date:
+        return created_date
+
+    source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
+    if source_api == "getLeadEvents":
+        return _parse_activity_date(
+            payload.get("eventDate")
+            or payload.get("event_date")
+            or payload.get("eventDateTime")
+            or payload.get("eventDatetime")
+            or payload.get("date")
+            or payload.get("timestamp")
+        )
+
+    return _event_date(row)
 
 
 def _lead_status(row: dict[str, Any]) -> str:
@@ -713,11 +742,16 @@ def _compact_lead_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
     for key in (
         "leadEventId", "eventId", "eventID", "leadId", "leadID", "prospectId",
-        "prospectID", "customerId", "customerID", "applicationId", "leadSource",
+        "prospectID", "prospectKey", "_prospectKey", "customerId", "customerID",
+        "applicationId", "leadSource", "source", "email", "emailAddress",
+        "primaryEmail", "prospectEmail", "guestCardEmail", "phoneNumber",
+        "primaryPhoneNumber", "mobilePhone", "phone", "firstName", "lastName",
         "internetListingService", "status", "leadStatus", "lead_status",
         "applicationStatus", "application_status", "leaseStatus", "lease_status",
         "createdDate", "created_date", "leadCreatedDate", "lead_created_date",
-        "dateCreated", "date_created",
+        "dateCreated", "date_created", "leadDate", "lead_date", "inquiryDate",
+        "inquiry_date", "firstContactDate", "first_contact_date", "guestCardDate",
+        "guest_card_date",
     ):
         if payload.get(key) not in (None, ""):
             compact[key] = payload.get(key)
@@ -732,6 +766,8 @@ def _compact_lead_payload(row: dict[str, Any]) -> dict[str, Any]:
     ):
         if compact.get(target_key) in (None, "") and row.get(source_key) not in (None, ""):
             compact[target_key] = row.get(source_key)
+    if compact.get("leadSource") in (None, "") and compact.get("source") not in (None, ""):
+        compact["leadSource"] = compact["source"]
     return compact
 
 
@@ -764,6 +800,19 @@ def _compact_invoice_payload(row: dict[str, Any]) -> dict[str, Any]:
         "_propertyId": row.get("property_id"),
         "id": row.get("id"),
     }
+    for source_key, target_key in (
+        ("amount", "amount"),
+        ("post_date", "post_date"),
+        ("invoice_date", "invoice_date"),
+        ("transaction_date", "transaction_date"),
+        ("post_month", "post_month"),
+        ("gl_account_number", "gl_account_number"),
+        ("gl_account_name", "gl_account_name"),
+        ("vendor_name", "vendorName"),
+        ("contract", "contract"),
+    ):
+        if row.get(source_key) not in (None, ""):
+            compact[target_key] = row.get(source_key)
     for key in (
         "@attributes", "apDetailId", "reference", "memo", "debit", "credit",
         "totalAmount", "amount", "invoiceAmount", "total", "amountDue",
@@ -774,6 +823,10 @@ def _compact_invoice_payload(row: dict[str, Any]) -> dict[str, Any]:
         if payload.get(key) not in (None, ""):
             compact[key] = payload.get(key)
     return compact
+
+
+def _shape_invoice_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return _compact_invoice_payload(row)
 
 
 def _shape_property_lease(row: dict[str, Any]) -> dict[str, Any]:
@@ -835,8 +888,11 @@ def _invoice_amount(invoice: dict[str, Any]) -> float:
 def _invoice_effective_date(invoice: dict[str, Any]) -> date | None:
     return (
         _parse_activity_date(invoice.get("postDate"))
+        or _parse_activity_date(invoice.get("post_date"))
         or _parse_activity_date(invoice.get("transactionDate"))
+        or _parse_activity_date(invoice.get("transaction_date"))
         or _parse_activity_date(invoice.get("invoiceDate"))
+        or _parse_activity_date(invoice.get("invoice_date"))
         or _parse_activity_date(invoice.get("_date"))
         or _parse_activity_date(invoice.get("activity_date"))
     )
@@ -856,9 +912,9 @@ def _invoice_key(invoice: dict[str, Any]) -> str:
 
 
 def _invoice_allocation_month(invoice: dict[str, Any]) -> tuple[date, date] | None:
-    post_month = str(invoice.get("postMonth") or "").strip()
+    post_month = str(invoice.get("postMonth") or invoice.get("post_month") or "").strip()
     if post_month:
-        for pattern in ("%B %Y", "%b %Y", "%Y-%m"):
+        for pattern in ("%B %Y", "%B, %Y", "%b %Y", "%b, %Y", "%Y-%m", "%m/%Y"):
             try:
                 parsed = datetime.strptime(post_month, pattern).date()
                 month_start = parsed.replace(day=1)
@@ -891,9 +947,9 @@ def _allocated_invoice_amount(invoice: dict[str, Any], start_date: date, end_dat
 
 def _invoice_breakdown_label(invoice: dict[str, Any]) -> str:
     gl_account = invoice.get("glAccount") if isinstance(invoice.get("glAccount"), dict) else {}
-    account_number = gl_account.get("accountNumber") or invoice.get("accountNumber")
-    account_name = gl_account.get("accountName") or invoice.get("accountName")
-    vendor_name = invoice.get("vendorName") or invoice.get("contract") or invoice.get("vendorCode")
+    account_number = gl_account.get("accountNumber") or invoice.get("accountNumber") or invoice.get("gl_account_number")
+    account_name = gl_account.get("accountName") or invoice.get("accountName") or invoice.get("gl_account_name")
+    vendor_name = invoice.get("vendorName") or invoice.get("vendor_name") or invoice.get("contract") or invoice.get("vendorCode")
     parts = [part for part in (account_number, account_name, vendor_name) if part]
     return " - ".join(str(part) for part in parts) or "Marketing Spend"
 
@@ -1199,7 +1255,12 @@ def get_property_reporting_overview_payload(
     invoice_rows = _fetch_json(
         "property_invoices",
         [
-            ("select", "property_snapshot_id,property_id,activity_date,raw_data,firestore_path"),
+            (
+                "select",
+                "property_snapshot_id,property_id,activity_date,amount,post_date,invoice_date,"
+                "transaction_date,post_month,gl_account_number,gl_account_name,vendor_name,"
+                "contract,raw_data,firestore_path",
+            ),
             ("property_id", f"eq.{property_id}"),
             ("activity_date", f"gte.{invoice_start.isoformat()}"),
             ("activity_date", f"lte.{invoice_end.isoformat()}"),
@@ -1332,7 +1393,7 @@ def get_property_reporting_overview_payload(
         "conventional_lease_items": [_shape_property_lease(row) for row in conventional_lease_rows],
         "lead_60_day_items": [_shape_lead_payload(row) for row in lead_60_day_rows],
         "event_60_day_items": [_shape_child_payload(row) for row in event_60_day_rows],
-        "invoice_items": [_shape_child_payload(row) for row in invoice_rows],
+        "invoice_items": [_shape_invoice_payload(row) for row in invoice_rows],
         "availability_items": [],
         "latest_availability_date": availability_snapshot_date,
         "specials_snapshot": _shape_current_snapshot(
@@ -1558,7 +1619,12 @@ def get_multi_property_call_prep_summary(
                 "invoices": (
                     "property_invoices",
                     [
-                        ("select", "property_snapshot_id,property_id,activity_date,raw_data"),
+                        (
+                            "select",
+                            "property_snapshot_id,property_id,activity_date,amount,post_date,invoice_date,"
+                            "transaction_date,post_month,gl_account_number,gl_account_name,vendor_name,"
+                            "contract,raw_data",
+                        ),
                         ("property_id", property_filter),
                         ("activity_date", f"gte.{invoice_start.isoformat()}"),
                         ("activity_date", f"lte.{invoice_end.isoformat()}"),

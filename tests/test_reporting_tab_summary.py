@@ -180,6 +180,18 @@ class RedListSummaryTests(unittest.TestCase):
                     },
                     {
                         "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "missing-created-date",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "email": "missing-date@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
                         "activity_date": "2026-05-13",
                         "raw_data": {
                             "_sourceApi": "getLeadEvents",

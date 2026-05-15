@@ -160,6 +160,63 @@ class CallPrepSummaryTests(unittest.TestCase):
 
         self.assertEqual(reporting._lead_created_date(row), dt.date(2026, 5, 3))
 
+    def test_lead_created_date_prefers_inquiry_fields_over_event_activity(self):
+        row = {
+            "activity_date": "2026-05-14",
+            "raw_data": {
+                "_sourceApi": "getLeadEvents",
+                "_sourceEventType": "online_guest_card",
+                "eventDate": "05/14/2026",
+                "firstContactDate": "05/02/2026",
+            },
+        }
+
+        self.assertEqual(reporting._lead_created_date(row), dt.date(2026, 5, 2))
+
+    def test_invoice_helpers_accept_normalized_supabase_columns(self):
+        invoice = {
+            "amount": 3100,
+            "post_month": "05/2026",
+            "post_date": "2026-05-01",
+            "gl_account_number": "5300-0030",
+            "gl_account_name": "Internet Advertising",
+            "vendor_name": "Search Partner",
+        }
+
+        self.assertEqual(reporting._invoice_amount(invoice), 3100)
+        self.assertEqual(reporting._invoice_effective_date(invoice), dt.date(2026, 5, 1))
+        self.assertEqual(
+            reporting._invoice_allocation_month(invoice),
+            (dt.date(2026, 5, 1), dt.date(2026, 5, 31)),
+        )
+        self.assertTrue(reporting._invoice_has_classification(
+            invoice,
+            reporting._ALL_MARKETING_GL_CODES,
+            reporting._ALL_MARKETING_DESCRIPTIONS,
+        ))
+
+    def test_compact_invoice_payload_preserves_normalized_supabase_columns(self):
+        row = {
+            "property_snapshot_id": "snap-1",
+            "property_id": "10",
+            "activity_date": "2026-05-14",
+            "amount": 3100,
+            "post_month": "05/2026",
+            "post_date": "2026-05-01",
+            "gl_account_number": "5300-0030",
+            "gl_account_name": "Internet Advertising",
+            "vendor_name": "Search Partner",
+            "raw_data": {},
+        }
+
+        compact = reporting._compact_invoice_payload(row)
+
+        self.assertEqual(compact["amount"], 3100)
+        self.assertEqual(compact["post_month"], "05/2026")
+        self.assertEqual(compact["post_date"], "2026-05-01")
+        self.assertEqual(compact["gl_account_number"], "5300-0030")
+        self.assertEqual(compact["vendorName"], "Search Partner")
+
     def test_lead_identity_dedupes_multiple_guest_card_events(self):
         rows = [
             {
