@@ -1135,6 +1135,7 @@ const normalizeLeadIdentityPhone = (value) => {
   const digits = String(value ?? '').replace(/\D+/g, '');
   return digits.length >= 10 ? digits.slice(-10) : digits;
 };
+const isVolatileProspectKey = (value) => normalizeLeadIdentityText(value).startsWith('hash:');
 
 const getLeadKey = (lead) => {
   const eventIds = new Set(
@@ -1143,6 +1144,8 @@ const getLeadKey = (lead) => {
       .filter(Boolean)
   );
   const idCandidates = [
+    lead.prospectKey,
+    lead._prospectKey,
     lead.leadId,
     lead.leadID,
     lead.prospectId,
@@ -1162,7 +1165,7 @@ const getLeadKey = (lead) => {
 
   const stableId = idCandidates.find((value) => {
     const normalized = normalizeLeadIdentityText(value);
-    return normalized && !eventIds.has(normalized);
+    return normalized && !eventIds.has(normalized) && !isVolatileProspectKey(normalized);
   });
   if (stableId) return getScopedStableKey(lead?._propertyId, `id:${normalizeLeadIdentityText(stableId)}`);
 

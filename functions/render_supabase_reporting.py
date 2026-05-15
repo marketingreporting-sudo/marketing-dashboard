@@ -233,6 +233,10 @@ def _normalize_identity_phone(value: Any) -> str:
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def _is_volatile_prospect_key(key: str, value: str) -> bool:
+    return key in ("prospectKey", "_prospectKey") and value.startswith("hash:")
+
+
 def _lead_identity_key(row: dict[str, Any]) -> str:
     property_id = _row_property_id(row)
     event_ids = {
@@ -244,7 +248,7 @@ def _lead_identity_key(row: dict[str, Any]) -> str:
     for key in _LEAD_PERSON_ID_CANDIDATES:
         value = _candidate_value(row, key)
         normalized = _normalize_identity_text(value)
-        if normalized and normalized not in event_ids:
+        if normalized and normalized not in event_ids and not _is_volatile_prospect_key(key, normalized):
             return f"{property_id}:id:{normalized}"
 
     for key in _LEAD_EMAIL_CANDIDATES:
@@ -377,7 +381,14 @@ def _lead_created_date(row: dict[str, Any]) -> date | None:
 
     source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
     if source_api == "getLeadEvents":
-        return None
+        return _parse_activity_date(
+            payload.get("eventDate")
+            or payload.get("event_date")
+            or payload.get("eventDateTime")
+            or payload.get("eventDatetime")
+            or payload.get("date")
+            or payload.get("timestamp")
+        )
 
     return _event_date(row)
 
