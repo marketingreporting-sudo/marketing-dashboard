@@ -48,6 +48,8 @@ from render_supabase_admin_access import (
     generate_user_password_reset_summary,
     invite_user_with_access_summary,
     list_access_admin_summary,
+    offboard_property_summary,
+    onboard_property_summary,
     update_user_access_summary,
 )
 from render_supabase_reporting import (
@@ -608,6 +610,47 @@ def create_app() -> Flask:
             return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
         except Exception as error:
             return build_cors_json_response({"status": "error", "error": str(error), "staging_only": True}, status_code=500)
+
+    @app.route("/api/admin/properties", methods=["POST", "OPTIONS"])
+    def staged_admin_properties():
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            _access_token, user = require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        payload = onboard_property_summary(
+            get_request_json_payload(),
+            actor_user_id=str(user.get("id") or ""),
+            actor_email=str(user.get("email") or ""),
+        )
+        status_code = 200 if payload.get("status") != "error" else 400
+        return build_cors_json_response(payload, status_code=status_code)
+
+    @app.route("/api/admin/properties/<property_id>/offboard", methods=["POST", "OPTIONS"])
+    def staged_admin_property_offboard(property_id: str):
+        if request.method == "OPTIONS":
+            return build_cors_json_response({})
+
+        try:
+            _access_token, user = require_platform_permission("users.manage")
+        except RenderPermissionError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=403)
+        except RenderAuthError as error:
+            return build_cors_json_response({"status": "error", "error": str(error)}, status_code=401)
+
+        payload = offboard_property_summary(
+            str(property_id),
+            get_request_json_payload(),
+            actor_user_id=str(user.get("id") or ""),
+            actor_email=str(user.get("email") or ""),
+        )
+        status_code = 200 if payload.get("status") != "error" else 400
+        return build_cors_json_response(payload, status_code=status_code)
 
     @app.route("/api/analytics/reputation", methods=["GET", "POST", "OPTIONS"])
     def staged_reputation_dashboard():

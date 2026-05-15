@@ -62,6 +62,7 @@ export default function DashboardView(props) {
     renderMetricValue,
     roiLoading,
     roiTotals,
+    selectedProperty,
     studentLeadDeficitMetrics,
     toggleMarketingSpendLine,
     totalApplications,
@@ -69,6 +70,45 @@ export default function DashboardView(props) {
     totalLeads,
     totalLeases,
   } = props;
+
+  const propertyProfileFields = React.useMemo(() => {
+    if (!selectedProperty) return [];
+
+    return [
+      ['Entrata property ID', selectedProperty.propertyId],
+      ['GA4 ID', selectedProperty.googleAnalyticsId],
+      ['Google Ads ID', selectedProperty.googleAdsId],
+      ['Local Falcon ID', selectedProperty.localFalconLocationId],
+      ['Meta ID', selectedProperty.metaAdsAccountId],
+      ['Opiniion ID', selectedProperty.opiniionLocationId],
+      ['Marketing account manager', selectedProperty.marketingAccountManager],
+      ['Regional manager', selectedProperty.regionalManager],
+      ['Vice president of operations', selectedProperty.vicePresidentOperations],
+      ['Portfolio', selectedProperty.portfolio],
+      ['Client', selectedProperty.client],
+      ['Website type', selectedProperty.websiteType],
+      ['Website URL', selectedProperty.websiteUrl],
+      ['Property type', selectedProperty.propertyType],
+      ['Legal entity', selectedProperty.legalEntity],
+      ['Entrata API access', selectedProperty.entrataApiAccess],
+    ];
+  }, [selectedProperty]);
+
+  const propertyProfileCompleteCount = propertyProfileFields.filter(([, value]) => (
+    typeof value === 'boolean' ? value : String(value || '').trim().length > 0
+  )).length;
+  const propertyProfileCompletion = propertyProfileFields.length
+    ? Math.round((propertyProfileCompleteCount / propertyProfileFields.length) * 100)
+    : 0;
+  const propertyProfileCompletionLabel = selectedProperty ? `${propertyProfileCompletion}%` : '—';
+  const propertyProfileMissingFields = propertyProfileFields
+    .filter(([, value]) => (typeof value === 'boolean' ? !value : String(value || '').trim().length === 0))
+    .map(([label]) => label);
+  const propertyProfileStatus = propertyProfileCompletion === 100
+    ? 'All profile fields are complete.'
+    : selectedProperty
+      ? `${propertyProfileMissingFields.slice(0, 3).join(', ')}${propertyProfileMissingFields.length > 3 ? ` +${propertyProfileMissingFields.length - 3} more` : ''}`
+      : 'Choose a single property to see profile completion.';
 
   const leadSourceBreakdown = React.useMemo(() => {
     const sources = {};
@@ -123,6 +163,20 @@ export default function DashboardView(props) {
 
   return <div className="grid-layout">
         {/* ── KPI Tiles ── */}
+        <div className="card property-profile-completion-card">
+          <div className="property-profile-completion-card__top">
+            <FileCheck size={16} style={{ opacity: 0.72 }} />
+            <div className="card-title">Property Profile</div>
+          </div>
+          <div className="card-value">{propertyProfileCompletionLabel}</div>
+          <div className="property-profile-completion-card__bar" aria-hidden="true">
+            <span style={{ width: `${propertyProfileCompletion}%` }} />
+          </div>
+          <div className="property-profile-completion-card__meta">
+            {selectedProperty ? `${propertyProfileCompleteCount}/${propertyProfileFields.length} complete | ` : ''}{propertyProfileStatus}
+          </div>
+        </div>
+
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             <Users size={16} style={{ opacity: 0.6 }} />

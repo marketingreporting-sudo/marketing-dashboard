@@ -2214,6 +2214,39 @@ h1, h2, h3 {
   font-weight: 600;
 }
 
+.property-profile-completion-card {
+  display: grid;
+  align-content: start;
+}
+
+.property-profile-completion-card__top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.property-profile-completion-card__bar {
+  height: 8px;
+  margin-top: 0.8rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.property-profile-completion-card__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--pop-red), var(--orange));
+}
+
+.property-profile-completion-card__meta {
+  margin-top: 0.65rem;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
 .span-2 { grid-column: span 2; }
 .span-3 { grid-column: span 3; }
 .span-4 { grid-column: span 4; }
@@ -8988,6 +9021,10 @@ th {
   gap: 0.9rem;
 }
 
+.admin-access-form-grid--wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .admin-access-field {
   display: grid;
   gap: 0.38rem;
@@ -9013,6 +9050,20 @@ th {
 .admin-access-field input:disabled {
   opacity: 0.72;
   cursor: not-allowed;
+}
+
+.admin-access-field--checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 46px;
+  align-self: end;
+}
+
+.admin-access-field--checkbox input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--primary-red);
 }
 
 .admin-access-property-picker {
@@ -9127,6 +9178,7 @@ th {
 }
 
 .admin-ticket-routing-row__property span,
+.admin-ticket-routing-row__property small,
 .admin-ticket-routing-row__meta {
   color: var(--primary-tan);
   font-size: 0.78rem;
@@ -9137,6 +9189,44 @@ th {
   gap: 0.25rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.admin-properties-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.admin-properties-panel {
+  min-width: 0;
+}
+
+.admin-properties-list {
+  display: grid;
+  gap: 0;
+  max-height: 760px;
+  overflow: auto;
+  border: 1px solid rgba(215, 210, 207, 0.12);
+}
+
+.admin-property-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(12rem, 0.8fr) auto;
+  align-items: end;
+  gap: 0.9rem;
+  padding: 0.9rem;
+  border-bottom: 1px solid rgba(215, 210, 207, 0.1);
+  background: rgba(10, 20, 24, 0.34);
+}
+
+.admin-property-row:last-child {
+  border-bottom: 0;
+}
+
+.admin-danger-button {
+  border-color: rgba(229, 104, 112, 0.45) !important;
+  background: rgba(122, 32, 45, 0.34) !important;
 }
 
 .admin-access-audit-list {
@@ -9197,11 +9287,14 @@ th {
 }
 
 @media (max-width: 1180px) {
-  .admin-access-layout {
+  .admin-access-layout,
+  .admin-properties-layout {
     grid-template-columns: 1fr;
   }
 
-  .admin-ticket-routing-row {
+  .admin-ticket-routing-row,
+  .admin-property-row,
+  .admin-access-form-grid--wide {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -9220,6 +9313,7 @@ th {
   .admin-access-stats,
   .admin-access-form-grid,
   .admin-ticket-routing-row,
+  .admin-property-row,
   .admin-access-audit-card__body {
     grid-template-columns: 1fr;
   }

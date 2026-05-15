@@ -113,12 +113,21 @@ create table if not exists public.access_audit_logs (
   id uuid primary key default gen_random_uuid(),
   actor_user_id uuid references auth.users(id) on delete set null,
   actor_email text,
-  action text not null check (action in ('invite_user', 'update_user_access')),
+  action text not null check (action in ('invite_user', 'update_user_access', 'onboard_property', 'offboard_property')),
   target_user_id uuid references auth.users(id) on delete set null,
   target_email text,
   details jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
+
+do $$
+begin
+  alter table public.access_audit_logs drop constraint if exists access_audit_logs_action_check;
+  alter table public.access_audit_logs
+    add constraint access_audit_logs_action_check
+    check (action in ('invite_user', 'update_user_access', 'onboard_property', 'offboard_property'));
+end;
+$$;
 
 create index if not exists idx_access_audit_logs_created_at
   on public.access_audit_logs (created_at desc);
@@ -264,13 +273,21 @@ security definer
 set search_path = public
 as $$
   select
-    public.user_has_platform_permission('properties.view_all')
-    or exists (
+    exists (
       select 1
-      from public.property_memberships
-      where public.property_memberships.user_id = auth.uid()
-        and public.property_memberships.property_id = target_property_id
-        and public.property_memberships.is_active = true
+      from public.properties
+      where public.properties.id = target_property_id
+        and coalesce(public.properties.is_active, true) = true
+    )
+    and (
+      public.user_has_platform_permission('properties.view_all')
+      or exists (
+        select 1
+        from public.property_memberships
+        where public.property_memberships.user_id = auth.uid()
+          and public.property_memberships.property_id = target_property_id
+          and public.property_memberships.is_active = true
+      )
     );
 $$;
 

@@ -247,6 +247,7 @@ def build_local_falcon_location_match_summary(properties: list[dict[str, Any]] |
             "properties",
             [
                 ("select", "id,name,raw_data"),
+                ("is_active", "is.true"),
                 ("order", "name.asc"),
             ],
         )

@@ -509,6 +509,7 @@ def _fetch_property_row(property_id: str, *, access_token: str | None = None) ->
         [
             ("select", "id,name"),
             ("id", f"eq.{property_id}"),
+            ("is_active", "is.true"),
             ("limit", "1"),
         ],
         access_token=access_token,

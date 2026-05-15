@@ -87,11 +87,38 @@ def _fetch_properties() -> list[dict[str, Any]]:
     rows = _db_request(
         "properties",
         query_params=[
-            ("select", "id,name,city,state,portfolio"),
+            (
+                "select",
+                "id,name,city,state,portfolio,org_slug,google_ads_id,google_analytics_id,"
+                "meta_ads_account_id,local_falcon_location_id,opiniion_location_id,"
+                "marketing_account_manager,regional_manager,vice_president_operations,"
+                "client,website_type,website_url,property_type,legal_entity,entrata_api_access,is_active",
+            ),
+            ("is_active", "is.true"),
             ("order", "name.asc"),
         ],
     )
     return rows if isinstance(rows, list) else []
+
+
+def _fetch_property_by_id(property_id: str) -> dict[str, Any]:
+    rows = _db_request(
+        "properties",
+        query_params=[
+            (
+                "select",
+                "id,name,city,state,portfolio,org_slug,google_ads_id,google_analytics_id,"
+                "meta_ads_account_id,local_falcon_location_id,opiniion_location_id,"
+                "marketing_account_manager,regional_manager,vice_president_operations,"
+                "client,website_type,website_url,property_type,legal_entity,entrata_api_access,is_active",
+            ),
+            ("id", f"eq.{property_id}"),
+            ("limit", "1"),
+        ],
+    )
+    if isinstance(rows, list) and rows:
+        return rows[0]
+    return {}
 
 
 def _fetch_profiles() -> list[dict[str, Any]]:
@@ -279,6 +306,121 @@ def list_access_admin_payload() -> dict[str, Any]:
         "properties": properties,
         "auditLogs": audit_logs,
     }
+
+
+def _clean_property_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    property_id = str(payload.get("propertyId") or payload.get("id") or "").strip()
+    name = str(payload.get("name") or "").strip()
+    if not property_id:
+        raise ValueError("Entrata property ID is required.")
+    if not name:
+        raise ValueError("Property name is required.")
+
+    website_type = str(payload.get("websiteType") or "").strip().lower()
+    property_type = str(payload.get("propertyType") or "").strip().lower()
+    allowed_website_types = {"entrata", "wordpress", "other", ""}
+    allowed_property_types = {"student", "conventional", ""}
+    if website_type not in allowed_website_types:
+        raise ValueError("Website type must be Entrata, WordPress, or Other.")
+    if property_type not in allowed_property_types:
+        raise ValueError("Property type must be Student or Conventional.")
+
+    return {
+        "id": property_id,
+        "name": name,
+        "city": str(payload.get("city") or "").strip() or None,
+        "state": str(payload.get("state") or "").strip().upper() or None,
+        "portfolio": str(payload.get("portfolio") or "").strip() or None,
+        "org_slug": str(payload.get("client") or "").strip().lower().replace(" ", "-") or None,
+        "google_ads_id": str(payload.get("googleAdsId") or "").strip() or None,
+        "google_analytics_id": str(payload.get("googleAnalyticsId") or payload.get("ga4Id") or "").strip() or None,
+        "meta_ads_account_id": str(payload.get("metaAdsAccountId") or payload.get("metaId") or "").strip() or None,
+        "local_falcon_location_id": str(payload.get("localFalconLocationId") or payload.get("localFalconId") or "").strip() or None,
+        "opiniion_location_id": str(payload.get("opiniionLocationId") or payload.get("opiniionId") or "").strip() or None,
+        "marketing_account_manager": str(payload.get("marketingAccountManager") or "").strip() or None,
+        "regional_manager": str(payload.get("regionalManager") or "").strip() or None,
+        "vice_president_operations": str(payload.get("vicePresidentOperations") or "").strip() or None,
+        "client": str(payload.get("client") or "").strip() or None,
+        "website_type": website_type or None,
+        "website_url": str(payload.get("websiteUrl") or "").strip() or None,
+        "property_type": property_type or None,
+        "legal_entity": str(payload.get("legalEntity") or "").strip() or None,
+        "entrata_api_access": bool(payload.get("entrataApiAccess")),
+        "is_active": True,
+    }
+
+
+def onboard_property_payload(
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    cleaned = _clean_property_payload(payload)
+    before_state = _fetch_property_by_id(cleaned["id"])
+    rows = _db_request(
+        "properties",
+        method="POST",
+        query_params=[("on_conflict", "id")],
+        payload=cleaned,
+        prefer="resolution=merge-duplicates,return=representation",
+    )
+    property_row = rows[0] if isinstance(rows, list) and rows else cleaned
+
+    _log_access_audit_event(
+        actor_user_id=actor_user_id,
+        actor_email=actor_email,
+        action="onboard_property",
+        target_user_id=None,
+        target_email=None,
+        details={
+            "propertyId": cleaned["id"],
+            "propertyName": cleaned["name"],
+            "before": before_state or None,
+            "after": property_row,
+        },
+    )
+    return {"status": "ok", "property": property_row}
+
+
+def offboard_property_payload(
+    property_id: str,
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    confirmation = str(payload.get("confirmation") or "").strip()
+    if confirmation != "Offboard":
+        raise ValueError('Type "Offboard" to confirm property offboarding.')
+
+    before_state = _fetch_property_by_id(property_id)
+    if not before_state:
+        raise ValueError("Property was not found.")
+
+    rows = _db_request(
+        "properties",
+        method="PATCH",
+        query_params=[("id", f"eq.{property_id}")],
+        payload={"is_active": False},
+        prefer="return=representation",
+    )
+    property_row = rows[0] if isinstance(rows, list) and rows else {"id": property_id, "is_active": False}
+
+    _log_access_audit_event(
+        actor_user_id=actor_user_id,
+        actor_email=actor_email,
+        action="offboard_property",
+        target_user_id=None,
+        target_email=None,
+        details={
+            "propertyId": property_id,
+            "propertyName": before_state.get("name"),
+            "before": before_state,
+            "after": property_row,
+        },
+    )
+    return {"status": "ok", "property": property_row}
 
 
 def _replace_user_memberships(user_id: str, property_role: str | None, property_ids: list[str]) -> list[dict[str, Any]]:
@@ -563,4 +705,29 @@ def generate_user_password_reset_summary(
             actor_email=actor_email,
         )
     except (HTTPError, URLError, SupabaseValidationConfigError, RuntimeError) as error:
+        return {"status": "error", "error": str(error)}
+
+
+def onboard_property_summary(
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return onboard_property_payload(payload, actor_user_id=actor_user_id, actor_email=actor_email)
+    except (HTTPError, URLError, SupabaseValidationConfigError, RuntimeError, ValueError) as error:
+        return {"status": "error", "error": str(error)}
+
+
+def offboard_property_summary(
+    property_id: str,
+    payload: dict[str, Any],
+    *,
+    actor_user_id: str | None = None,
+    actor_email: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return offboard_property_payload(property_id, payload, actor_user_id=actor_user_id, actor_email=actor_email)
+    except (HTTPError, URLError, SupabaseValidationConfigError, RuntimeError, ValueError) as error:
         return {"status": "error", "error": str(error)}

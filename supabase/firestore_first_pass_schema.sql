@@ -27,13 +27,39 @@ create table if not exists public.properties (
   google_analytics_id text,
   meta_ads_account_id text,
   meta_ads_match_terms jsonb not null default '[]'::jsonb,
+  local_falcon_location_id text,
   opiniion_location_id text,
   opiniion_location_name text,
+  marketing_account_manager text,
+  regional_manager text,
+  vice_president_operations text,
+  client text,
+  website_type text,
+  website_url text,
+  property_type text,
+  legal_entity text,
+  entrata_api_access boolean not null default false,
+  is_active boolean not null default true,
   raw_data jsonb not null default '{}'::jsonb,
   firestore_path text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.properties add column if not exists local_falcon_location_id text;
+alter table public.properties add column if not exists marketing_account_manager text;
+alter table public.properties add column if not exists regional_manager text;
+alter table public.properties add column if not exists vice_president_operations text;
+alter table public.properties add column if not exists client text;
+alter table public.properties add column if not exists website_type text;
+alter table public.properties add column if not exists website_url text;
+alter table public.properties add column if not exists property_type text;
+alter table public.properties add column if not exists legal_entity text;
+alter table public.properties add column if not exists entrata_api_access boolean not null default false;
+alter table public.properties add column if not exists is_active boolean not null default true;
+
+create index if not exists idx_properties_is_active_name
+  on public.properties (is_active, name);
 
 drop trigger if exists set_properties_updated_at on public.properties;
 create trigger set_properties_updated_at

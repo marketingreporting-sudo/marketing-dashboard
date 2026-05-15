@@ -1,6 +1,7 @@
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import {
   ADMIN_ACCESS_USERS_URL,
+  ADMIN_PROPERTIES_URL,
   ADMIN_TICKET_ASSIGNMENTS_URL,
   CLIENT_REPORT_BASE_DOMAIN,
   GA4_DASHBOARD_URL,
@@ -284,10 +285,34 @@ const NAV_ITEMS = [
 ];
 const ADMIN_SECTIONS = [
   { id: 'users', label: 'Users' },
+  { id: 'properties', label: 'Properties' },
   { id: 'ticket-routing', label: 'Assignments' },
   { id: 'website-schema', label: 'Website Schema' },
   { id: 'audit-log', label: 'Audit Log' },
 ];
+const ADMIN_PROPERTY_DRAFT_DEFAULTS = {
+  propertyId: '',
+  name: '',
+  city: '',
+  state: '',
+  googleAnalyticsId: '',
+  googleAdsId: '',
+  localFalconLocationId: '',
+  metaAdsAccountId: '',
+  opiniionLocationId: '',
+  marketingAccountManager: '',
+  regionalManager: '',
+  vicePresidentOperations: '',
+  portfolio: '',
+  newPortfolio: '',
+  client: '',
+  newClient: '',
+  websiteType: 'entrata',
+  websiteUrl: '',
+  propertyType: 'student',
+  legalEntity: '',
+  entrataApiAccess: false,
+};
 const RED_LIST_SECTIONS = [
   { id: 'student', label: 'Student Properties' },
   { id: 'conventional', label: 'Conventional Properties' },
@@ -2069,6 +2094,9 @@ const DashboardApp = ({
   const [adminUserPropertySearch, setAdminUserPropertySearch] = useState('');
   const [adminRoutingSearch, setAdminRoutingSearch] = useState('');
   const [adminRoutingFilter, setAdminRoutingFilter] = useState('all');
+  const [adminPropertySearch, setAdminPropertySearch] = useState('');
+  const [adminPropertyDraft, setAdminPropertyDraft] = useState(ADMIN_PROPERTY_DRAFT_DEFAULTS);
+  const [adminOffboardConfirmations, setAdminOffboardConfirmations] = useState({});
   const [adminAuditSearch, setAdminAuditSearch] = useState('');
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminRoles, setAdminRoles] = useState([]);
@@ -2210,6 +2238,9 @@ const DashboardApp = ({
     });
     return Array.from(values).sort((a, b) => formatPortfolioLabel(a).localeCompare(formatPortfolioLabel(b)));
   }, [adminProperties, adminTicketAssignmentDrafts]);
+  const adminClientOptions = useMemo(() => (
+    Array.from(new Set(adminProperties.map((property) => property.client).filter(Boolean))).sort((a, b) => a.localeCompare(b))
+  ), [adminProperties]);
   const filteredAdminUsers = useMemo(
     () => adminUsers.filter((user) => matchesSearch([
       user.fullName,
@@ -2236,6 +2267,19 @@ const DashboardApp = ({
       property.id,
     ], adminUserPropertySearch)),
     [adminProperties, adminUserPropertySearch]
+  );
+  const filteredAdminProperties = useMemo(
+    () => adminProperties.filter((property) => matchesSearch([
+      property.name,
+      property.city,
+      property.state,
+      property.id,
+      property.portfolio,
+      property.client,
+      property.website_type,
+      property.property_type,
+    ], adminPropertySearch)),
+    [adminProperties, adminPropertySearch]
   );
   const filteredAdminRoutingProperties = useMemo(
     () => adminProperties.filter((property) => {
@@ -5892,6 +5936,7 @@ const DashboardApp = ({
           renderMetricValue,
           roiLoading,
           roiTotals,
+          selectedProperty,
           studentLeadDeficitMetrics,
           toggleMarketingSpendLine,
           totalApplications,
@@ -7661,6 +7706,79 @@ const DashboardApp = ({
     </div>
   );
 
+  const updateAdminPropertyDraft = (field, value) => {
+    setAdminPropertyDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const saveAdminProperty = async () => {
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+
+    const portfolio = adminPropertyDraft.newPortfolio.trim() || adminPropertyDraft.portfolio;
+    const client = adminPropertyDraft.newClient.trim() || adminPropertyDraft.client;
+
+    try {
+      const response = await authFetch(ADMIN_PROPERTIES_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...adminPropertyDraft,
+          portfolio,
+          client,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Property onboarding failed: ${response.status}`);
+      }
+
+      const onboardedName = adminPropertyDraft.name.trim();
+      setAdminPropertyDraft(ADMIN_PROPERTY_DRAFT_DEFAULTS);
+      await Promise.all([loadAdminAccess(), refreshAccess()]);
+      setAdminAccessNotice(`${onboardedName} is now active in the dashboard.`);
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to onboard property.');
+      setAdminAccessLoading(false);
+    }
+  };
+
+  const updateAdminOffboardConfirmation = (propertyId, value) => {
+    setAdminOffboardConfirmations((current) => ({ ...current, [propertyId]: value }));
+  };
+
+  const offboardAdminProperty = async (property) => {
+    setAdminAccessLoading(true);
+    setAdminAccessError(null);
+    setAdminAccessNotice(null);
+
+    try {
+      const response = await authFetch(`${ADMIN_PROPERTIES_URL}/${property.id}/offboard`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmation: adminOffboardConfirmations[property.id] || '' }),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload?.status === 'error') {
+        throw new Error(payload?.error || `Property offboarding failed: ${response.status}`);
+      }
+
+      setAdminOffboardConfirmations((current) => {
+        const next = { ...current };
+        delete next[property.id];
+        return next;
+      });
+      if (selectedPropertyId === property.id) {
+        setSelectedPropertyId(defaultPropertyId || availableProperties.find((candidate) => candidate.propertyId !== property.id)?.propertyId || null);
+      }
+      await Promise.all([loadAdminAccess(), refreshAccess()]);
+      setAdminAccessNotice(`${property.name} has been offboarded.`);
+    } catch (error) {
+      setAdminAccessError(error.message || 'Unable to offboard property.');
+      setAdminAccessLoading(false);
+    }
+  };
+
   const handleAdminUserSelection = (userId) => {
     setAdminSelectedUserId(userId);
     const user = adminUsers.find((candidate) => candidate.id === userId) || null;
@@ -8497,6 +8615,152 @@ const DashboardApp = ({
             <span>{adminCopiedLinkType === 'reset' ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
+      )}
+
+      {adminActiveSection === 'properties' && (
+      <div className="admin-properties-layout">
+        <div className="admin-access-panel">
+          <div className="admin-access-section-head">
+            <div>
+              <div className="admin-access-panel__eyebrow">Onboarding</div>
+              <h3 className="admin-access-panel__title">Add a property to the dashboard</h3>
+            </div>
+          </div>
+          <div className="admin-access-form-grid admin-access-form-grid--wide">
+            {[
+              ['propertyId', 'Entrata property ID'],
+              ['name', 'Property name'],
+              ['city', 'City'],
+              ['state', 'State'],
+              ['googleAnalyticsId', 'GA4 ID'],
+              ['googleAdsId', 'Google Ads ID'],
+              ['localFalconLocationId', 'Local Falcon ID'],
+              ['metaAdsAccountId', 'Meta ID'],
+              ['opiniionLocationId', 'Opiniion ID'],
+              ['marketingAccountManager', 'Marketing account manager'],
+              ['regionalManager', 'Regional manager'],
+              ['vicePresidentOperations', 'Vice president of operations'],
+              ['websiteUrl', 'Website URL'],
+              ['legalEntity', 'Legal entity'],
+            ].map(([field, label]) => (
+              <label key={field} className="admin-access-field">
+                <span>{label}</span>
+                <input
+                  type={field === 'websiteUrl' ? 'url' : 'text'}
+                  value={adminPropertyDraft[field]}
+                  onChange={(event) => updateAdminPropertyDraft(field, event.target.value)}
+                />
+              </label>
+            ))}
+            <label className="admin-access-field">
+              <span>Portfolio</span>
+              <select value={adminPropertyDraft.portfolio} onChange={(event) => updateAdminPropertyDraft('portfolio', event.target.value)}>
+                <option value="">Choose portfolio</option>
+                {adminPortfolioOptions.map((portfolio) => (
+                  <option key={portfolio} value={portfolio}>{formatPortfolioLabel(portfolio)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="admin-access-field">
+              <span>Create portfolio</span>
+              <input type="text" value={adminPropertyDraft.newPortfolio} onChange={(event) => updateAdminPropertyDraft('newPortfolio', event.target.value)} />
+            </label>
+            <label className="admin-access-field">
+              <span>Client</span>
+              <select value={adminPropertyDraft.client} onChange={(event) => updateAdminPropertyDraft('client', event.target.value)}>
+                <option value="">Choose client</option>
+                {adminClientOptions.map((client) => (
+                  <option key={client} value={client}>{client}</option>
+                ))}
+              </select>
+            </label>
+            <label className="admin-access-field">
+              <span>Create client</span>
+              <input type="text" value={adminPropertyDraft.newClient} onChange={(event) => updateAdminPropertyDraft('newClient', event.target.value)} />
+            </label>
+            <label className="admin-access-field">
+              <span>Website type</span>
+              <select value={adminPropertyDraft.websiteType} onChange={(event) => updateAdminPropertyDraft('websiteType', event.target.value)}>
+                <option value="entrata">Entrata</option>
+                <option value="wordpress">WordPress</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label className="admin-access-field">
+              <span>Property type</span>
+              <select value={adminPropertyDraft.propertyType} onChange={(event) => updateAdminPropertyDraft('propertyType', event.target.value)}>
+                <option value="student">Student</option>
+                <option value="conventional">Conventional</option>
+              </select>
+            </label>
+            <label className="admin-access-field admin-access-field--checkbox">
+              <input
+                type="checkbox"
+                checked={adminPropertyDraft.entrataApiAccess}
+                onChange={(event) => updateAdminPropertyDraft('entrataApiAccess', event.target.checked)}
+              />
+              <span>Added to Entrata API access</span>
+            </label>
+          </div>
+          <div className="admin-access-actions">
+            <button type="button" onClick={saveAdminProperty} disabled={adminAccessLoading}>
+              {adminAccessLoading ? 'Saving…' : 'Onboard Property'}
+            </button>
+          </div>
+        </div>
+
+        <div className="admin-access-panel admin-properties-panel">
+          <div className="admin-access-section-head">
+            <div>
+              <div className="admin-access-panel__eyebrow">Offboarding</div>
+              <h3 className="admin-access-panel__title">Active properties</h3>
+            </div>
+            <span>{formatNumber(filteredAdminProperties.length)} shown</span>
+          </div>
+          <label className="admin-search-field admin-search-field--wide">
+            <span>Search properties</span>
+            <input
+              type="search"
+              value={adminPropertySearch}
+              onChange={(event) => setAdminPropertySearch(event.target.value)}
+              placeholder="Property, ID, portfolio, client, or market"
+            />
+          </label>
+          <div className="admin-properties-list">
+            {filteredAdminProperties.map((property) => (
+              <div key={property.id} className="admin-property-row">
+                <div className="admin-ticket-routing-row__property">
+                  <strong>{property.name}</strong>
+                  <span>{property.city || property.state ? `${property.city || ''}${property.city && property.state ? ', ' : ''}${property.state || ''}` : property.id}</span>
+                  <small>{property.id}{property.portfolio ? ` | ${formatPortfolioLabel(property.portfolio)}` : ''}{property.client ? ` | ${property.client}` : ''}</small>
+                </div>
+                <label className="admin-access-field">
+                  <span>Confirm offboard</span>
+                  <input
+                    type="text"
+                    value={adminOffboardConfirmations[property.id] || ''}
+                    onChange={(event) => updateAdminOffboardConfirmation(property.id, event.target.value)}
+                    placeholder="Type Offboard"
+                  />
+                </label>
+                <div className="admin-access-actions">
+                  <button
+                    type="button"
+                    className="admin-danger-button"
+                    onClick={() => offboardAdminProperty(property)}
+                    disabled={adminAccessLoading || adminOffboardConfirmations[property.id] !== 'Offboard'}
+                  >
+                    Offboard
+                  </button>
+                </div>
+              </div>
+            ))}
+            {filteredAdminProperties.length === 0 && (
+              <div className="admin-access-empty">No active properties match that search.</div>
+            )}
+          </div>
+        </div>
+      </div>
       )}
 
       {adminActiveSection === 'ticket-routing' && (

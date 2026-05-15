@@ -7396,6 +7396,7 @@ def list_site_audit_portfolio_summary(
         "properties",
         [
             ("select", "id,name,city,state,portfolio,org_slug"),
+            ("is_active", "is.true"),
             ("order", "name.asc"),
         ],
         headers=_supabase_anon_headers(access_token),

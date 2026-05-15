@@ -189,6 +189,7 @@ def _fetch_properties() -> list[dict[str, Any]]:
             "properties",
             query_params=[
                 ("select", "id,name,city,state,portfolio"),
+                ("is_active", "is.true"),
                 ("order", "name.asc"),
             ],
         )
@@ -201,6 +202,7 @@ def _fetch_properties_for_matching() -> list[dict[str, Any]]:
             "properties",
             query_params=[
                 ("select", "id,name,slug,short_name,city,state"),
+                ("is_active", "is.true"),
                 ("order", "name.asc"),
             ],
         )

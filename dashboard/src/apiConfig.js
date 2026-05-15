@@ -84,6 +84,11 @@ export const ADMIN_TICKET_ASSIGNMENTS_URL = resolveApiUrl(
   '/api/admin/ticket-assignments'
 );
 
+export const ADMIN_PROPERTIES_URL = resolveApiUrl(
+  import.meta.env.VITE_ADMIN_PROPERTIES_URL || '',
+  '/api/admin/properties'
+);
+
 export const GA4_DASHBOARD_URL = resolveApiUrl(
   import.meta.env.VITE_GA4_DASHBOARD_URL || '',
   '/api/analytics/ga4',
