@@ -7,6 +7,12 @@ from urllib.request import Request, urlopen
 from render_supabase_sync_state import _table_query_url
 from render_supabase_validation import SupabaseValidationConfigError, _require_env, _supabase_headers
 
+PROPERTY_SELECT_BASE = "id,name,city,state,portfolio,org_slug,google_ads_id,google_analytics_id,meta_ads_account_id,opiniion_location_id"
+PROPERTY_SELECT_PROFILE = (
+    f"{PROPERTY_SELECT_BASE},local_falcon_location_id,marketing_account_manager,regional_manager,"
+    "vice_president_operations,client,website_type,website_url,property_type,legal_entity,entrata_api_access,is_active"
+)
+
 
 def _auth_admin_url(path: str, query_params: list[tuple[str, str]] | None = None) -> str:
     base_url = _require_env("SUPABASE_URL").rstrip("/")
@@ -84,38 +90,45 @@ def _fetch_roles() -> list[dict[str, Any]]:
 
 
 def _fetch_properties() -> list[dict[str, Any]]:
-    rows = _db_request(
-        "properties",
-        query_params=[
-            (
-                "select",
-                "id,name,city,state,portfolio,org_slug,google_ads_id,google_analytics_id,"
-                "meta_ads_account_id,local_falcon_location_id,opiniion_location_id,"
-                "marketing_account_manager,regional_manager,vice_president_operations,"
-                "client,website_type,website_url,property_type,legal_entity,entrata_api_access,is_active",
-            ),
-            ("is_active", "is.true"),
-            ("order", "name.asc"),
-        ],
-    )
+    query_params = [
+        ("select", PROPERTY_SELECT_PROFILE),
+        ("is_active", "is.true"),
+        ("order", "name.asc"),
+    ]
+    try:
+        rows = _db_request("properties", query_params=query_params)
+    except HTTPError as error:
+        if error.code != 400:
+            raise
+        rows = _db_request(
+            "properties",
+            query_params=[
+                ("select", PROPERTY_SELECT_BASE),
+                ("order", "name.asc"),
+            ],
+        )
     return rows if isinstance(rows, list) else []
 
 
 def _fetch_property_by_id(property_id: str) -> dict[str, Any]:
-    rows = _db_request(
-        "properties",
-        query_params=[
-            (
-                "select",
-                "id,name,city,state,portfolio,org_slug,google_ads_id,google_analytics_id,"
-                "meta_ads_account_id,local_falcon_location_id,opiniion_location_id,"
-                "marketing_account_manager,regional_manager,vice_president_operations,"
-                "client,website_type,website_url,property_type,legal_entity,entrata_api_access,is_active",
-            ),
-            ("id", f"eq.{property_id}"),
-            ("limit", "1"),
-        ],
-    )
+    query_params = [
+        ("select", PROPERTY_SELECT_PROFILE),
+        ("id", f"eq.{property_id}"),
+        ("limit", "1"),
+    ]
+    try:
+        rows = _db_request("properties", query_params=query_params)
+    except HTTPError as error:
+        if error.code != 400:
+            raise
+        rows = _db_request(
+            "properties",
+            query_params=[
+                ("select", PROPERTY_SELECT_BASE),
+                ("id", f"eq.{property_id}"),
+                ("limit", "1"),
+            ],
+        )
     if isinstance(rows, list) and rows:
         return rows[0]
     return {}

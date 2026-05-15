@@ -5,6 +5,13 @@ import { supabase } from '../lib/supabase';
 import { AccessContext } from './AccessContext';
 
 const normalizeArray = (value) => (Array.isArray(value) ? value : []);
+const PROPERTY_SELECT_BASE = 'id, name, city, state, portfolio, org_slug, google_ads_id, google_analytics_id, meta_ads_account_id, meta_ads_match_terms, opiniion_location_id, opiniion_location_name';
+const PROPERTY_SELECT_PROFILE = `${PROPERTY_SELECT_BASE}, local_falcon_location_id, marketing_account_manager, regional_manager, vice_president_operations, client, website_type, website_url, property_type, legal_entity, entrata_api_access, is_active`;
+
+const isMissingPropertyProfileColumnError = (error) => (
+  error?.code === '42703'
+  || String(error?.message || '').includes('does not exist')
+);
 
 const normalizePropertyRecord = (row) => {
   const fallback = PROPERTY_CATALOG_BY_ID[row?.id] || {};
@@ -62,6 +69,33 @@ const buildPropertyAccessMap = ({ properties, memberships, profileRole, rolePerm
     };
     return accumulator;
   }, {});
+};
+
+const fetchPropertyRows = async ({ hasGlobalPropertyAccess, propertyIds }) => {
+  if (!hasGlobalPropertyAccess && propertyIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  const buildQuery = (selectColumns, includeActiveFilter) => {
+    let query = supabase
+      .from('properties')
+      .select(selectColumns);
+
+    if (!hasGlobalPropertyAccess) {
+      query = query.in('id', propertyIds);
+    }
+    if (includeActiveFilter) {
+      query = query.eq('is_active', true);
+    }
+    return query.order('name', { ascending: true });
+  };
+
+  const profileResponse = await buildQuery(PROPERTY_SELECT_PROFILE, true);
+  if (!profileResponse.error || !isMissingPropertyProfileColumnError(profileResponse.error)) {
+    return profileResponse;
+  }
+
+  return buildQuery(PROPERTY_SELECT_BASE, false);
 };
 
 export const AccessProvider = ({ children }) => {
@@ -146,40 +180,15 @@ export const AccessProvider = ({ children }) => {
       );
       const hasGlobalPropertyAccess = globalPermissionSet.has('properties.view_all');
 
-      if (hasGlobalPropertyAccess) {
-        const propertiesResponse = await supabase
-          .from('properties')
-          .select('id, name, city, state, portfolio, org_slug, google_ads_id, google_analytics_id, meta_ads_account_id, meta_ads_match_terms, local_falcon_location_id, opiniion_location_id, opiniion_location_name, marketing_account_manager, regional_manager, vice_president_operations, client, website_type, website_url, property_type, legal_entity, entrata_api_access, is_active')
-          .eq('is_active', true)
-          .order('name', { ascending: true });
-
-        if (propertiesResponse.error) {
-          if (!cancelledRef.current) {
-            setError(propertiesResponse.error.message || 'Unable to load property catalog.');
-            setLoading(false);
-          }
-          return;
+      const propertiesResponse = await fetchPropertyRows({ hasGlobalPropertyAccess, propertyIds });
+      if (propertiesResponse.error) {
+        if (!cancelledRef.current) {
+          setError(propertiesResponse.error.message || 'Unable to load property catalog.');
+          setLoading(false);
         }
-
-        propertyRows = propertiesResponse.data || [];
-      } else if (propertyIds.length > 0) {
-        const propertiesResponse = await supabase
-          .from('properties')
-          .select('id, name, city, state, portfolio, org_slug, google_ads_id, google_analytics_id, meta_ads_account_id, meta_ads_match_terms, local_falcon_location_id, opiniion_location_id, opiniion_location_name, marketing_account_manager, regional_manager, vice_president_operations, client, website_type, website_url, property_type, legal_entity, entrata_api_access, is_active')
-          .in('id', propertyIds)
-          .eq('is_active', true)
-          .order('name', { ascending: true });
-
-        if (propertiesResponse.error) {
-          if (!cancelledRef.current) {
-            setError(propertiesResponse.error.message || 'Unable to load assigned properties.');
-            setLoading(false);
-          }
-          return;
-        }
-
-        propertyRows = propertiesResponse.data || [];
+        return;
       }
+      propertyRows = propertiesResponse.data || [];
 
       const mergedProperties = Array.from(
         new Map(
