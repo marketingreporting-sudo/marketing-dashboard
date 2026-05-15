@@ -377,14 +377,7 @@ def _lead_created_date(row: dict[str, Any]) -> date | None:
 
     source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
     if source_api == "getLeadEvents":
-        return _parse_activity_date(
-            payload.get("eventDate")
-            or payload.get("event_date")
-            or payload.get("eventDateTime")
-            or payload.get("eventDatetime")
-            or payload.get("date")
-            or payload.get("timestamp")
-        )
+        return None
 
     return _event_date(row)
 
@@ -1664,22 +1657,6 @@ def get_multi_property_call_prep_summary(
     lease_items.extend(_shape_property_lease(row) for row in lease_rows)
     invoice_items.extend(_compact_invoice_payload(row) for row in invoices_rows)
 
-    if not lead_items and not event_items and not lease_items and not invoice_items and (property_errors or table_errors):
-        failed_tables = ", ".join(sorted(table_errors)) if table_errors else "property data"
-        first_table_error = next(iter(table_errors.values()), None)
-        return {
-            "status": "error",
-            "message": (
-                f"Unable to load any property data for call prep aggregation. Failed table reads: {failed_tables}."
-                if table_errors
-                else "Unable to load any property data for call prep aggregation."
-            ),
-            "error": first_table_error or "Unable to load any property data for call prep aggregation.",
-            "table_errors": table_errors,
-            "property_errors": property_errors,
-            "staging_only": True,
-        }
-
     return {
         "status": "ok",
         "property_id": "all",
@@ -2364,8 +2341,14 @@ def get_property_call_prep_summary(
     with ThreadPoolExecutor(max_workers=2) as executor:
         budget_future = executor.submit(_fetch_call_prep_budget, selected_property_id, end_date, headers)
         recent_tasks_future = executor.submit(_fetch_call_prep_tasks, selected_property_id, sixty_start, sixty_end, headers)
-        budget = budget_future.result()
-        recent_tasks = recent_tasks_future.result()
+        try:
+            budget = budget_future.result()
+        except (HTTPError, URLError, SupabaseValidationConfigError, TimeoutError) as error:
+            budget = {"activeItems": [], "activeApprovedMonthly": 0, "error": str(error)}
+        try:
+            recent_tasks = recent_tasks_future.result()
+        except (HTTPError, URLError, SupabaseValidationConfigError, TimeoutError) as error:
+            recent_tasks = {"items": [], "error": str(error)}
     marketing_invoices = _marketing_invoices(property_payload.get("invoice_items", []), selected_property_id)
     actual_last_30 = sum(_allocated_invoice_amount(invoice, thirty_start, thirty_end) for invoice in marketing_invoices)
     performance_last_30 = sum(

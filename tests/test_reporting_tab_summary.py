@@ -127,6 +127,7 @@ class RedListSummaryTests(unittest.TestCase):
                             "typeId": "10",
                             "eventReason": "Online Guest Card",
                             "eventDate": "05/10/2026",
+                            "leadCreatedDate": "05/10/2026",
                             "email": "sam@example.com",
                         },
                     },
@@ -141,6 +142,7 @@ class RedListSummaryTests(unittest.TestCase):
                             "typeId": "10",
                             "eventReason": "Online Guest Card",
                             "eventDate": "05/10/2026",
+                            "leadCreatedDate": "05/10/2026",
                             "email": "SAM@example.com",
                         },
                     },
@@ -162,6 +164,7 @@ class RedListSummaryTests(unittest.TestCase):
                             "typeId": "10",
                             "eventReason": "Online Guest Card",
                             "eventDate": "04/30/2026",
+                            "leadCreatedDate": "04/30/2026",
                         },
                     },
                     {
@@ -224,9 +227,9 @@ class RedListSummaryTests(unittest.TestCase):
                 return [{"property_id": "10", "activity_date": "2026-05-10"}]
             if table_name == "property_leads":
                 return [
-                    {"property_id": "10", "activity_date": "2026-04-11", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "a", "typeId": "10", "eventDate": "04/11/2026"}},
-                    {"property_id": "10", "activity_date": "2026-05-01", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "b", "typeId": "10", "eventDate": "05/01/2026"}},
-                    {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "c", "typeId": "10", "eventDate": "05/10/2026"}},
+                    {"property_id": "10", "activity_date": "2026-04-11", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "a", "typeId": "10", "eventDate": "04/11/2026", "leadCreatedDate": "04/11/2026"}},
+                    {"property_id": "10", "activity_date": "2026-05-01", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "b", "typeId": "10", "eventDate": "05/01/2026", "leadCreatedDate": "05/01/2026"}},
+                    {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"_sourceApi": "getLeadEvents", "_sourceEventType": "online_guest_card", "leadEventId": "c", "typeId": "10", "eventDate": "05/10/2026", "leadCreatedDate": "05/10/2026"}},
                     {"property_id": "10", "activity_date": "2026-05-10", "raw_data": {"leadId": "legacy"}},
                 ]
             if table_name == "property_availability_snapshots":
