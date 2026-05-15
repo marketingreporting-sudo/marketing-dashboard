@@ -394,12 +394,19 @@ def _lead_status(row: dict[str, Any]) -> str:
     status_value = (
         row.get("status")
         or payload.get("status")
+        or payload.get("prospect_status")
         or payload.get("leadStatus")
         or payload.get("lead_status")
+        or payload.get("prospect_leadStatus")
+        or payload.get("prospect_lead_status")
         or payload.get("applicationStatus")
         or payload.get("application_status")
+        or payload.get("prospect_applicationStatus")
+        or payload.get("prospect_application_status")
         or payload.get("leaseStatus")
         or payload.get("lease_status")
+        or payload.get("prospect_leaseStatus")
+        or payload.get("prospect_lease_status")
         or payload.get("eventReason")
     )
     return re.sub(r"[^a-z0-9]+", " ", str(status_value or "").lower()).strip()
@@ -430,10 +437,17 @@ def _lead_status_id(row: dict[str, Any]) -> int | None:
         payload.get("currentLeadStatusId"),
         payload.get("currentLeadStatusID"),
         payload.get("current_lead_status_id"),
+        payload.get("prospect_currentLeadStatusId"),
+        payload.get("prospect_currentLeadStatusID"),
+        payload.get("prospect_current_lead_status_id"),
         payload.get("applicationStatusId"),
         payload.get("application_status_id"),
+        payload.get("prospect_applicationStatusId"),
+        payload.get("prospect_application_status_id"),
         payload.get("leaseStatusId"),
         payload.get("lease_status_id"),
+        payload.get("prospect_leaseStatusId"),
+        payload.get("prospect_lease_status_id"),
         _find_nested_value(payload.get("status"), ("id", "statusId", "status_id")),
         _find_nested_value(payload.get("leadStatus"), ("id", "statusId", "status_id")),
         _find_nested_value(payload.get("lead_status"), ("id", "statusId", "status_id")),
@@ -512,6 +526,19 @@ def _filter_lead_event_rows(
 ) -> list[dict[str, Any]]:
     filtered_rows, _ = _filter_lead_event_rows_with_exclusions(rows, start_date, end_date, cancellation_event_rows)
     return filtered_rows
+
+
+def _lead_event_row_as_lead_row(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row.get("raw_data") or {})
+    payload.setdefault("_sourceEventType", "online_guest_card")
+    if payload.get("leadEventId") in (None, "") and payload.get("eventId") not in (None, ""):
+        payload["leadEventId"] = payload.get("eventId")
+    return {**row, "raw_data": payload}
+
+
+def _lead_source_rows(derived_lead_rows: list[dict[str, Any]], event_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    guest_card_event_rows = [_lead_event_row_as_lead_row(row) for row in event_rows if _is_lead_event_api_row(row)]
+    return guest_card_event_rows or derived_lead_rows
 
 
 def _lead_event_date(row: dict[str, Any]) -> date | None:
@@ -1178,7 +1205,7 @@ def get_property_red_list_summary(
         ],
         headers=headers,
     )
-    leads_rows = _filter_lead_event_rows(leads_rows, start_date, end_date, cancellation_event_rows)
+    leads_rows = _filter_lead_event_rows(_lead_source_rows(leads_rows, cancellation_event_rows), start_date, end_date, cancellation_event_rows)
     pricing_rows = _fetch_json(
         "property_availability_snapshots",
         [
@@ -1316,7 +1343,12 @@ def get_property_reporting_overview_payload(
         ],
         headers=headers,
     )
-    leads_rows, excluded_lead_rows = _filter_lead_event_rows_with_exclusions(leads_rows, start_date, end_date, events_rows)
+    leads_rows, excluded_lead_rows = _filter_lead_event_rows_with_exclusions(
+        _lead_source_rows(leads_rows, events_rows),
+        start_date,
+        end_date,
+        events_rows,
+    )
     excluded_lead_rows = _dedupe_lead_rows(excluded_lead_rows)
     leads_rows = _dedupe_lead_rows(leads_rows)
     lead_60_day_rows = _fetch_json(
@@ -1342,7 +1374,7 @@ def get_property_reporting_overview_payload(
         headers=headers,
     )
     lead_60_day_rows, excluded_lead_60_day_rows = _filter_lead_event_rows_with_exclusions(
-        lead_60_day_rows,
+        _lead_source_rows(lead_60_day_rows, event_60_day_rows),
         conventional_window_start,
         end_date,
         event_60_day_rows,
@@ -1751,7 +1783,12 @@ def get_multi_property_call_prep_summary(
         lease_rows = []
         invoices_rows = []
 
-    leads_rows, excluded_leads_rows = _filter_lead_event_rows_with_exclusions(leads_rows, start_date, end_date, events_rows)
+    leads_rows, excluded_leads_rows = _filter_lead_event_rows_with_exclusions(
+        _lead_source_rows(leads_rows, events_rows),
+        start_date,
+        end_date,
+        events_rows,
+    )
     excluded_leads_rows = _dedupe_lead_rows(excluded_leads_rows)
     leads_rows = _dedupe_lead_rows(leads_rows)
 

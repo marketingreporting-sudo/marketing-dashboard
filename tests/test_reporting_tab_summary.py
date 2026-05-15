@@ -255,6 +255,20 @@ class RedListSummaryTests(unittest.TestCase):
                         "activity_date": "2026-05-13",
                         "raw_data": {
                             "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "derived-only-inflated-lead",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "05/13/2026",
+                            "leadCreatedDate": "05/13/2026",
+                            "email": "derived-only@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-13",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
                             "eventId": "application-event",
                             "typeId": "12",
                             "eventReason": "Application Status: Completed",
@@ -264,6 +278,18 @@ class RedListSummaryTests(unittest.TestCase):
                 ]
             if table_name == "property_events":
                 return [
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-10",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "eventId": "event-in-range",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "05/10/2026",
+                            "email": "sam@example.com",
+                        },
+                    },
                     {
                         "property_id": "10",
                         "activity_date": "2026-05-12",
@@ -287,9 +313,10 @@ class RedListSummaryTests(unittest.TestCase):
             payload = reporting.get_property_reporting_overview_payload("10", "2026-05-01", "2026-05-14", access_token="token")
 
         self.assertEqual(payload["counts"]["lead_items"], 1)
-        self.assertEqual(payload["counts"]["excluded_lead_items"], 3)
+        self.assertEqual(payload["counts"]["excluded_lead_items"], 0)
         self.assertEqual(payload["lead_items"][0]["leadEventId"], "event-in-range")
         self.assertEqual(payload["lead_items"][0]["_date"], "2026-05-10")
+        self.assertNotIn("derived-only-inflated-lead", {item.get("leadEventId") for item in payload["lead_items"]})
 
     def test_red_list_summary_uses_latest_supabase_snapshot_and_last_30_days(self):
         queries = []
