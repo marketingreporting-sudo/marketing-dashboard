@@ -621,7 +621,7 @@ def is_online_guest_card_event(event):
     if get_event_type_id(event) == ONLINE_GUEST_CARD_EVENT_TYPE_ID:
         return True
     reason = normalize_event_reason_for_match(event)
-    return "online guest card" in reason or "guest card" in reason
+    return reason == "online guest card" or reason.startswith("guest card submitted")
 
 def is_completed_application_event(event):
     if get_event_type_id(event) != APPLICATION_PROGRESS_EVENT_TYPE_ID:

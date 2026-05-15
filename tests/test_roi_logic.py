@@ -221,6 +221,12 @@ class RoiLogicTests(unittest.TestCase):
                                     "eventReason": "Application Status: Completed",
                                     "eventDate": "03/31/2026",
                                 },
+                                {
+                                    "eventId": "event-archived",
+                                    "typeId": "12",
+                                    "eventReason": "Guest Card Status:Archived by Mary Drysdale Reason for Archive: Archived",
+                                    "eventDate": "03/31/2026",
+                                },
                             ]
                         },
                     }
@@ -243,7 +249,7 @@ class RoiLogicTests(unittest.TestCase):
         self.assertEqual(lead_items[0]["prospectKey"], "id:prospect-1")
         self.assertEqual(lead_items[0]["prospect_createdDate"], "03/30/2026")
         self.assertEqual(lead_items[0]["_sourceApi"], "getLeadEvents")
-        self.assertEqual(len(event_items), 2)
+        self.assertEqual(len(event_items), 3)
         self.assertEqual(event_items[0]["prospect_prospectId"], "prospect-1")
 
     def test_fetch_events_saves_one_lead_per_prospect(self):

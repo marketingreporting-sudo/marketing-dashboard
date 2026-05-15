@@ -341,7 +341,7 @@ def _is_online_guest_card_event(row: dict[str, Any]) -> bool:
     if _event_type_id(row) == _ONLINE_GUEST_CARD_EVENT_TYPE_ID:
         return True
     reason = _event_reason(row)
-    return "online guest card" in reason or "guest card" in reason
+    return reason == "online guest card" or reason.startswith("guest card submitted")
 
 
 def _lead_created_date(row: dict[str, Any]) -> date | None:
@@ -472,10 +472,9 @@ def _is_cancelled_lead(row: dict[str, Any]) -> bool:
 def _is_lead_event_api_row(row: dict[str, Any]) -> bool:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
     source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
-    source_event_type = str(payload.get("_sourceEventType") or row.get("_sourceEventType") or "").strip()
     if source_api != "getLeadEvents":
         return False
-    return source_event_type == "online_guest_card" or _is_online_guest_card_event(row)
+    return _is_online_guest_card_event(row)
 
 
 def _is_lead_cancellation_event(row: dict[str, Any], start_date: date, end_date: date) -> bool:

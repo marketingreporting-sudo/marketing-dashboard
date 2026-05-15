@@ -269,6 +269,20 @@ class RedListSummaryTests(unittest.TestCase):
                         "activity_date": "2026-05-13",
                         "raw_data": {
                             "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "polluted-status-lead",
+                            "typeId": "12",
+                            "eventReason": "Guest Card Status:Archived by Mary Drysdale Reason for Archive: Archived",
+                            "eventDate": "05/13/2026",
+                            "leadCreatedDate": "05/13/2026",
+                            "email": "polluted-status@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-13",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
                             "eventId": "application-event",
                             "typeId": "12",
                             "eventReason": "Application Status: Completed",
@@ -288,6 +302,42 @@ class RedListSummaryTests(unittest.TestCase):
                             "eventReason": "Online Guest Card",
                             "eventDate": "05/10/2026",
                             "email": "sam@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-11",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "eventId": "submitted-lead",
+                            "typeId": "10",
+                            "eventReason": "Guest Card Submitted by Gerard Madelyn by Website",
+                            "eventDate": "05/11/2026",
+                            "email": "submitted@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-11",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "eventId": "polluted-archived-status",
+                            "typeId": "12",
+                            "eventReason": "Guest Card Status:Archived by Mary Drysdale Reason for Archive: Archived",
+                            "eventDate": "05/11/2026",
+                            "email": "archived-status@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-11",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "eventId": "polluted-cancelled-status",
+                            "typeId": "12",
+                            "eventReason": "Guest Card Status:Cancelled",
+                            "eventDate": "05/11/2026",
+                            "email": "cancelled-status-event@example.com",
                         },
                     },
                     {
@@ -312,11 +362,16 @@ class RedListSummaryTests(unittest.TestCase):
              mock.patch.object(reporting, "get_property_red_list_summary", return_value={}):
             payload = reporting.get_property_reporting_overview_payload("10", "2026-05-01", "2026-05-14", access_token="token")
 
-        self.assertEqual(payload["counts"]["lead_items"], 1)
+        self.assertEqual(payload["counts"]["lead_items"], 2)
         self.assertEqual(payload["counts"]["excluded_lead_items"], 0)
         self.assertEqual(payload["lead_items"][0]["leadEventId"], "event-in-range")
         self.assertEqual(payload["lead_items"][0]["_date"], "2026-05-10")
-        self.assertNotIn("derived-only-inflated-lead", {item.get("leadEventId") for item in payload["lead_items"]})
+        lead_event_ids = {item.get("leadEventId") for item in payload["lead_items"]}
+        self.assertIn("submitted-lead", lead_event_ids)
+        self.assertNotIn("derived-only-inflated-lead", lead_event_ids)
+        self.assertNotIn("polluted-status-lead", lead_event_ids)
+        self.assertNotIn("polluted-archived-status", lead_event_ids)
+        self.assertNotIn("polluted-cancelled-status", lead_event_ids)
 
     def test_red_list_summary_uses_latest_supabase_snapshot_and_last_30_days(self):
         queries = []
