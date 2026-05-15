@@ -239,6 +239,7 @@ class RoiLogicTests(unittest.TestCase):
         event_items = save_raw_data.call_args_list[1].args[2]
         self.assertEqual(len(lead_items), 1)
         self.assertEqual(lead_items[0]["leadEventId"], "event-lead")
+        self.assertEqual(lead_items[0]["prospectKey"], "id:prospect-1")
         self.assertEqual(lead_items[0]["_sourceApi"], "getLeadEvents")
         self.assertEqual(len(event_items), 2)
         self.assertEqual(event_items[0]["prospect_prospectId"], "prospect-1")
@@ -287,6 +288,7 @@ class RoiLogicTests(unittest.TestCase):
         event_items = save_raw_data.call_args_list[1].args[2]
         self.assertEqual(len(lead_items), 1)
         self.assertEqual(lead_items[0]["leadEventId"], "event-lead-1")
+        self.assertEqual(lead_items[0]["prospectKey"], "id:prospect-1")
         self.assertEqual(lead_items[0]["status"], "Application Completed")
         self.assertEqual(len(event_items), 3)
 

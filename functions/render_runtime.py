@@ -810,11 +810,19 @@ def _lead_row(parent_id: str, property_id: int | str, date_id: str, item: dict[s
         "property_id": str(property_id),
         "activity_date": date_id,
         "lead_id": legacy.normalize_string(
-            legacy.first_non_empty(item.get("leadId"), item.get("leadID"), item.get("prospectId"), item.get("prospectID"), item.get("id"))
+            legacy.first_non_empty(
+                item.get("leadId"),
+                item.get("leadID"),
+                item.get("prospectId"),
+                item.get("prospectID"),
+                item.get("prospectKey"),
+                item.get("_prospectKey"),
+                item.get("id"),
+            )
         ),
         "application_id": legacy.normalize_string(item.get("applicationId")),
         "customer_id": legacy.normalize_string(legacy.first_non_empty(item.get("customerId"), item.get("customerID"))),
-        "prospect_id": legacy.normalize_string(legacy.first_non_empty(item.get("prospectId"), item.get("prospectID"))),
+        "prospect_id": legacy.normalize_string(legacy.first_non_empty(item.get("prospectId"), item.get("prospectID"), item.get("prospectKey"), item.get("_prospectKey"))),
         "status": legacy.normalize_string(item.get("status")),
         "lead_source": legacy.get_lead_source(item),
         "internet_listing_service": legacy.normalize_string(item.get("internetListingService")),

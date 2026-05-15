@@ -47,7 +47,7 @@ OPINIION_API_BASE_URL = os.environ.get("OPINIION_API_BASE_URL", "https://api.opi
 OPINIION_LOCATION_FIELD = os.environ.get("OPINIION_LOCATION_FIELD", "opiniionLocationId")
 
 DOCUMENT_ID_CANDIDATES = {
-    "leads": ["leadEventId", "eventId", "eventID", "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID", "id"],
+    "leads": ["prospectKey", "_prospectKey", "prospectId", "prospectID", "leadId", "leadID", "customerId", "customerID", "leadEventId", "eventId", "eventID", "id"],
     "events": ["eventId", "eventID", "id"],
     "leases": ["leaseId", "leaseID", "residentLeaseId", "residentLeaseID", "recordId", "id"],
     "invoices": ["invoiceId", "invoiceID", "arInvoiceId", "arInvoiceID", "referenceNumber", "id"],
@@ -3664,6 +3664,7 @@ def fetch_paginated_leases_for_range(property_id, params, per_page=LEASE_ATTRIBU
     return all_items, last_meta
 
 def build_lead_event_record(event, prospect_context):
+    prospect_key = build_prospect_identity_key(prospect_context)
     prospect_ids = {
         key: prospect_context.get(key)
         for key in [
@@ -3682,12 +3683,57 @@ def build_lead_event_record(event, prospect_context):
         **prospect_context,
         **event,
         **prospect_ids,
+        "prospectKey": prospect_key,
+        "_prospectKey": prospect_key,
         "leadEventId": event_id,
-        "leadId": first_non_empty(prospect_context.get("leadId"), prospect_context.get("leadID"), event_id),
+        "leadId": first_non_empty(
+            prospect_context.get("leadId"),
+            prospect_context.get("leadID"),
+            prospect_context.get("prospectId"),
+            prospect_context.get("prospectID"),
+            prospect_context.get("customerId"),
+            prospect_context.get("customerID"),
+            prospect_key,
+            event_id,
+        ),
         "source": get_lead_source({**prospect_context, **event}),
         "_sourceApi": "getLeadEvents",
         "_sourceEventType": "online_guest_card",
     }
+
+
+def build_prospect_identity_key(prospect_context):
+    stable_id = first_non_empty(
+        prospect_context.get("prospectId"),
+        prospect_context.get("prospectID"),
+        prospect_context.get("leadId"),
+        prospect_context.get("leadID"),
+        prospect_context.get("customerId"),
+        prospect_context.get("customerID"),
+        prospect_context.get("applicationId"),
+        prospect_context.get("applicationID"),
+        prospect_context.get("id"),
+    )
+    if stable_id not in (None, ""):
+        return f"id:{normalize_string(stable_id)}"
+
+    email = recursively_find_first_value(prospect_context, ["email", "emailAddress", "primaryEmail", "prospectEmail"])
+    if email not in (None, ""):
+        return f"email:{str(email).strip().lower()}"
+
+    phone = recursively_find_first_value(prospect_context, ["phoneNumber", "primaryPhoneNumber", "mobilePhone", "phone"])
+    normalized_phone = normalize_phone(phone)
+    if normalized_phone:
+        return f"phone:{normalized_phone}"
+
+    first_name = recursively_find_first_value(prospect_context, ["firstName", "firstname"])
+    last_name = recursively_find_first_value(prospect_context, ["lastName", "lastname"])
+    normalized_name = normalize_full_name(" ".join(str(value).strip() for value in (first_name, last_name) if value not in (None, "")))
+    if normalized_name:
+        return f"name:{normalized_name}"
+
+    encoded = json.dumps(prospect_context, sort_keys=True, default=str)
+    return f"hash:{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16]}"
 
 
 def build_prospect_lead_record(prospect_context, nested_events):

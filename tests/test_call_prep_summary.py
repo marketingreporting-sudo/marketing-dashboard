@@ -194,6 +194,24 @@ class CallPrepSummaryTests(unittest.TestCase):
 
         self.assertEqual(reporting._unique_lead_count(rows), 1)
 
+    def test_lead_identity_prefers_prospect_key_over_event_ids(self):
+        rows = [
+            {
+                "_propertyId": "10",
+                "leadEventId": "event-1",
+                "leadId": "event-1",
+                "prospectKey": "hash:same-prospect",
+            },
+            {
+                "_propertyId": "10",
+                "leadEventId": "event-2",
+                "leadId": "event-2",
+                "prospectKey": "hash:same-prospect",
+            },
+        ]
+
+        self.assertEqual(reporting._unique_lead_count(rows), 1)
+
     def test_multi_property_call_prep_summary_batches_table_reads(self):
         fetch_results = [[], [], [], []]
 

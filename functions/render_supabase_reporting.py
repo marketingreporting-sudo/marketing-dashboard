@@ -12,16 +12,18 @@ from render_supabase_sync_state import _fetch_json
 from render_supabase_validation import SupabaseValidationConfigError, _supabase_anon_headers
 
 _LEAD_KEY_CANDIDATES = (
-    "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID",
-    "applicationId", "applicationID", "prospect_leadId", "prospect_leadID",
+    "prospectKey", "_prospectKey", "leadId", "leadID", "prospectId", "prospectID",
+    "customerId", "customerID", "applicationId", "applicationID",
+    "prospect_leadId", "prospect_leadID",
     "prospect_prospectId", "prospect_prospectID", "prospect_customerId",
     "prospect_customerID", "prospect_applicationId", "leadEventId", "eventId",
     "eventID", "id",
 )
 _LEAD_EVENT_ID_CANDIDATES = ("leadEventId", "eventId", "eventID")
 _LEAD_PERSON_ID_CANDIDATES = (
-    "leadId", "leadID", "prospectId", "prospectID", "customerId", "customerID",
-    "applicationId", "applicationID", "prospect_leadId", "prospect_leadID",
+    "prospectKey", "_prospectKey", "leadId", "leadID", "prospectId", "prospectID",
+    "customerId", "customerID", "applicationId", "applicationID",
+    "prospect_leadId", "prospect_leadID",
     "prospect_prospectId", "prospect_prospectID", "prospect_customerId",
     "prospect_customerID", "prospect_applicationId",
 )
