@@ -173,6 +173,20 @@ class RedListSummaryTests(unittest.TestCase):
                         "raw_data": {
                             "_sourceApi": "getLeadEvents",
                             "_sourceEventType": "online_guest_card",
+                            "leadEventId": "created-in-range-ogc-outside-range",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "04/30/2026",
+                            "leadCreatedDate": "05/12/2026",
+                            "email": "event-outside@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
                             "leadEventId": "old-lead-with-current-activity",
                             "typeId": "10",
                             "eventReason": "Online Guest Card",

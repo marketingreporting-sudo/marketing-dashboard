@@ -205,6 +205,7 @@ class RoiLogicTests(unittest.TestCase):
                         "applicationId": "app-1",
                         "firstName": "Sam",
                         "lastName": "Resident",
+                        "createdDate": "03/30/2026",
                         "leadSource": "Google Ads",
                         "events": {
                             "event": [
@@ -240,6 +241,7 @@ class RoiLogicTests(unittest.TestCase):
         self.assertEqual(len(lead_items), 1)
         self.assertEqual(lead_items[0]["leadEventId"], "event-lead")
         self.assertEqual(lead_items[0]["prospectKey"], "id:prospect-1")
+        self.assertEqual(lead_items[0]["prospect_createdDate"], "03/30/2026")
         self.assertEqual(lead_items[0]["_sourceApi"], "getLeadEvents")
         self.assertEqual(len(event_items), 2)
         self.assertEqual(event_items[0]["prospect_prospectId"], "prospect-1")

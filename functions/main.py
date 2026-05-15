@@ -3679,9 +3679,15 @@ def build_lead_event_record(event, prospect_context):
         if prospect_context.get(key) not in (None, "")
     }
     event_id = first_non_empty(event.get("eventId"), event.get("eventID"), event.get("id"))
+    prefixed_prospect_context = {
+        f"prospect_{key}": value
+        for key, value in prospect_context.items()
+        if value not in (None, "")
+    }
     return {
         **prospect_context,
         **event,
+        **prefixed_prospect_context,
         **prospect_ids,
         "prospectKey": prospect_key,
         "_prospectKey": prospect_key,

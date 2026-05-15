@@ -346,7 +346,7 @@ def _is_online_guest_card_event(row: dict[str, Any]) -> bool:
 
 def _lead_created_date(row: dict[str, Any]) -> date | None:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
-    created_date = _parse_activity_date(
+    return _parse_activity_date(
         payload.get("createdDate")
         or payload.get("created_date")
         or payload.get("leadCreatedDate")
@@ -378,21 +378,6 @@ def _lead_created_date(row: dict[str, Any]) -> date | None:
         or row.get("inquiry_date")
         or row.get("first_contact_date")
     )
-    if created_date:
-        return created_date
-
-    source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
-    if source_api == "getLeadEvents":
-        return _parse_activity_date(
-            payload.get("eventDate")
-            or payload.get("event_date")
-            or payload.get("eventDateTime")
-            or payload.get("eventDatetime")
-            or payload.get("date")
-            or payload.get("timestamp")
-        )
-
-    return _event_date(row)
 
 
 def _lead_status(row: dict[str, Any]) -> str:
@@ -499,6 +484,9 @@ def _filter_lead_event_rows_with_exclusions(
         if not lead_date or lead_date < start_date or lead_date > end_date:
             continue
         if not _is_lead_event_api_row(row):
+            continue
+        online_guest_card_date = _event_date(row)
+        if not online_guest_card_date or online_guest_card_date < start_date or online_guest_card_date > end_date:
             continue
         if _is_cancelled_lead(row) or _lead_identity_key(row) in cancellation_keys:
             excluded_rows.append(row)
