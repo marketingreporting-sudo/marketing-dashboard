@@ -339,7 +339,25 @@ def _is_online_guest_card_event(row: dict[str, Any]) -> bool:
 
 
 def _lead_created_date(row: dict[str, Any]) -> date | None:
-    return _event_date(row)
+    payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
+    return (
+        _parse_activity_date(
+            payload.get("createdDate")
+            or payload.get("created_date")
+            or payload.get("leadCreatedDate")
+            or payload.get("lead_created_date")
+            or payload.get("dateCreated")
+            or payload.get("date_created")
+            or payload.get("prospect_createdDate")
+            or payload.get("prospect_created_date")
+            or payload.get("prospect_leadCreatedDate")
+            or payload.get("prospect_lead_created_date")
+            or row.get("created_date")
+            or row.get("lead_created_date")
+            or row.get("date_created")
+        )
+        or _event_date(row)
+    )
 
 
 def _lead_status(row: dict[str, Any]) -> str:
