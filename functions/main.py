@@ -623,6 +623,20 @@ def is_online_guest_card_event(event):
     reason = normalize_event_reason_for_match(event)
     return reason == "online guest card" or reason.startswith("guest card submitted")
 
+def get_event_activity_date(event):
+    return parse_entrata_date(first_non_empty(
+        event.get("eventDate"),
+        event.get("event_date"),
+        event.get("date"),
+        event.get("eventDateTime"),
+        event.get("dateTime"),
+        event.get("timestamp"),
+    ))
+
+def event_matches_request_date(event, requested_date):
+    event_date = get_event_activity_date(event)
+    return bool(event_date and event_date == requested_date)
+
 def is_completed_application_event(event):
     if get_event_type_id(event) != APPLICATION_PROGRESS_EVENT_TYPE_ID:
         return False
@@ -3679,6 +3693,8 @@ def build_lead_event_record(event, prospect_context):
         if prospect_context.get(key) not in (None, "")
     }
     event_id = first_non_empty(event.get("eventId"), event.get("eventID"), event.get("id"))
+    event_date = first_non_empty(event.get("eventDate"), event.get("event_date"), event.get("date"))
+    event_date_time = first_non_empty(event.get("eventDateTime"), event.get("eventDatetime"), event.get("dateTime"))
     prefixed_prospect_context = {
         f"prospect_{key}": value
         for key, value in prospect_context.items()
@@ -3692,6 +3708,8 @@ def build_lead_event_record(event, prospect_context):
         "prospectKey": prospect_key,
         "_prospectKey": prospect_key,
         "leadEventId": event_id,
+        "eventDate": event_date,
+        "eventDateTime": event_date_time,
         "leadId": first_non_empty(
             prospect_context.get("leadId"),
             prospect_context.get("leadID"),
@@ -3764,6 +3782,7 @@ def fetch_leads_for_date(property_id, date_str):
     fetch_events_for_date(property_id, date_str)
 
 def fetch_events_for_date(property_id, date_str):
+    requested_date = datetime.datetime.strptime(date_str, "%m/%d/%Y").date()
     params = {
         "propertyId": property_id,
         "eventTypeIds": LEAD_EVENT_TYPE_IDS,
@@ -3789,12 +3808,19 @@ def fetch_events_for_date(property_id, date_str):
         nested_events = prospect.get("events", {}).get("event", [])
         if isinstance(nested_events, dict):
             nested_events = [nested_events]
+        nested_events_for_date = [
+            event
+            for event in nested_events
+            if event_matches_request_date(event, requested_date)
+        ]
 
-        lead_record = build_prospect_lead_record(prospect_context, nested_events)
+        lead_record = build_prospect_lead_record(prospect_context, nested_events_for_date)
         if lead_record:
             flattened_leads.append(lead_record)
 
-        for event in nested_events:
+        for event in nested_events_for_date:
+            event_date = first_non_empty(event.get("eventDate"), event.get("event_date"), event.get("date"))
+            event_date_time = first_non_empty(event.get("eventDateTime"), event.get("eventDatetime"), event.get("dateTime"))
             event_record = {
                 **event,
                 **{
@@ -3803,6 +3829,8 @@ def fetch_events_for_date(property_id, date_str):
                     if key not in event
                 },
                 "applicationId": application_id,
+                "eventDate": event_date,
+                "eventDateTime": event_date_time,
                 "_sourceApi": "getLeadEvents",
             }
             flattened_events.append(event_record)

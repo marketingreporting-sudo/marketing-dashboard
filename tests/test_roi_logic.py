@@ -212,8 +212,16 @@ class RoiLogicTests(unittest.TestCase):
                                 {
                                     "eventId": "event-lead",
                                     "typeId": "10",
-                                    "eventReason": "Online Guest Card",
-                                    "eventDate": "03/31/2026",
+                                    "type": "Online Guest Card",
+                                    "date": "03/31/2026",
+                                    "dateTime": "03/31/2026 09:15 AM",
+                                },
+                                {
+                                    "eventId": "event-old-lead",
+                                    "typeId": "10",
+                                    "type": "Online Guest Card",
+                                    "date": "03/30/2026",
+                                    "dateTime": "03/30/2026 02:30 PM",
                                 },
                                 {
                                     "eventId": "event-app",
@@ -246,11 +254,14 @@ class RoiLogicTests(unittest.TestCase):
         event_items = save_raw_data.call_args_list[1].args[2]
         self.assertEqual(len(lead_items), 1)
         self.assertEqual(lead_items[0]["leadEventId"], "event-lead")
+        self.assertEqual(lead_items[0]["eventDate"], "03/31/2026")
+        self.assertEqual(lead_items[0]["eventDateTime"], "03/31/2026 09:15 AM")
         self.assertEqual(lead_items[0]["prospectKey"], "id:prospect-1")
         self.assertEqual(lead_items[0]["prospect_createdDate"], "03/30/2026")
         self.assertEqual(lead_items[0]["_sourceApi"], "getLeadEvents")
         self.assertEqual(len(event_items), 3)
         self.assertEqual(event_items[0]["prospect_prospectId"], "prospect-1")
+        self.assertNotIn("event-old-lead", [item.get("eventId") for item in event_items])
 
     def test_fetch_events_saves_one_lead_per_prospect(self):
         api_result = {
