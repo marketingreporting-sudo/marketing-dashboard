@@ -243,6 +243,53 @@ class RoiLogicTests(unittest.TestCase):
         self.assertEqual(len(event_items), 2)
         self.assertEqual(event_items[0]["prospect_prospectId"], "prospect-1")
 
+    def test_fetch_events_saves_one_lead_per_prospect(self):
+        api_result = {
+            "prospects": {
+                "prospect": [
+                    {
+                        "prospectId": "prospect-1",
+                        "applicationId": "app-1",
+                        "firstName": "Sam",
+                        "lastName": "Resident",
+                        "events": {
+                            "event": [
+                                {
+                                    "eventId": "event-lead-1",
+                                    "typeId": "10",
+                                    "eventReason": "Online Guest Card",
+                                    "eventDate": "03/31/2026",
+                                },
+                                {
+                                    "eventId": "event-lead-2",
+                                    "typeId": "10",
+                                    "eventReason": "Online Guest Card",
+                                    "eventDate": "03/31/2026",
+                                },
+                                {
+                                    "eventId": "event-app",
+                                    "typeId": "12",
+                                    "eventReason": "Application Status: Completed",
+                                    "eventDate": "03/31/2026",
+                                },
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+        with mock.patch.object(main, "make_entrata_request", return_value=api_result), \
+             mock.patch.object(main, "save_raw_data") as save_raw_data:
+            main.fetch_events_for_date(100076494, "03/31/2026")
+
+        lead_items = save_raw_data.call_args_list[0].args[2]
+        event_items = save_raw_data.call_args_list[1].args[2]
+        self.assertEqual(len(lead_items), 1)
+        self.assertEqual(lead_items[0]["leadEventId"], "event-lead-1")
+        self.assertEqual(lead_items[0]["status"], "Application Completed")
+        self.assertEqual(len(event_items), 3)
+
     def test_meta_ads_account_ids_are_normalized_to_act_prefix(self):
         self.assertEqual(main.normalize_meta_ads_account_id("123456789"), "act_123456789")
         self.assertEqual(main.normalize_meta_ads_account_id("act_987654321"), "act_987654321")

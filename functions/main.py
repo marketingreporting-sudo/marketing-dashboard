@@ -3689,6 +3689,23 @@ def build_lead_event_record(event, prospect_context):
         "_sourceEventType": "online_guest_card",
     }
 
+
+def build_prospect_lead_record(prospect_context, nested_events):
+    online_guest_card_events = [event for event in nested_events if is_online_guest_card_event(event)]
+    if not online_guest_card_events:
+        return None
+
+    lead_event = online_guest_card_events[0]
+    lead_record = build_lead_event_record(lead_event, prospect_context)
+    if any(is_new_lease_approved_event(event) for event in nested_events):
+        lead_record["status"] = "Lease Approved"
+    elif any(is_completed_application_event(event) for event in nested_events):
+        lead_record["status"] = "Application Completed"
+    elif prospect_context.get("status") not in (None, ""):
+        lead_record["status"] = prospect_context.get("status")
+    return lead_record
+
+
 def fetch_leads_for_date(property_id, date_str):
     # Compatibility wrapper: lead rows now come from Online Guest Card events in
     # getLeadEvents, so callers should fetch events once for the date.
@@ -3721,6 +3738,10 @@ def fetch_events_for_date(property_id, date_str):
         if isinstance(nested_events, dict):
             nested_events = [nested_events]
 
+        lead_record = build_prospect_lead_record(prospect_context, nested_events)
+        if lead_record:
+            flattened_leads.append(lead_record)
+
         for event in nested_events:
             event_record = {
                 **event,
@@ -3733,8 +3754,6 @@ def fetch_events_for_date(property_id, date_str):
                 "_sourceApi": "getLeadEvents",
             }
             flattened_events.append(event_record)
-            if is_online_guest_card_event(event):
-                flattened_leads.append(build_lead_event_record(event, prospect_context))
 
     save_raw_data(property_id, "leads", flattened_leads, date_str)
     save_raw_data(property_id, "events", flattened_events, date_str)
