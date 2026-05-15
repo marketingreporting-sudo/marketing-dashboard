@@ -195,6 +195,21 @@ class RedListSummaryTests(unittest.TestCase):
                     },
                     {
                         "property_id": "10",
+                        "activity_date": "2026-05-12",
+                        "raw_data": {
+                            "_sourceApi": "getLeadEvents",
+                            "_sourceEventType": "online_guest_card",
+                            "leadEventId": "cancelled-lead",
+                            "typeId": "10",
+                            "eventReason": "Online Guest Card",
+                            "eventDate": "05/12/2026",
+                            "leadCreatedDate": "05/12/2026",
+                            "status": "Cancelled",
+                            "email": "cancelled@example.com",
+                        },
+                    },
+                    {
+                        "property_id": "10",
                         "activity_date": "2026-05-13",
                         "raw_data": {
                             "_sourceApi": "getLeadEvents",

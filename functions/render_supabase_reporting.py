@@ -419,6 +419,11 @@ def _is_lease_approved_lead(row: dict[str, Any]) -> bool:
     return bool(status and "lease" in status and ("approved" in status or "approve" in status))
 
 
+def _is_cancelled_lead(row: dict[str, Any]) -> bool:
+    status = _lead_status(row)
+    return status in {"cancelled", "canceled"} or bool(re.search(r"\bcancell?ed\b", status))
+
+
 def _is_lead_event_api_row(row: dict[str, Any]) -> bool:
     payload = row.get("raw_data") if isinstance(row.get("raw_data"), dict) else row
     source_api = str(payload.get("_sourceApi") or row.get("_sourceApi") or "").strip()
@@ -435,6 +440,8 @@ def _filter_lead_event_rows(rows: list[dict[str, Any]], start_date: date, end_da
         if not lead_date or lead_date < start_date or lead_date > end_date:
             continue
         if not _is_lead_event_api_row(row):
+            continue
+        if _is_cancelled_lead(row):
             continue
         filtered_rows.append(row)
     return filtered_rows
